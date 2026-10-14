@@ -214,9 +214,9 @@ const ModelCard = ({ model, state, onChange }: { model: ModelView; state: LocalA
                     selectedKey={q.quant}
                     isDisabled={!!installed}
                     onSelectionChange={(k) => setQuant(String(k))}
-                    items={model.quants.map((x) => ({ id: x.quant, label: x.quant, supportingText: installed?.quant === x.quant ? "downloaded" : undefined }))}
+                    items={model.quants.map((x) => ({ id: x.quant, label: x.quant }))}
                 >
-                    {(item) => <Select.Item id={item.id} label={item.label} supportingText={item.supportingText} />}
+                    {(item) => <Select.Item id={item.id} label={item.label} />}
                 </Select>
                 <div className="flex flex-col gap-1 text-sm text-tertiary">
                     <span>

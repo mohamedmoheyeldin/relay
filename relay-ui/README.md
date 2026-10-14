@@ -16,6 +16,18 @@ See `docs/architecture.md` §6.
 - `resources/python/` the bundled CPython 3.12 + relay-screen, filled by
   `scripts/build_installer.py` (git-ignored).
 
+## Untitled UI
+
+- `src/components`, `src/styles`, `src/hooks`, `src/utils`: copied from
+  [untitleduico/react](https://github.com/untitleduico/react) (MIT).
+- `src/providers/theme-provider.tsx` and the Vite + Tailwind 4 setup follow
+  [untitleduico/untitledui-vite-starter-kit](https://github.com/untitleduico/untitledui-vite-starter-kit)
+  (MIT, per its README). The Next.js and TanStack kits don't fit Tauri, which needs a
+  static Vite build.
+- Icons come from the `@untitledui/icons` npm package. Its repo's license allows use in
+  any project, but not redistributing the icons or making an icon library from them,
+  so don't copy the SVGs into this repo.
+
 ## Develop
 
 ```
