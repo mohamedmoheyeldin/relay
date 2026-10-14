@@ -8,6 +8,8 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
     # FastMCP API; v2 renamed it to MCPServer (see docs/decisions.md D-010)
     "mcp>=1.28,<2",
+    "mss>=10",
+    "pillow>=11",
 ]
 
 [project.scripts]
