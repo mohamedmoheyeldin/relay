@@ -7,15 +7,21 @@ from mcp.types import ImageContent, TextContent
 from PIL import Image
 
 from relay_screen import __version__
+from relay_screen.actions import HALT_TEXT, MEMBERS
+from relay_screen.input.driver import InputDriver
+from relay_screen.input.events import KeyEvent, MouseButton, MouseMove
+from relay_screen.input.keys import VK_LWIN, VK_RETURN
 from relay_screen.server import Services, build_server
 from relay_screen.state import ScreenState
-from tests.conftest import GradientGrabber
+from tests.conftest import GradientGrabber, RecordingBackend
 
 
-def services(displays):
+def services(displays, backend=None):
     return Services(
         state=ScreenState(lambda: displays, lambda ds: None),
         grabber=GradientGrabber(),
+        driver=InputDriver(backend or RecordingBackend()),
+        report_changes=False,
     )
 
 
@@ -86,3 +92,79 @@ async def test_zoom_rejects_bad_region(owner_displays):
     server = build_server(services(owner_displays))
     assert (await call(server, "zoom", {"region": [1, 2, 3]})).isError
     assert (await call(server, "zoom", {"region": [0, 0, 5000, 10]})).isError
+
+
+async def test_lists_every_toolset_member_and_batch():
+    server = build_server(services([]))
+    async with create_connected_server_and_client_session(server._mcp_server) as client:
+        tools = {t.name: t for t in (await client.list_tools()).tools}
+    assert set(MEMBERS) | {"batch"} <= set(tools)
+    assert set(tools["left_click"].inputSchema["properties"]) == {"coordinate", "text"}
+    assert set(tools["scroll"].inputSchema["required"]) == {"scroll_direction", "scroll_amount"}
+    assert set(tools["left_click_drag"].inputSchema["required"]) == {
+        "start_coordinate",
+        "coordinate",
+    }
+
+
+async def test_left_click_tool(owner_displays):
+    backend = RecordingBackend()
+    s = services(owner_displays, backend)
+    result = await call(build_server(s), "left_click", {"coordinate": [784, 328]})
+    assert not result.isError and text(result) == "OK"
+    assert backend.events[0] == MouseMove(*s.state.geometry().to_physical(784, 328))
+    assert backend.events[-1] == MouseButton("left", False)
+
+
+async def test_member_error_is_tool_error(owner_displays):
+    server = build_server(services(owner_displays))
+    result = await call(server, "key", {"text": "hyper"})
+    assert result.isError and "unknown key name" in text(result)
+    result = await call(server, "left_click", {"coordinate": [5000, 0]})
+    assert result.isError
+
+
+async def test_input_blocked_is_tool_error(owner_displays):
+    backend = RecordingBackend()
+
+    def blocked(events):
+        raise RuntimeError("Windows blocked the input")
+
+    backend.send = blocked  # type: ignore[method-assign]
+    result = await call(build_server(services(owner_displays, backend)), "type", {"text": "a"})
+    assert result.isError and text(result) == "RuntimeError: Windows blocked the input"
+
+
+async def test_batch_opens_start_menu_search(owner_displays):
+    backend = RecordingBackend()
+    server = build_server(services(owner_displays, backend))
+    actions = [
+        {"name": "key", "input": {"text": "super"}},
+        {"name": "wait", "input": {"duration": 0.1}},
+        {"name": "key", "input": {"text": "Return"}},
+        {"name": "screenshot", "input": {}},
+    ]
+    result = await call(server, "batch", {"actions": actions})
+    assert not result.isError
+    lines = [c.text for c in result.content if isinstance(c, TextContent)]
+    assert lines == ["1. key: OK", "2. wait: OK", "3. key: OK", "4. screenshot: image follows"]
+    assert isinstance(result.content[-1], ImageContent)
+    assert backend.events[0] == KeyEvent(VK_LWIN, True, True)
+    assert backend.events[-1] == KeyEvent(VK_RETURN, False)
+
+
+async def test_batch_halts_after_failure(owner_displays):
+    backend = RecordingBackend()
+    server = build_server(services(owner_displays, backend))
+    actions = [
+        {"name": "key", "input": {"text": "Return"}},
+        {"name": "key", "input": {"text": "hyper"}},
+        {"name": "key", "input": {"text": "Return"}},
+    ]
+    result = await call(server, "batch", {"actions": actions})
+    assert result.isError
+    lines = [c.text for c in result.content if isinstance(c, TextContent)]
+    assert lines[0] == "1. key: OK"
+    assert lines[1].startswith("2. key: ") and "hyper" in lines[1]
+    assert lines[2] == f"3. key: {HALT_TEXT}"
+    assert len(backend.batches) == 1
