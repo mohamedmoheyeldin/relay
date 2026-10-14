@@ -1,9 +1,15 @@
-# relay-core (M2)
+# relay-core
 
-Orchestrator and router. Takes a task, splits it into steps and assigns each step a lane:
+Rust library with everything the app does that is not UI. For now the app links it
+in-process; splitting it into its own daemon is M2 work. See `docs/architecture.md` §5.
 
-- **service**: Claude Code + MCP connectors (Gmail, Calendar, Drive, GitHub ...)
-- **screen**: relay-screen, following a playbook when one matches
-- **judgment**: Claude Code text-only with structured output
+- `settings` the settings file (`%APPDATA%\Relay\settings.json`) and run pruning
+- `claude` find, install, update, sign-in state and self-test of the `claude` CLI (D-002)
+- `chat` one chat turn through `claude -p --output-format stream-json`
+- `mcp`, `secrets`, `launcher` the MCP hub over Claude Code's own MCP list, with secrets
+  in Windows Credential Manager
+- `gpu`, `catalog`, `models`, `download`, `runtime` local model picker, fit check,
+  resumable verified downloads and the llama.cpp runtime
+- `system`, `updates`, `doctor`, `paths`, `proc` helpers
 
-Drives `claude -p --output-format stream-json`. See `docs/architecture.md` §5. Not started yet.
+`cargo test -p relay-core` runs on any OS; `scripts/check.py` runs it with the rest.
