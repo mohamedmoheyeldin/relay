@@ -712,3 +712,33 @@ Ruleset settings (Settings > Rules > Rulesets > New branch ruleset):
 - bypass list: Repository admin;
 - target branches: `dev` and `main`;
 - rule: "Require status checks to pass", with the check `local-checks`.
+
+## D-052 Runtime and model pins come from the publisher, recorded locally
+*2026-10-14 · accepted · M1-09*
+
+Relay does not hard-code llama.cpp build numbers or model checksums. On
+install it asks the publisher:
+- llama.cpp: the GitHub release (the latest unless a tag is given). It takes
+  the Windows CUDA zip with the newest CUDA version the driver supports
+  (NVML), never older than 12.8, plus the matching `cudart` zip. Each file is
+  checked against the `sha256:` digest GitHub publishes for the asset.
+- Models: a Hugging Face GGUF repo. `main` is resolved to a commit, and each
+  file is checked against the SHA-256 Hugging Face publishes for it. The
+  weights file is the requested quant; the projector prefers F16/BF16 because
+  a quantized projector costs grounding accuracy.
+
+What was installed (tag or commit, URL, SHA-256, size) is written to
+`installed.json` in the Relay home. `relay-screen doctor --verify` re-hashes
+the model files against it. Downloads resume from a `.part` file and appear
+only after they verify. Zip entries that would land outside the runtime
+folder are refused.
+
+Only publisher-owned repos go into the catalog. A checksum from a lookalike
+repo proves nothing, so the GUI models (UI-Venus, Holo2) have no source until
+M1-11 picks one. Qwen3-VL-8B-Instruct uses Qwen's own GGUF repo. The owner can
+still add any repo as a custom model (D-046).
+
+llama-server runs with `CREATE_NO_WINDOW`, so loading a model never opens a
+console window on the owner's screen (D-049). Its output goes to
+`logs/llama-<model>.log`; load, unload and first-answer timings go to
+`logs/runtime.jsonl`.

@@ -2,6 +2,11 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
+## 2026-10-14 · M1-09 local model runtime
+- Built `relay_screen/runtime/` and the `relay-screen doctor | runtime | models` commands (D-052). Pins come from the publisher (GitHub asset digests, Hugging Face LFS SHA-256) and are recorded in `installed.json`; the GUI models get a source in M1-11, Qwen3-VL-8B uses Qwen's own repo. 23 unit tests with fake downloads, processes, clock and GPU.
+- Not yet run on the owner's PC (it downloads about 7 GB and loads the GPU); waiting for them to ask.
+- Next: M1-10 local VLM tools (`locate`, `describe`, `verify`) on top of the supervisor.
+
 ## 2026-10-14 · Auto-merge when ready
 - `scripts/check.py --report` posts a `local-checks` commit status via the GitHub CLI; a `dev and main` ruleset requiring it makes "Auto-merge when ready" available (D-051). The ruleset is set up in the repo settings by the owner; Claude's PRs merge directly under the admin bypass.
 
