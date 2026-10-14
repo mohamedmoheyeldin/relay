@@ -7,3 +7,10 @@
   nsExec::Exec '"$SYSDIR\cmd.exe" /c claude mcp remove --scope user relay-screen'
   Pop $0
 !macroend
+
+; Python writes __pycache__ files next to the bundled relay-screen as it runs; the
+; uninstaller only knows the files it installed, so remove the whole folder.
+!macro NSIS_HOOK_POSTUNINSTALL
+  RMDir /r "$INSTDIR\python"
+  RMDir "$INSTDIR"
+!macroend
