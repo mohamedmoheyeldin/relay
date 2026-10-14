@@ -190,7 +190,7 @@ class InputDriver:
             self.backend.sleep(self.char_delay)
 
     def _char_events(self, char: str) -> list[Event]:
-        resolved = self.backend.resolve_char(char)
+        resolved = self.backend.resolve_char(char) if ord(char) <= 0xFFFF else None
         if resolved is not None:
             vk, modifiers = resolved
             return [
