@@ -7,18 +7,20 @@ is covered by scripts/check_safety.py).
 1. Notepad: opens a new Notepad, lists its tree, finds File > Save with uia_find and
    activates both with uia_invoke (no mouse, no vision); passes if the Save dialog opens.
    Then cancels the dialog with Escape and closes the Notepad it opened.
-2. Edge: opens example.com in a throwaway Edge profile (with
-   --force-renderer-accessibility, D-017) and checks that page links come back with
-   bounds in screenshot pixels. Closes that Edge afterwards. Uses Edge from EdgeCore
-   or Chrome when msedge is not on the usual path. On several monitors, follows the
+2. Browser: opens example.com in a new Brave Origin window (the owner's browser, own
+   profile) and checks that the page link comes back with bounds in screenshot
+   pixels, then closes only that window. Without Brave Origin it uses a throwaway
+   Edge (EdgeCore on newer installs) or Chrome profile with
+   --force-renderer-accessibility (D-017). On several monitors, follows the
    "select_display N" hint as Claude would.
-3. Size: the Edge window's tree at depth 12 must stay under ~8k tokens.
+3. Size: that window's tree at depth 12 must stay under ~8k tokens.
 Prints PASS/FAIL per check.
 """
 
 from __future__ import annotations
 
 import csv
+import ctypes
 import io
 import re
 import shutil
@@ -125,55 +127,76 @@ finally:
     for pid in new_notepads:
         subprocess.run(["taskkill", "/pid", str(pid), "/f"], check=False, capture_output=True)
 
-# 2 + 3. Edge page controls with bounds, and tree size.
-edge = next(
-    (
-        p
-        for p in (
-            shutil.which("msedge"),
-            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
-            # Newer Edge installs keep the real binary under EdgeCore\<version>.
-            *map(
-                str, sorted(Path(r"C:\Program Files (x86)\Microsoft\EdgeCore").glob("*/msedge.exe"))
-            ),
-            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-        )
-        if p and Path(p).exists()
-    ),
-    None,
-)
-if edge is None:
-    raise SystemExit("no Edge or Chrome found")
-print("Browser:", edge)
-profile = Path(tempfile.mkdtemp(prefix="relay-edge-"))
-proc = subprocess.Popen(
-    [
-        edge,
-        f"--user-data-dir={profile}",
-        "--no-first-run",
-        "--force-renderer-accessibility",
-        "--new-window",
-        "https://example.com",
-    ]
-)
+# 2 + 3. Browser page controls with bounds, and tree size.
+BRAVE = Path(r"C:\Program Files\BraveSoftware\Brave-Origin\Application\brave.exe")
+WM_CLOSE = 0x0010
+
+
+def close_window(title: str) -> None:
+    """Close one top-level window by exact title, leaving the rest of the browser open."""
+    user32 = ctypes.windll.user32  # pyright: ignore[reportAttributeAccessIssue]
+    hwnd = user32.FindWindowW(None, title)
+    if hwnd:
+        user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
+
+
+def throwaway_browser() -> str:
+    """Edge (EdgeCore on newer installs) or Chrome, for PCs without Brave Origin."""
+    candidates = (
+        shutil.which("msedge"),
+        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+        *map(str, sorted(Path(r"C:\Program Files (x86)\Microsoft\EdgeCore").glob("*/msedge.exe"))),
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+    )
+    found = next((c for c in candidates if c and Path(c).exists()), None)
+    if found is None:
+        raise SystemExit("no Brave Origin, Edge or Chrome found")
+    return found
+
+
+# Brave Origin is the owner's browser. A fresh profile hits its purchase screen, so
+# open one new window in the owner's own profile and close just that window. The
+# screen-reader flag (D-017) makes it build the full tree. Elsewhere use a throwaway
+# Edge/Chrome profile.
+profile: Path | None = None
+proc: subprocess.Popen[bytes] | None = None
+if BRAVE.exists():
+    browser = "Brave Origin"
+    subprocess.Popen([str(BRAVE), "--new-window", "https://example.com"])
+else:
+    exe = throwaway_browser()
+    browser = Path(exe).stem
+    profile = Path(tempfile.mkdtemp(prefix="relay-edge-"))
+    proc = subprocess.Popen(
+        [
+            exe,
+            f"--user-data-dir={profile}",
+            "--no-first-run",
+            "--force-renderer-accessibility",
+            "--new-window",
+            "https://example.com",
+        ]
+    )
+print("Browser:", browser)
 try:
     time.sleep(6)
-    links = computer.run("uia_find", {"query": "More information", "window": "Example"}).text
-    links = links or ""
-    if "No element" in links:
-        links = computer.run("uia_find", {"query": "Learn more", "window": "Example"}).text or ""
+    links = computer.run("uia_find", {"query": "Learn more", "window": "Example"}).text or ""
     if follow_display(links):
         links = computer.run("uia_find", {"query": "Learn more", "window": "Example"}).text or ""
     print(links)
-    report("Edge page control with bounds", "center (" in links, best(links))
+    report(f"{browser} page control with bounds", "center (" in links, best(links))
     tree = computer.run("uia_tree", {"window": "Example", "depth": 12}).text or ""
     tokens = len(tree) // 4
-    report("Edge tree under 8k tokens", tokens < 8000, f"~{tokens} tokens, {len(tree)} chars")
+    report(f"{browser} tree under 8k tokens", tokens < 8000, f"~{tokens} tokens, {len(tree)} chars")
 finally:
-    subprocess.run(
-        ["taskkill", "/pid", str(proc.pid), "/t", "/f"], check=False, capture_output=True
-    )
-    time.sleep(1)
-    shutil.rmtree(profile, ignore_errors=True)
+    if proc is None:
+        close_window(f"Example Domain - {browser}")
+    else:
+        subprocess.run(
+            ["taskkill", "/pid", str(proc.pid), "/t", "/f"], check=False, capture_output=True
+        )
+        time.sleep(1)
+    if profile is not None:
+        shutil.rmtree(profile, ignore_errors=True)
 
 print("ALL PASS" if all(results.values()) else "SOME FAILED")
