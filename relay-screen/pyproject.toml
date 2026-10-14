@@ -11,6 +11,12 @@ dependencies = [
     "mss>=10",
     "pillow>=11",
     "uiautomation>=2.0.20 ; sys_platform == 'win32'",
+    "winrt-windows-foundation>=2.0 ; sys_platform == 'win32'",
+    "winrt-windows-foundation-collections>=2.0 ; sys_platform == 'win32'",
+    "winrt-windows-globalization>=2.0 ; sys_platform == 'win32'",
+    "winrt-windows-graphics-imaging>=2.0 ; sys_platform == 'win32'",
+    "winrt-windows-media-ocr>=2.0 ; sys_platform == 'win32'",
+    "winrt-windows-storage-streams>=2.0 ; sys_platform == 'win32'",
 ]
 
 [project.scripts]
