@@ -162,9 +162,47 @@ def test_type_text_unicode_newlines_and_surrogates():
     assert events[12:] == [KeyEvent(keys.VK_TAB, True), KeyEvent(keys.VK_TAB, False)]
 
 
-def test_type_text_is_chunked():
-    d, b = driver()
-    d.type_text("x" * 70)
-    assert len(b.batches) == 3
+def test_type_text_sends_one_character_per_call_with_pause():
+    backend = RecordingBackend()
+    d = InputDriver(backend, step_delay=0, char_delay=0.01)
+    d.type_text("abc")
+    assert len(backend.batches) == 3
+    assert backend.sleeps == [0.01, 0.01, 0.01]
     with pytest.raises(ValueError):
         d.type_text("")
+
+
+def test_type_text_uses_layout_keys_and_unicode_only_for_the_rest():
+    backend = RecordingBackend({"a": (0x41, ()), "A": (0x41, ("shift",))})
+    d = InputDriver(backend, step_delay=0, char_delay=0)
+    d.type_text("aA\u2713")
+    assert backend.events == [
+        KeyEvent(0x41, True),
+        KeyEvent(0x41, False),
+        KeyEvent(keys.VK_SHIFT, True),
+        KeyEvent(0x41, True),
+        KeyEvent(0x41, False),
+        KeyEvent(keys.VK_SHIFT, False),
+        UnicodeEvent(0x2713, True),
+        UnicodeEvent(0x2713, False),
+    ]
+
+
+def test_type_text_never_asks_layout_about_astral_characters():
+    backend = RecordingBackend()
+    asked: list[str] = []
+    original = backend.resolve_char
+
+    def spy(char: str):
+        asked.append(char)
+        return original(char)
+
+    backend.resolve_char = spy  # type: ignore[method-assign]
+    InputDriver(backend, step_delay=0, char_delay=0).type_text("a\U0001f600")
+    assert asked == ["a"]
+    assert backend.events[-4:] == [
+        UnicodeEvent(0xD83D, True),
+        UnicodeEvent(0xD83D, False),
+        UnicodeEvent(0xDE00, True),
+        UnicodeEvent(0xDE00, False),
+    ]
