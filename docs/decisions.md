@@ -688,3 +688,27 @@ to a GitHub Release. No Actions workflow builds it.
 The Tauri + React app uses **pnpm** as its package manager. That covers
 `pnpm create tauri-app`, `pnpm install`, `pnpm tauri dev` and
 `pnpm tauri build`, with `pnpm-lock.yaml` committed. npm and yarn are not used.
+
+## D-051 "Auto-merge when ready" through a local-checks status
+*2026-10-14 · accepted · owner request · builds on D-050*
+
+The owner wants "Auto-merge when ready" on PRs. GitHub only offers it when
+something is still pending on the PR, so a ruleset on `dev` and `main` requires
+a commit status named `local-checks`. Nothing in GitHub Actions produces it:
+`uv run python scripts/check.py --report` runs the local checks (D-050) and
+posts `local-checks` = success or failure on the pushed HEAD commit, using the
+GitHub CLI's login. A PR with auto-merge on merges as soon as a local run
+reports success.
+
+The ruleset requires no reviews, and repository admins are on its bypass list.
+Claude's own PRs go through the GitHub connector, which has no way to post a
+commit status, so Claude runs the same checks in its session and merges
+directly under that bypass (D-031). If Claude's sessions ever get a way to post
+statuses, they will use `--report` and auto-merge instead.
+
+Ruleset settings (Settings > Rules > Rulesets > New branch ruleset):
+- name: `dev and main`;
+- enforcement: Active;
+- bypass list: Repository admin;
+- target branches: `dev` and `main`;
+- rule: "Require status checks to pass", with the check `local-checks`.
