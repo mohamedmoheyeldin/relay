@@ -9,7 +9,9 @@ is covered by scripts/check_safety.py).
    Then cancels the dialog with Escape and closes the Notepad it opened.
 2. Edge: opens example.com in a throwaway Edge profile (with
    --force-renderer-accessibility, D-017) and checks that page links come back with
-   bounds in screenshot pixels. Closes that Edge afterwards.
+   bounds in screenshot pixels. Closes that Edge afterwards. Uses Edge from EdgeCore
+   or Chrome when msedge is not on the usual path. On several monitors, follows the
+   "select_display N" hint as Claude would.
 3. Size: the Edge window's tree at depth 12 must stay under ~8k tokens.
 Prints PASS/FAIL per check.
 """
@@ -18,6 +20,7 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 import shutil
 import subprocess
 import tempfile
@@ -62,6 +65,20 @@ def first_id(text: str) -> str | None:
     return lines[1].split("]")[0].split("[")[1]
 
 
+def follow_display(text: str) -> bool:
+    """Select the display a listing points to, as Claude would with select_display."""
+    hint = re.search(r"select_display (\d+)", text)
+    if hint is None:
+        return False
+    print("Selecting display", state.select(int(hint.group(1))).id)
+    return True
+
+
+def best(text: str) -> str:
+    lines = text.splitlines()
+    return lines[1].strip() if len(lines) > 1 else text
+
+
 state = ScreenState(displays.enumerate_displays, displays.foreground_display)
 uia = UiaService(WinUiaBackend())
 computer = Computer(
@@ -74,23 +91,33 @@ subprocess.Popen(["notepad.exe"])
 time.sleep(2.5)
 new_notepads = pids("notepad.exe") - before
 try:
-    tree = computer.run("uia_tree", {"depth": 4}).text or ""
+    # By title: a Notepad launched from a console often opens behind the foreground window.
+    win = "Untitled - Notepad"
+    tree = computer.run("uia_tree", {"window": win, "depth": 4}).text or ""
+    if follow_display(tree):
+        tree = computer.run("uia_tree", {"window": win, "depth": 4}).text or ""
     print(tree[:1500])
-    file_id = first_id(computer.run("uia_find", {"query": "File", "role": "MenuItem"}).text or "")
+    file_id = first_id(
+        computer.run("uia_find", {"query": "File", "role": "MenuItem", "window": win}).text or ""
+    )
     opened = computer.run("uia_invoke", {"element": file_id}).text if file_id else None
     print("File:", opened)
     time.sleep(0.8)
-    found = computer.run("uia_find", {"query": "Save", "role": "MenuItem"}).text or ""
+    found = (
+        computer.run("uia_find", {"query": "Save", "role": "MenuItem", "window": win}).text or ""
+    )
     print(found)
     save_id = first_id(found)
     saved = computer.run("uia_invoke", {"element": save_id}).text if save_id else None
     print("Save:", saved)
     time.sleep(1.5)
-    dialog = computer.run("uia_find", {"query": "Save as"}).text or ""
+    # role Window, so the still-listed "Save as" menu item cannot pass for the dialog.
+    dialog = computer.run("uia_find", {"query": "Save as", "role": "Window", "window": win}).text
+    dialog = dialog or ""
     report(
         "Notepad File > Save via UIA",
         bool(file_id and save_id) and "No element" not in dialog,
-        dialog.splitlines()[0] if dialog else "",
+        best(dialog),
     )
     computer.run("key", {"text": "Escape"})
     time.sleep(0.5)
@@ -99,7 +126,25 @@ finally:
         subprocess.run(["taskkill", "/pid", str(pid), "/f"], check=False, capture_output=True)
 
 # 2 + 3. Edge page controls with bounds, and tree size.
-edge = shutil.which("msedge") or r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
+edge = next(
+    (
+        p
+        for p in (
+            shutil.which("msedge"),
+            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+            # Newer Edge installs keep the real binary under EdgeCore\<version>.
+            *map(
+                str, sorted(Path(r"C:\Program Files (x86)\Microsoft\EdgeCore").glob("*/msedge.exe"))
+            ),
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        )
+        if p and Path(p).exists()
+    ),
+    None,
+)
+if edge is None:
+    raise SystemExit("no Edge or Chrome found")
+print("Browser:", edge)
 profile = Path(tempfile.mkdtemp(prefix="relay-edge-"))
 proc = subprocess.Popen(
     [
@@ -117,8 +162,10 @@ try:
     links = links or ""
     if "No element" in links:
         links = computer.run("uia_find", {"query": "Learn more", "window": "Example"}).text or ""
+    if follow_display(links):
+        links = computer.run("uia_find", {"query": "Learn more", "window": "Example"}).text or ""
     print(links)
-    report("Edge page control with bounds", "center (" in links, links.splitlines()[0])
+    report("Edge page control with bounds", "center (" in links, best(links))
     tree = computer.run("uia_tree", {"window": "Example", "depth": 12}).text or ""
     tokens = len(tree) // 4
     report("Edge tree under 8k tokens", tokens < 8000, f"~{tokens} tokens, {len(tree)} chars")
