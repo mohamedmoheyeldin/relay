@@ -486,6 +486,12 @@ def build_server(services: Services | None = None) -> FastMCP:
 
 
 def main() -> None:
+    import sys
+
+    from relay_screen.runtime import cli
+
+    if len(sys.argv) > 1 and sys.argv[1] in cli.COMMANDS:
+        sys.exit(cli.main(sys.argv[1:]))
     # DPI awareness must be set before anything captures the screen or reads geometry.
     from relay_screen.dpi import set_dpi_awareness
 
