@@ -2,6 +2,10 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
+## 2026-10-14 · Final architecture: how Violoop gets smooth control
+- Owner asked to rethink the proposal against how Violoop achieves smooth Windows/macOS automation. Read violoop.ai and its Q&A (routing table, HDMI/HID, models, text-only cloud summaries) alongside research/violoop.md.
+- Revised [proposals/final-architecture.md](proposals/final-architecture.md): new section 2 (what Violoop does, what Relay copies, beats, skips); relay-core gains always-on perception (WGC frame stream, settle events, UIA events, overlay); text-first observations to Claude; models warm for the whole task; optional uiAccess helper; macOS AX wake-up attributes. Decisions 9-12 added for the plan thread.
+
 ## 2026-10-14 · Final architecture proposal
 - Owner sent a revised brief (Rust always-on core, speed ladder, local model table, cross-platform). Wrote [proposals/final-architecture.md](proposals/final-architecture.md): Rust relay-core daemon wraps the Python relay-screen, warm MCP over localhost HTTP, extended speed ladder, Brave extension for the browser lane, two 8B vision models resident at Q4/Q5, Windows through v1.
 - decisions.md and architecture.md untouched; section 9 lists the D-entries for the plan thread to adopt.
