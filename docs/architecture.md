@@ -188,7 +188,8 @@ relay_screen/
 
 ## 5. relay-core (M2)
 
-Python orchestrator that turns a request into steps and gives each a lane:
+Always-on Rust daemon (D-032) that keeps relay-screen warm over localhost MCP
+(D-033), owns the model runtime (D-037) and the browser bridge (D-035), and turns a request into steps and gives each a lane:
 
 | Lane | Who does it | Example |
 |---|---|---|

@@ -425,3 +425,96 @@ It then merges `dev` into `main` through a dev-to-main PR, also on green CI, and
 closes the issues each PR resolves. `main` still only receives code through
 `dev`. Live checks that open windows on the owner's PC run only when the owner
 asks for one; green CI is the gate for merging.
+
+## D-032 relay-core is an always-on Rust daemon wrapping the Python hands
+*2026-10-14 · accepted · owner's revised brief, proposals/final-architecture.md §3 · supersedes the Python relay-core in architecture §5*
+
+relay-core is a Rust daemon built in M2. It starts at login, supervises its
+children, owns the local sockets and ships as one binary next to Tauri. It
+wraps the Python relay-screen from M1 and keeps it running, and does not
+replace it. relay-screen stays the Windows hands through v1: it is verified
+on the owner's PC, and Python adds well under a millisecond to an action.
+The real per-step costs are vision and Claude calls. The hands move to Rust
+only for macOS (M4), behind the same tool contract (D-009), with
+relay-screen's tests used as contract tests.
+
+## D-033 relay-screen also serves MCP over localhost HTTP
+*2026-10-14 · accepted · proposals/final-architecture.md §3.2*
+
+relay-screen also serves streamable-HTTP MCP on 127.0.0.1, protected by a
+local token that belongs to Relay and is never a Claude credential.
+relay-core keeps one instance running, and Claude Code connects to it through
+the `--mcp-config` Relay passes. This removes the 1-2 s Python start-up on
+every run. Stdio stays for development. The kill switch, approvals and audit
+log stay inside relay-screen, next to SendInput, so no route can bypass them
+(D-012, D-019, D-025). This is a small task at the end of M1 or the start
+of M2.
+
+## D-034 The speed ladder
+*2026-10-14 · accepted · extends D-008 and D-021 · proposals/final-architecture.md §4*
+
+Relay always uses the highest rung that works:
+0. Playbook replay.
+1. Service APIs through MCP connectors.
+2. Shell, PowerShell or COM.
+3. Keyboard shortcuts.
+4. Browser and Electron DOM through CDP.
+5. The accessibility tree.
+6. OCR.
+7. Local vision models.
+8. Claude with a screenshot.
+9. Raw coordinates.
+
+Raw coordinates are only ever the output of rungs 6 to 8 on the current
+screen, never replayed from an old playbook. Every step logs which rung it
+used and how long it took, so the router learns which rung works for each app.
+
+## D-035 Browser lane: Relay's own Brave extension
+*2026-10-14 · accepted · closes D-016 · proposals/final-architecture.md §4*
+
+Relay ships a small MV3 extension that the owner installs once in their real
+Brave Origin profile (D-028). It uses `chrome.debugger` for CDP inside the
+browser and talks to relay-core over native messaging. Logins stay where they
+are: no separate profile and no cookie copying. Chromium ignores
+`--remote-debugging-port` on the default profile, so this is the way to reach
+the owner's logged-in sessions. Electron apps that Relay launches itself can
+get a debugging port. Electron apps that are already running fall back to the
+accessibility tree.
+
+## D-036 Both local vision models stay resident at Q4/Q5
+*2026-10-14 · accepted (amends D-005) · proposals/final-architecture.md §6*
+
+UI-Venus-1.5-8B handles grounding (`locate`). Qwen3-VL-8B-Instruct handles
+`describe`, `verify` and replay step checks. Both stay in VRAM together at
+Q4/Q5, about 11-12 GB, so a replay that alternates `locate` and `verify`
+never pays a model swap. Holo2-8B is the single-model fallback if the M1-11
+benchmark shows the Q4 pair losing more than about 2 points against Q8.
+Relay runs no local planning model and keeps nothing in system RAM. Both
+models unload after 60 s idle. When NVML reports too little free VRAM, Relay
+loads only the grounding model or goes straight to Claude.
+
+## D-037 relay-core owns the model runtime from M2
+*2026-10-14 · accepted · proposals/final-architecture.md §3.2*
+
+M1-09 builds the llama-server runtime manager in relay-screen, as planned.
+In M2 it moves to relay-core. relay-core is the long-lived process, and the
+playbook runner and the browser lane need the models too.
+
+## D-038 Platforms: Windows through v1, then macOS, then Linux
+*2026-10-14 · accepted · proposals/final-architecture.md §7*
+
+v1 is Windows only. macOS comes in M4 with Rust hands (xa11y or AXUIElement,
+ScreenCaptureKit, CGEvent, Vision OCR, AppleScript), tested on a real Mac.
+Linux follows macOS, Wayland first, using AT-SPI and portals. The MCP tool
+contract is the boundary that keeps relay-core, playbooks, the UI and
+Claude's prompts the same on every OS.
+
+## D-039 D-001 confirmed against the revised brief
+*2026-10-14 · accepted · proposals/final-architecture.md §5*
+
+The owner's brief opened with "no cloud AI" but ended with "local AI is the
+main brain for local automation, Claude does the thinking". Relay keeps
+D-001. The local side executes: the playbook runner, perception and checks,
+with no cloud call. Claude plans new tasks, writes free text and recovers
+when a check fails. Successful runs are saved as playbooks, so later runs
+need no Claude call.
