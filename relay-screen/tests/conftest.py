@@ -41,7 +41,7 @@ class RecordingBackend:
         self.batches: list[list[Event]] = []
         self.sleeps: list[float] = []
         self.chars = chars or {}
-        self.position = (0, 0)
+        self.position: tuple[int, int] = (0, 0)
 
     @property
     def events(self) -> list[Event]:
