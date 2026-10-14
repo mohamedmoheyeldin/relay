@@ -24,6 +24,19 @@ claude            # in the repo: approve the project MCP server "relay-screen" w
 ```
 Inside Claude Code, `/mcp` should list `relay-screen` as connected.
 
+## Local model runtime (M1-09)
+```powershell
+uv run relay-screen doctor                              # GPU, CUDA, VRAM, runtime, models, Claude Code
+uv run relay-screen runtime install                     # llama.cpp CUDA build, about 0.5 GB
+uv run relay-screen models                              # the catalog and what is downloaded
+uv run relay-screen models download qwen3-vl-8b-instruct
+uv run relay-screen runtime try qwen3-vl-8b-instruct    # cold start, first answer, 60 s idle unload
+```
+Everything goes under `%LOCALAPPDATA%\Relay` (models under `models\` there, or
+the folder chosen in Settings), or under `RELAY_HOME` if that is set. No window
+opens: llama-server runs hidden and logs to `logs\`. What was installed and
+its SHA-256 is in `installed.json` (D-052).
+
 ## Personal files (never committed)
 - `profile.yaml` (copy from `config/profile.example.yaml`)
 - `playbooks/` (except `playbooks/examples/`)

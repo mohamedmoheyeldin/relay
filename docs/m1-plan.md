@@ -82,6 +82,8 @@ items 2-4 can run in parallel after 1.
 
 **Acceptance:** cold start -> first answer measured and logged; after 60 s idle `nvidia-smi` shows the VRAM released; doctor output readable and correct on the owner's PC.
 
+**Built (D-052):** `relay_screen/runtime/`: resumable SHA-256-checked downloads, llama.cpp and Hugging Face sources, `installed.json`, a supervisor (one llama-server per model, NVML check, task holds per D-042, 60 s idle unload) and the CLI (`relay-screen doctor`, `runtime install`, `runtime try MODEL`, `models list/download/remove`). `runtime try` covers the acceptance run: it times the cold start and first answer, waits for the idle unload and checks the VRAM came back. Still to do on the owner's PC, when they ask: `runtime install`, download Qwen3-VL-8B, `runtime try`, `doctor`.
+
 ### M1-10 Local VLM tools: `locate`, `describe`, `verify`
 - Per-model adapters (prompt format and coordinate convention: absolute vs 0-1000) behind one interface.
 - `locate(description)` -> coordinate in screenshot px + confidence; uses the model's preferred input resolution.
