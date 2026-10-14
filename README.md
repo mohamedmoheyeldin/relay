@@ -53,6 +53,7 @@ Full design: [docs/architecture.md](docs/architecture.md). Why things are the wa
 Requires Windows 11, an NVIDIA GPU, [Claude Code](https://code.claude.com/docs) logged in, and [uv](https://docs.astral.sh/uv/).
 
 ```powershell
+cd C:\Projects
 git clone https://github.com/mohamedmoheyeldin/relay
 cd relay
 git switch dev
