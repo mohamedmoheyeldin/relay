@@ -29,9 +29,7 @@ STEPS = [
 
 
 def git(*args: str) -> str:
-    return subprocess.run(
-        ["git", *args], capture_output=True, text=True, check=True
-    ).stdout.strip()
+    return subprocess.run(["git", *args], capture_output=True, text=True, check=True).stdout.strip()
 
 
 def report(passed: bool, summary: str) -> bool:
