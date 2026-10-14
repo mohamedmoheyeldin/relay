@@ -170,7 +170,10 @@ class InputDriver:
     def type_text(self, text: str) -> None:
         """Type text layout-independently with Unicode events; newlines and tabs as keys.
 
-        Each character is its own SendInput call followed by a short pause.
+        Each character is its own SendInput call followed by a short pause. Characters
+        the keyboard layout can produce are sent as real key presses; only the rest use
+        Unicode packets, because Windows 11 Notepad's editor garbles Unicode packets for
+        ordinary letters (seen on the owner's PC, 2026-10-14).
         """
         if not text:
             raise ValueError("text must not be empty")
@@ -182,11 +185,25 @@ class InputDriver:
             elif char == "\t":
                 events = [KeyEvent(VK_TAB, True), KeyEvent(VK_TAB, False)]
             else:
-                events = []
-                for unit in _utf16_units(char):
-                    events += [UnicodeEvent(unit, True), UnicodeEvent(unit, False)]
+                events = self._char_events(char)
             self.backend.send(events)
             self.backend.sleep(self.char_delay)
+
+    def _char_events(self, char: str) -> list[Event]:
+        resolved = self.backend.resolve_char(char)
+        if resolved is not None:
+            vk, modifiers = resolved
+            return [
+                *_modifier_events(modifiers, True),
+                KeyEvent(vk, True),
+                KeyEvent(vk, False),
+                *_modifier_events(modifiers, False),
+            ]
+        events: list[Event] = []
+        for unit in _utf16_units(char):
+            events += [UnicodeEvent(unit, True), UnicodeEvent(unit, False)]
+        return events
+
 
 def _utf16_units(char: str) -> list[int]:
     data = char.encode("utf-16-le")
