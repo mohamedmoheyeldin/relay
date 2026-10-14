@@ -1,6 +1,6 @@
 # Proposal: Relay final architecture
 
-> Status: proposal, 2026-10-14. Written in response to the owner's revised
+> Status: adopted 2026-10-14 as D-032 to D-039. Written in response to the owner's revised
 > architecture brief (Rust always-on core, speed ladder, local model table,
 > cross-platform). Revised the same day after a closer look at how RefBox
 > gets smooth Windows/macOS control (section 2). Nothing here changes

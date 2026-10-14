@@ -2,6 +2,13 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
+## 2026-10-14 · More architecture decisions
+- Adopted D-040 to D-043 from the revised proposal (#31): always-on perception in relay-core (WGC frame stream, change events, UIA watcher, overlay), text-first observations to Claude, models load at task start and unload 60 s after it ends, optional signed uiAccess helper for elevated windows.
+
+## 2026-10-14 · Merge rule and final architecture adopted
+- Owner: no more draft PRs; Claude merges its own PRs into `dev` and then `dev` into `main` on green CI (D-031). Owner stopped live PC checks that kept opening windows: run them only when asked.
+- Adopted the final architecture proposal as D-032 to D-039 (Rust always-on core wrapping the Python hands, warm MCP over localhost HTTP, speed ladder, Brave extension browser lane, two vision models resident, runtime in the core from M2, Windows through v1, D-001 confirmed).
+
 ## 2026-10-14 · Final architecture: how RefBox gets smooth control
 - Owner asked to rethink the proposal against how RefBox achieves smooth Windows/macOS automation. Read refbox.ai and its Q&A (routing table, HDMI/HID, models, text-only cloud summaries) alongside research/refbox.md.
 - Revised [proposals/final-architecture.md](proposals/final-architecture.md): new section 2 (what RefBox does, what Relay copies, beats, skips); relay-core gains always-on perception (WGC frame stream, settle events, UIA events, overlay); text-first observations to Claude; models warm for the whole task; optional uiAccess helper; macOS AX wake-up attributes. Decisions 9-12 added for the plan thread.
@@ -13,6 +20,10 @@ Short entries so later sessions can pick up where earlier ones stopped. Newest f
 ## 2026-10-14 · App discovery
 - `list_apps` and `launch_app` (`relay_screen/apps.py` pure, `apps_windows.py` for Start menu, App Paths, registered browsers and window tracking). `"browser"` picks the owner's browser even though the https handler still names EdgeCore. Design: D-030.
 - On-PC check: `uv run python scripts/check_apps.py` (discovery, Notepad by name in front, browser with a URL). `check_uia.py` finds Brave Origin through the catalog.
+
+## 2026-10-14 · Final architecture proposal
+- Owner sent a revised brief (Rust always-on core, speed ladder, local model table, cross-platform). Wrote [proposals/final-architecture.md](proposals/final-architecture.md): Rust relay-core daemon wraps the Python relay-screen, warm MCP over localhost HTTP, extended speed ladder, Brave extension for the browser lane, two 8B vision models resident at Q4/Q5, Windows through v1.
+- decisions.md and architecture.md untouched; section 9 lists the D-entries for the plan thread to adopt.
 
 ## 2026-10-14 · M1-08 OCR and the next step, app discovery
 - `find_text` (`relay_screen/ocr.py` pure, `ocr_windows.py` on the WinRT OCR projections): tiles wide displays, upscales small regions, fuzzy phrase matching, centers in screenshot px (D-029). On-PC check: `uv run python scripts/check_ocr.py` (Save dialog buttons, median latency).
