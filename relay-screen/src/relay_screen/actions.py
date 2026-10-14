@@ -8,6 +8,7 @@ exact halt text.
 
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -25,12 +26,14 @@ from relay_screen.safety.approval import ActRequest
 from relay_screen.safety.audit import AuditLog, elapsed_ms
 from relay_screen.scaling import Rect, ScreenshotGeometry
 from relay_screen.state import ScreenState
+from relay_screen.uia import UiaService
+from relay_screen.uia import center as uia_center
 
 HALT_TEXT = "Not executed: an earlier computer action in this turn failed."
 
 Kind = Literal["read", "act"]
 
-MEMBERS: dict[str, Kind] = {
+TOOLSET_MEMBERS: dict[str, Kind] = {
     "screenshot": "read",
     "zoom": "read",
     "cursor_position": "read",
@@ -49,6 +52,16 @@ MEMBERS: dict[str, Kind] = {
     "key": "act",
     "hold_key": "act",
 }
+
+# Relay-only members (architecture §4.1); they get the same safety layer and audit log.
+RELAY_MEMBERS: dict[str, Kind] = {
+    "uia_tree": "read",
+    "uia_find": "read",
+    "uia_invoke": "act",
+    "uia_set_value": "act",
+}
+
+MEMBERS: dict[str, Kind] = {**TOOLSET_MEMBERS, **RELAY_MEMBERS}
 
 _CLICKS: dict[str, tuple[Button, int]] = {
     "left_click": ("left", 1),
@@ -72,6 +85,10 @@ _ALLOWED_PARAMS: dict[str, frozenset[str]] = {
     "key": frozenset({"text", "repeat"}),
     "hold_key": frozenset({"text", "duration"}),
     **{name: frozenset({"coordinate", "text"}) for name in _CLICKS},
+    "uia_tree": frozenset({"window", "depth", "filter"}),
+    "uia_find": frozenset({"query", "role", "window"}),
+    "uia_invoke": frozenset({"element"}),
+    "uia_set_value": frozenset({"element", "value"}),
 }
 
 PREVIEW_EDGE = 720  # px, long edge of the screenshot shown in the approval prompt
@@ -103,6 +120,7 @@ class Computer:
     before_act: list[Callable[[ActRequest], str | None]] = field(default_factory=list)
     sleep: Callable[[float], None] = time.sleep
     audit: AuditLog | None = None
+    uia: UiaService | None = None
 
     # -- public ---------------------------------------------------------------
 
@@ -126,7 +144,15 @@ class Computer:
             entry["batch_step"] = f"{step}/{total}"
         try:
             if is_act:
-                request = ActRequest(name, params, step, total, lambda: self._preview(params))
+                targets = self._targets(name, params)
+                request = ActRequest(
+                    name,
+                    params,
+                    step,
+                    total,
+                    preview=lambda: self._preview(targets),
+                    summary=self._summary(name, params),
+                )
                 labels = [label for hook in self.before_act if (label := hook(request))]
                 entry["approval"] = "; ".join(labels) or None
                 entry["before"] = self._audit_thumbnail("before")
@@ -187,17 +213,44 @@ class Computer:
         except Exception:  # the log must never stop an action
             return None
 
-    def _preview(self, params: Mapping[str, Any]) -> bytes | None:
+    def _targets(self, name: str, params: Mapping[str, Any]) -> list[tuple[int, int]]:
+        """Screenshot-pixel points an act aims at, for the approval preview."""
+        if name.startswith("uia_"):
+            element = params.get("element")
+            if self.uia is None or not isinstance(element, str):
+                return []
+            point = uia_center(self._geometry(), self.uia.rect(element))
+            return [point] if point else []
+        points = []
+        for key in ("start_coordinate", "coordinate"):
+            point = params.get(key)
+            if (
+                isinstance(point, (list, tuple))
+                and len(point) == 2
+                and all(isinstance(v, int) for v in point)
+            ):
+                points.append((point[0], point[1]))
+        return points
+
+    def _summary(self, name: str, params: Mapping[str, Any]) -> str | None:
+        """Plain words for acts the approval gate cannot describe from params alone."""
+        if name not in ("uia_invoke", "uia_set_value"):
+            return None
+        label = self._uia().label(str(params.get("element", "")))
+        if name == "uia_invoke":
+            return f"Activate {label}"
+        value = str(params.get("value", ""))
+        shown = value if len(value) <= 300 else value[:300] + "…"
+        return f"Set {label} to {json.dumps(shown, ensure_ascii=False)}"
+
+    def _preview(self, points: list[tuple[int, int]]) -> bytes | None:
         """The active display, small, with the target point(s) circled in red."""
         try:
             geometry = self._geometry()
             image = capture.screenshot(self.grabber, geometry).convert("RGB")
             draw = ImageDraw.Draw(image)
-            for key in ("start_coordinate", "coordinate"):
-                point = params.get(key)
-                if isinstance(point, (list, tuple)) and len(point) == 2:
-                    x, y = point
-                    draw.ellipse((x - 14, y - 14, x + 14, y + 14), outline=(230, 0, 0), width=4)
+            for x, y in points:
+                draw.ellipse((x - 14, y - 14, x + 14, y + 14), outline=(230, 0, 0), width=4)
             image.thumbnail((PREVIEW_EDGE, PREVIEW_EDGE))
             return capture.encode_png(image)
         except Exception:
@@ -261,7 +314,7 @@ class Computer:
         x, y = point
         return Rect(x - CHANGE_RADIUS, y - CHANGE_RADIUS, 2 * CHANGE_RADIUS, 2 * CHANGE_RADIUS)
 
-    def _act(self, area: Rect | None, action: Callable[[], None]) -> ActionResult:
+    def _act(self, area: Rect | None, action: Callable[[], object]) -> ActionResult:
         before = self._observe(area)
         action()
         return ActionResult(self._verdict(before, area))
@@ -380,6 +433,47 @@ class Computer:
             raise ActionError("text must be a key name such as 'shift'")
         seconds = _duration(duration)
         return self._act(None, lambda: self._input().hold_key(text, seconds))
+
+    # -- UI Automation (Relay-only) -------------------------------------------
+
+    def _uia(self) -> UiaService:
+        if self.uia is None:
+            raise ActionError("UI Automation is not available in this server")
+        return self.uia
+
+    def _do_uia_tree(
+        self, window: str | None = None, depth: int = 6, filter: str | None = None
+    ) -> ActionResult:
+        if not isinstance(depth, int) or isinstance(depth, bool):
+            raise ActionError("depth must be an integer")
+        return ActionResult(self._uia().tree(self._geometry(), window, depth, filter))
+
+    def _do_uia_find(
+        self, query: str, role: str | None = None, window: str | None = None
+    ) -> ActionResult:
+        if not isinstance(query, str):
+            raise ActionError("query must be text")
+        return ActionResult(self._uia().find(self._geometry(), query, role, window))
+
+    def _element_area(self, element: str) -> Rect | None:
+        rect = self._uia().rect(element)
+        if rect is None:
+            return None
+        return self._around((rect.left + rect.width // 2, rect.top + rect.height // 2))
+
+    def _do_uia_invoke(self, element: str) -> ActionResult:
+        uia = self._uia()
+        area = self._element_area(element)
+        done: list[str] = []
+        result = self._act(area, lambda: done.append(uia.invoke(element)))
+        return ActionResult(f"{done[0].capitalize()} · {result.text}" if done else result.text)
+
+    def _do_uia_set_value(self, element: str, value: str) -> ActionResult:
+        if not isinstance(value, str):
+            raise ActionError("value must be text")
+        uia = self._uia()
+        area = self._element_area(element)
+        return self._act(area, lambda: uia.set_value(element, value))
 
 
 def _duration(value: Any) -> float:

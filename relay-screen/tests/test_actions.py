@@ -6,7 +6,7 @@ from relay_screen.actions import (
     CHANGE_POLL,
     CHANGE_SETTLE,
     HALT_TEXT,
-    MEMBERS,
+    TOOLSET_MEMBERS,
     ActionError,
     Computer,
 )
@@ -48,7 +48,7 @@ def make(owner_displays, *, changes: Rect | None = None, report: bool = False):
 
 
 def test_members_match_the_toolset():
-    assert set(MEMBERS) == {
+    assert set(TOOLSET_MEMBERS) == {
         "screenshot",
         "zoom",
         "left_click",

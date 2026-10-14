@@ -55,6 +55,7 @@ class ActRequest:
     step: int | None = None  # 1-based position in a batch
     total: int | None = None
     preview: Callable[[], bytes | None] = lambda: None
+    summary: str | None = None  # plain words when params alone don't say enough
 
 
 def _quote(text: str) -> str:
@@ -130,7 +131,7 @@ class ApprovalGate:
             return "approved (rest of batch)"
         request = PromptRequest(
             title="Relay wants to act on your PC",
-            detail=describe(act.name, act.params),
+            detail=act.summary or describe(act.name, act.params),
             step=act.step if in_batch else None,
             total=act.total if in_batch else None,
             image=act.preview(),
