@@ -518,3 +518,41 @@ D-001. The local side executes: the playbook runner, perception and checks,
 with no cloud call. Claude plans new tasks, writes free text and recovers
 when a check fails. Successful runs are saved as playbooks, so later runs
 need no Claude call.
+
+## D-040 Always-on perception in relay-core
+*2026-10-14 · accepted · M2 · proposals/final-architecture.md (revised in #31) · will replace D-024 polling*
+
+In M2, relay-core keeps a running picture of the screen:
+- a Windows Graphics Capture frame stream for each monitor;
+- settle and change events computed from frame diffs;
+- a UIA event watcher for focus, structure and property changes;
+- an overlay that shows what Relay is about to touch.
+
+relay-screen uses these events instead of capturing and polling after each act.
+The "what changed" verdicts (D-018) come from the stream, so they are faster
+and need no fixed waits. Until then, D-024 polling stays.
+
+## D-041 Text first to Claude
+*2026-10-14 · accepted · proposals/final-architecture.md (revised in #31)*
+
+What Relay reports to Claude leads with text: the UIA or ARIA elements, the
+focused control and the window title. A screenshot is attached only when text
+is not enough, such as canvas apps, unknown layouts, or when Claude asks for
+one. Text is cheaper for the owner's usage limits and more precise.
+
+## D-042 Models load at task start and unload 60 s after it ends
+*2026-10-14 · accepted · refines D-006 and D-036*
+
+The vision models load when a task that may need them starts, so the first
+`locate` does not pay a cold start in the middle of a run. They unload 60 s
+after the task ends, not 60 s after their last call.
+
+## D-043 Optional uiAccess helper for elevated windows
+*2026-10-14 · accepted · M3 · optional*
+
+Windows blocks input from a normal process into elevated (admin) windows.
+In M3, Relay can ship a small optional helper with `uiAccess=true`, installed
+under Program Files and signed with a certificate the owner creates on their
+own machine. The helper forwards input to elevated windows. It is off by
+default, and the same kill switch and approvals apply to it. Relay never asks
+for admin rights for everything else.
