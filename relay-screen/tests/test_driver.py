@@ -186,3 +186,23 @@ def test_type_text_uses_layout_keys_and_unicode_only_for_the_rest():
         UnicodeEvent(0x2713, True),
         UnicodeEvent(0x2713, False),
     ]
+
+
+def test_type_text_never_asks_layout_about_astral_characters():
+    backend = RecordingBackend()
+    asked: list[str] = []
+    original = backend.resolve_char
+
+    def spy(char: str):
+        asked.append(char)
+        return original(char)
+
+    backend.resolve_char = spy  # type: ignore[method-assign]
+    InputDriver(backend, step_delay=0, char_delay=0).type_text("a\U0001f600")
+    assert asked == ["a"]
+    assert backend.events[-4:] == [
+        UnicodeEvent(0xD83D, True),
+        UnicodeEvent(0xD83D, False),
+        UnicodeEvent(0xDE00, True),
+        UnicodeEvent(0xDE00, False),
+    ]

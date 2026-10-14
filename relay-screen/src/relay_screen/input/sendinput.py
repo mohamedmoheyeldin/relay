@@ -174,6 +174,8 @@ class SendInputBackend:
         return win32.cursor_position()
 
     def resolve_char(self, char: str) -> tuple[int, tuple[str, ...]] | None:
+        if len(char) != 1 or ord(char) > 0xFFFF:
+            return None  # VkKeyScanW takes one UTF-16 unit; emoji etc. go as Unicode packets
         result = self._user32.VkKeyScanW(char)
         if result == -1:
             return None
