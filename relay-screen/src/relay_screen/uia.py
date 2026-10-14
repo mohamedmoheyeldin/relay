@@ -18,6 +18,7 @@ from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
+from relay_screen.displays import Display
 from relay_screen.errors import ActionError
 from relay_screen.scaling import Rect, ScreenshotGeometry
 
@@ -28,6 +29,8 @@ SEARCH_SECONDS = 6.0
 MAX_MATCHES = 10
 MAX_IDS = 5_000  # remembered element ids
 NAME_LIMIT = 80
+ACTIONS = frozenset({"invoke", "toggle", "expand", "select", "value"})
+LAYOUT_ROLES = frozenset({"Pane", "Group", "Custom", "Text"})
 
 
 class UiaElement(Protocol):
@@ -80,12 +83,30 @@ def _matches(element: UiaElement, query: str) -> bool:
     )
 
 
-def screenshot_box(geometry: ScreenshotGeometry, rect: Rect | None) -> str:
-    """Bounds as screenshot px of the active display, or why there are none."""
+def _noise(element: UiaElement) -> bool:
+    """Unnamed elements a listing can skip: hidden ones (no bounds) and bare layout
+    containers. Their children are still listed."""
+    if element.name.strip() or element.automation_id:
+        return False
+    if element.rect is None:
+        return True
+    return element.role in LAYOUT_ROLES and not element.patterns() & ACTIONS
+
+
+def screenshot_box(
+    geometry: ScreenshotGeometry, rect: Rect | None, displays: Sequence[Display] = ()
+) -> str:
+    """Bounds as screenshot px of the active display, or why there are none.
+
+    An element on another monitor names that display, so Claude can select_display it.
+    """
     if rect is None or rect.width <= 0 or rect.height <= 0:
         return "no bounds"
     cx, cy = rect.left + rect.width // 2, rect.top + rect.height // 2
     if not geometry.display.contains(cx, cy):
+        other = next((d for d in displays if d.rect.contains(cx, cy)), None)
+        if other is not None:
+            return f"on display {other.id}, not the active one (select_display {other.id})"
         return "not on the active display"
     x0, y0 = geometry.to_screenshot(rect.left, rect.top)
     x1, y1 = geometry.to_screenshot(
@@ -139,7 +160,9 @@ class UiaService:
         name = f' "{_clip(element.name)}"' if element.name else ""
         return f"{element.role}{name}"
 
-    def _line(self, entry: Entry, geometry: ScreenshotGeometry) -> str:
+    def _line(
+        self, entry: Entry, geometry: ScreenshotGeometry, displays: Sequence[Display] = ()
+    ) -> str:
         e = entry.element
         parts = [f"{'  ' * entry.depth}[{entry.id}] {e.role}"]
         if e.name:
@@ -151,30 +174,40 @@ class UiaService:
             parts.append(f"value={_clip(value, 60)!r}")
         if not e.enabled:
             parts.append("disabled")
-        actions = sorted(e.patterns() & {"invoke", "toggle", "expand", "select", "value"})
+        actions = sorted(e.patterns() & ACTIONS)
         if actions:
             parts.append("{" + ",".join(actions) + "}")
-        parts.append(screenshot_box(geometry, e.rect))
+        parts.append(screenshot_box(geometry, e.rect, displays))
         return " ".join(parts)
 
     # -- reads ----------------------------------------------------------------
 
     def _walk(
-        self, roots: Sequence[UiaElement], depth: int, limit: int, deadline: float
+        self,
+        roots: Sequence[UiaElement],
+        depth: int,
+        limit: int,
+        deadline: float,
+        hide: Callable[[UiaElement], bool] | None = None,
     ) -> Iterator[tuple[int, UiaElement]]:
-        stack: list[tuple[int, UiaElement]] = [(0, r) for r in reversed(roots)]
+        """Depth-first walk yielding (indent, element). Elements ``hide`` rejects are
+        not yielded; their children take their indent. ``depth`` counts real levels."""
+        stack: list[tuple[int, int, UiaElement]] = [(0, 0, r) for r in reversed(roots)]
         seen = 0
         while stack and seen < limit and self.clock() < deadline:
-            level, element = stack.pop()
+            level, indent, element = stack.pop()
             seen += 1
-            yield level, element
+            shown = level == 0 or hide is None or not hide(element)
+            if shown:
+                yield indent, element
             if level >= depth:
                 continue
             try:
                 kids = element.children()
             except Exception:
                 continue  # element vanished while walking
-            stack.extend((level + 1, k) for k in reversed(kids))
+            child_indent = indent + 1 if shown else indent
+            stack.extend((level + 1, child_indent, k) for k in reversed(kids))
 
     def tree(
         self,
@@ -182,6 +215,7 @@ class UiaService:
         window: str | None = None,
         depth: int = 6,
         filter: str | None = None,
+        displays: Sequence[Display] = (),
     ) -> str:
         if not 1 <= depth <= 30:
             raise ActionError("depth must be between 1 and 30")
@@ -195,10 +229,12 @@ class UiaService:
             size = 0
             truncated = ""
             listed = 0
-            for level, element in self._walk(roots, depth, MAX_SEARCH_NODES, deadline):
+            hide = None if filter else _noise
+            for level, element in self._walk(roots, depth, MAX_SEARCH_NODES, deadline, hide):
                 if filter and not _matches(element, filter):
                     continue
-                line = self._line(Entry(self._remember(element), level, element), geometry)
+                entry = Entry(self._remember(element), level, element)
+                line = self._line(entry, geometry, displays)
                 if listed >= MAX_NODES or size + len(line) > MAX_CHARS:
                     truncated = (
                         f"… output cut at {listed} elements. Narrow it with depth, filter, "
@@ -223,6 +259,7 @@ class UiaService:
         query: str,
         role: str | None = None,
         window: str | None = None,
+        displays: Sequence[Display] = (),
     ) -> str:
         if not query.strip():
             raise ActionError("query must not be empty")
@@ -248,7 +285,7 @@ class UiaService:
             found = (exact + partial)[:MAX_MATCHES]
             if not found:
                 return f"No element matches {query!r}" + (f" with role {role}." if role else ".")
-            lines = [self._line(Entry(self._remember(e), 0, e), geometry) for e in found]
+            lines = [self._line(Entry(self._remember(e), 0, e), geometry, displays) for e in found]
             return "\n".join([f"{len(found)} match(es), best first:", *lines])
 
         return str(self.backend.run(work))

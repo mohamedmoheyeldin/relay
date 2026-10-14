@@ -115,6 +115,21 @@ def test_depth_and_filter(owner_displays):
         uia.tree(geometry(owner_displays), depth=0)
 
 
+def test_tree_skips_unnamed_layout_and_hidden_elements(owner_displays):
+    window, _, _ = notepad()
+    icon = El("Button", rect=Rect(300, 40, 20, 20), pats=frozenset({"invoke"}))
+    hidden = El("Button", pats=frozenset({"invoke"}))
+    layout = El("Pane", rect=Rect(0, 0, 3440, 80), kids=[El("Pane", kids=[icon, hidden])])
+    window.kids.insert(0, layout)
+    uia = UiaService(Backend({"foreground": [window]}))
+    lines = uia.tree(geometry(owner_displays)).splitlines()[1:]
+    assert not any(" Pane" in line for line in lines)
+    assert sum(" Button" in line for line in lines) == 1
+    assert next(line for line in lines if " Button" in line).startswith("  [e")  # hoisted
+    filtered = uia.tree(geometry(owner_displays), filter="pane")
+    assert filtered.count(" Pane") == 2
+
+
 def test_big_trees_are_cut(owner_displays):
     rows = [El("ListItem", f"row {i}", rect=Rect(0, i, 100, 1)) for i in range(2000)]
     uia = UiaService(Backend({"foreground": [El("List", "big", kids=rows)]}))
@@ -155,6 +170,8 @@ def test_window_by_title(owner_displays):
     uia = UiaService(Backend({"foreground": [window], "Relay - Microsoft Edge": [edge]}))
     text = uia.tree(geometry(owner_displays), window="edge")
     assert "Microsoft Edge" in text and "not on the active display" in text
+    text = uia.tree(geometry(owner_displays), window="edge", displays=owner_displays)
+    assert "on display 3, not the active one (select_display 3)" in text
     with pytest.raises(ActionError, match="no open window"):
         uia.tree(geometry(owner_displays), window="photoshop")
 

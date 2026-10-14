@@ -446,14 +446,16 @@ class Computer:
     ) -> ActionResult:
         if not isinstance(depth, int) or isinstance(depth, bool):
             raise ActionError("depth must be an integer")
-        return ActionResult(self._uia().tree(self._geometry(), window, depth, filter))
+        displays = self.state.displays()
+        return ActionResult(self._uia().tree(self._geometry(), window, depth, filter, displays))
 
     def _do_uia_find(
         self, query: str, role: str | None = None, window: str | None = None
     ) -> ActionResult:
         if not isinstance(query, str):
             raise ActionError("query must be text")
-        return ActionResult(self._uia().find(self._geometry(), query, role, window))
+        displays = self.state.displays()
+        return ActionResult(self._uia().find(self._geometry(), query, role, window, displays))
 
     def _element_area(self, element: str) -> Rect | None:
         rect = self._uia().rect(element)
