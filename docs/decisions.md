@@ -415,3 +415,13 @@ tab). Relay brings the window to the front with AttachThreadInput, because the
 server is a background process, and reports the window's title and its display.
 Live checks use the catalog too (`scripts/check_apps.py`; `check_uia.py` finds
 Brave Origin this way).
+
+## D-031 Claude merges its own PRs into dev and main
+*2026-10-14 · accepted · owner request · amends D-014*
+
+The owner doesn't want to merge PRs by hand or mark drafts ready. From now on
+Claude opens PRs ready for review and merges them into `dev` once CI is green.
+It then merges `dev` into `main` through a dev-to-main PR, also on green CI, and
+closes the issues each PR resolves. `main` still only receives code through
+`dev`. Live checks that open windows on the owner's PC run only when the owner
+asks for one; green CI is the gate for merging.
