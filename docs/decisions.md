@@ -216,3 +216,58 @@ dedicated profile and remote debugging on localhost, and add a DOM lane between
 UIA and vision. Trade-off: a separate browser profile means logins are not
 shared with the owner's everyday profile. Decide in M2 with real data from the
 M1 form demo.
+
+## D-017 Wake up accessibility trees while Relay is armed
+*2026-10-14 · accepted · from the RefBox research thread (PR #18)*
+
+Chromium/Electron apps only build a full UIA tree when they believe assistive
+technology is running. While Relay is armed it sets `SPI_SETSCREENREADER` (and
+restores the previous value on exit or crash recovery). When Relay launches a
+browser itself it adds `--force-renderer-accessibility`. This makes the UIA
+layer (D-008) useful in Electron apps without bundling a screen reader such as
+NVDA (GPL). Tracked in #7.
+
+## D-018 Every act reports what changed
+*2026-10-14 · accepted · from the RefBox research thread*
+
+After each state-changing action relay-screen re-reads the target cheaply
+(UIA value/focus where available, otherwise a pixel diff of the region around
+the target) and appends a one-line verdict to the tool result, e.g.
+`OK · target changed` or `OK · no visible change`. The local VLM `verify` stays
+on demand. This catches silent misses early without a cloud round trip.
+Tracked in #5.
+
+## D-019 Approvals cannot be given by synthetic input
+*2026-10-14 · accepted · from the RefBox research thread*
+
+The approval prompt is Relay's own top-most window and ignores injected input
+(events flagged `LLMHF_INJECTED`/`LLKHF_INJECTED`, including Relay's own
+SendInput events), so the agent can never click "Approve" on itself. Tracked
+in #6; the M3 tray UI keeps the same rule.
+
+## D-020 Playbooks are Claude Code skill compatible
+*2026-10-14 · accepted (amends architecture §7) · from the RefBox research thread*
+
+Playbook front matter uses the Claude Code `SKILL.md` keys (`name`,
+`description`) plus Relay's own keys (`app`, `match`, `inputs`,
+`irreversible_steps`, `last_success`). Relay replays them locally without a
+cloud call; when escalation is needed, Claude Code can load the same file as a
+skill. Tracked in #12.
+
+## D-021 More API lanes before pixels
+*2026-10-14 · accepted for M2 · from the RefBox research thread*
+
+Extends D-003/D-008: Office apps are driven through COM automation (Word,
+Excel, Outlook) before screen automation; browsers get the DOM lane from D-016
+using Playwright's `aria_snapshot()` over CDP, with form field values redacted
+before anything is sent to Claude. Both are M2 work.
+
+## D-022 Rejected for now: OmniParser icon fallback; deferred: PP-OCR
+*2026-10-14 · accepted*
+
+OmniParser v2 stays out even as an optional out-of-process helper: its detector
+is AGPL-3.0 and it scores 39.6 on ScreenSpot-Pro against ~68 for the planned
+grounding model (D-005), so it adds licence risk for little gain. Revisit in M4
+only if the benchmark (#11) shows icon-only targets failing. PP-OCRv4 stays the
+optional faster/denser OCR from D-013, to be added only if Windows OCR misses
+text in #8.

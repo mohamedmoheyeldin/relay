@@ -43,6 +43,7 @@ addopts = "-m 'not desktop'"
 [tool.pyright]
 include = ["relay-screen/src", "relay-screen/tests"]
 pythonVersion = "3.12"
+pythonPlatform = "Windows"
 typeCheckingMode = "basic"
 venvPath = "."
 venv = ".venv"
