@@ -36,7 +36,7 @@ testpaths = ["relay-screen/tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 markers = [
-    "desktop: needs a real Windows desktop session (skipped in CI and on other OSes)",
+    "desktop: needs a real Windows desktop session (skipped unless asked for; see scripts/check.py)",
 ]
 addopts = "-m 'not desktop'"
 
