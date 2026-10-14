@@ -127,8 +127,19 @@ finally:
     for pid in new_notepads:
         subprocess.run(["taskkill", "/pid", str(pid), "/f"], check=False, capture_output=True)
 
+
 # 2 + 3. Browser page controls with bounds, and tree size.
-BRAVE = Path(r"C:\Program Files\BraveSoftware\Brave-Origin\Application\brave.exe")
+def owner_brave() -> Path | None:
+    """Brave Origin's program, found by app discovery (D-030), not a fixed path."""
+    from relay_screen.apps import AppCatalog
+    from relay_screen.apps_windows import WinAppBackend
+
+    apps = AppCatalog(WinAppBackend()).apps()
+    found = next((a for a in apps if a.exe and "brave origin" in a.name.casefold()), None)
+    return Path(found.exe) if found and found.exe else None
+
+
+BRAVE = owner_brave()
 WM_CLOSE = 0x0010
 
 
@@ -160,7 +171,7 @@ def throwaway_browser() -> str:
 # Edge/Chrome profile.
 profile: Path | None = None
 proc: subprocess.Popen[bytes] | None = None
-if BRAVE.exists():
+if BRAVE is not None:
     browser = "Brave Origin"
     subprocess.Popen([str(BRAVE), "--new-window", "https://example.com"])
 else:
