@@ -742,3 +742,68 @@ llama-server runs with `CREATE_NO_WINDOW`, so loading a model never opens a
 console window on the owner's screen (D-049). Its output goes to
 `logs/llama-<model>.log`; load, unload and first-answer timings go to
 `logs/runtime.jsonl`.
+
+## D-053 relay-core is a library the app links, for now
+*2026-10-14 · accepted · app thread, PR #46 · amends D-032 for M3*
+
+relay-core is a Rust library that the Tauri app links and runs in its own
+process. The always-on relay-core daemon from D-032 wraps that same library
+in M2. Until then, nothing runs when the app is closed.
+
+## D-054 relay-screen ships as embedded CPython, not a PyInstaller freeze
+*2026-10-14 · accepted · app thread, PR #46 · replaces the PyInstaller part of D-044 and D-013*
+
+The installer ships the embeddable CPython 3.12 (from python.org's NuGet
+package, SHA-256 checked when it is built) with relay-screen and its
+site-packages beside it. A plain interpreter avoids the freeze's import and
+antivirus surprises, and the bundle uses the same code the tests run.
+Uninstall removes the whole Python folder, `__pycache__` included.
+
+## D-055 Setup downloads the model runtime and models; the installer stays small
+*2026-10-14 · accepted · app thread, PR #46 · amends D-044*
+
+Relay-Setup.exe (about 26 MB) does not bundle llama.cpp or any model. The
+first-run wizard downloads both through relay-screen's runtime (D-052), so
+the CUDA build matches the driver and only the model the owner picks is
+fetched.
+
+## D-056 How the installer is built
+*2026-10-14 · accepted · app thread, PR #46*
+
+The installer cross-builds on Linux with the `x86_64-pc-windows-gnu` target,
+so a cloud session can produce it. On Windows it builds with MSVC.
+`scripts/check.py` also runs `cargo fmt --check`, `cargo clippy`,
+`cargo test` and `tsc` whenever cargo and pnpm are installed (D-050).
+
+## D-057 Unsigned installer; updates come as a new installer in Downloads
+*2026-10-14 · accepted · app thread, PR #46 · amends D-044 until #35*
+
+The installer is unsigned for now. To update, the app downloads the newer
+Relay-Setup.exe from GitHub Releases into the owner's Downloads folder and
+runs it. Tauri's signed updater replaces this once code signing exists
+(issue #35).
+
+## D-058 The app drives the model runtime through relay-screen's CLI
+*2026-10-14 · accepted · app thread, PR #46 · M3 bridge to D-037*
+
+Settings > Local AI calls the M1-09 commands (`relay-screen models list
+--json`, `models download`, `runtime install`) and reads their `--json`
+progress lines, so there is one store and one `installed.json`, not a second
+copy in the app. relay-screen reads the models folder from settings.json
+`local_ai.models_dir`; the old top-level `models_folder` still works. This
+moves into relay-core with the runtime in M2 (D-037).
+
+Not read by relay-screen yet (to do in M1-10/M1-11):
+- `local_ai.grounding` and `local_ai.describe` (`{model_id, quant}`): the
+  supervisor still uses the catalog defaults (D-036);
+- `local_ai.idle_unload_secs`: the supervisor still uses 60 s (D-042);
+- `safety.always_ask` and `phone_approvals`.
+
+## D-059 llama.cpp: newest release that has a Windows CUDA build
+*2026-10-14 · accepted · app thread, PR #46 · amends D-052*
+
+GitHub's "latest" release of ggml-org/llama.cpp is v0.6.0, which has no
+Windows binaries. With no tag given, relay-screen now reads
+`/releases?per_page=30` and takes the newest release that has a Windows CUDA
+build the driver supports. On the owner's PC that installs b11624 with
+CUDA 13.4.
