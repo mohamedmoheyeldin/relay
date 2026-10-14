@@ -357,3 +357,61 @@ level up, and `depth` still counts real levels. A filtered listing hides
 nothing. On example.com in Edge this cut the depth-12 tree from about 5.5k to
 2.6k tokens without losing any control that has a name, an id or an action.
 `uia_find` is unchanged.
+
+## D-028 The owner's browser is Brave Origin
+*2026-10-14 · accepted · corrects the browser facts behind D-016 and D-017*
+
+The owner uses Brave Origin only. Earlier notes said Edge was the default. The
+Edge browser is no longer installed, though `EdgeCore` (a Windows component)
+still has an `msedge.exe` and the https handler still names Edge. Brave Origin
+shows a purchase screen in a fresh profile, so a throwaway profile is not an
+option for it. Live checks open one new window in the owner's own Brave profile
+and close only that window. Brave builds a full UIA tree for page content while
+the screen-reader flag (D-017) is set, with no extra flags. For M2's browser lane
+(D-016), a dedicated Brave profile would need the owner to restore their
+purchase in it first.
+
+## D-029 OCR calls Windows.Media.Ocr directly
+*2026-10-14 · accepted (amends D-013) · M1-08*
+
+D-013 named the `winocr` package. It is a 40-line wrapper with no license field,
+so `find_text` uses the `winrt-Windows.Media.Ocr` projections (MIT) directly.
+The engine uses the owner's profile languages and falls back to en-US. Captures
+larger than the engine's limit (about 2600 px) are split into overlapping tiles,
+and each line is kept only by the tile that owns its center. Regions under 1200
+px are upscaled 2x, because small UI text reads better bigger. Queries match
+spans of consecutive words. They are fuzzy by default (similarity of 0.8 or
+more, so OCR slips like "Cancle" still match) and exact with `fuzzy=false`.
+Results give centers in screenshot pixels and the OCR time.
+
+## D-030 Relay discovers installed apps instead of using fixed paths
+*2026-10-14 · accepted · owner request*
+
+The owner asked that Relay find installed programs itself. Two Relay-only tools
+do it. `list_apps(query, refresh)` is a read. `launch_app(name, args)` is an act,
+behind the approval prompt like any other. The catalog merges three sources at
+run time:
+- Start menu apps from `Get-StartApps`, Store apps included. Known-folder AppIDs
+  are resolved to their program path.
+- Registered App Paths (HKCU, HKLM and WOW6432Node).
+- Registered browsers (`Clients\StartMenuInternet`). The https `UserChoice`
+  handler is marked as the default.
+
+Start menu names win, browsers fill in exe paths, and App Paths add what is left.
+The scan is cached for 5 minutes, and a name that is not found triggers one
+rescan. Names resolve exact first, then by program name, prefix, word and fuzzy.
+A name that stays ambiguous returns the closest candidates instead of guessing.
+`"browser"` means the default browser, unless that browser has no Start menu
+entry and exactly one other browser does. That covers this PC (D-028): the
+handler still names EdgeCore, and Brave Origin is the browser the owner uses.
+
+Launching goes through `shell:AppsFolder` when there are no args, the same way a
+Start menu click does, so Store apps work too. With args, the program is started
+directly, detached and outside Claude Code's job object where Windows allows it.
+Relay only launches apps from the catalog, never an arbitrary path. Afterwards it
+waits up to 10 s for the app's window. That is a new window, the window that came
+to the front, or one of the app's windows whose title changed (a browser adding a
+tab). Relay brings the window to the front with AttachThreadInput, because the
+server is a background process, and reports the window's title and its display.
+Live checks use the catalog too (`scripts/check_apps.py`; `check_uia.py` finds
+Brave Origin this way).
