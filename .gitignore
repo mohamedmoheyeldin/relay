@@ -282,3 +282,10 @@ Desktop.ini
 
 # Claude Code local-only settings
 .claude/settings.local.json
+/target/
+
+# Installer build output and bundled Python (scripts/build_installer.py)
+/.cache/
+relay-ui/resources/python/*
+!relay-ui/resources/python/.gitkeep
+!relay-ui/src/lib/

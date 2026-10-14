@@ -61,13 +61,29 @@ _CUDART_ZIP = "cudart-llama-bin-win-cuda-{major}.{minor}-x64.zip"
 def llama_release(
     get_json: GetJson, tag: str | None = None, driver_cuda: tuple[int, int] | None = None
 ) -> RuntimeRelease:
-    """The Windows CUDA build of llama.cpp `tag` (default: the latest release).
+    """The Windows CUDA build of llama.cpp `tag` (default: the newest release that has one).
 
     Picks the newest CUDA build the driver supports (`driver_cuda`, from NVML), never
-    older than CUDA 12.8.
+    older than CUDA 12.8. Without a tag it walks the recent releases newest first:
+    llama.cpp marks its `bNNNN` builds as pre-releases, and GitHub's "latest" release
+    can be a tag with no Windows binaries at all.
     """
-    path = f"tags/{tag}" if tag else "latest"
-    release = get_json(f"https://api.github.com/repos/{LLAMA_REPO}/releases/{path}")
+    base = f"https://api.github.com/repos/{LLAMA_REPO}/releases"
+    if tag:
+        releases = [get_json(f"{base}/tags/{tag}")]
+    else:
+        releases = [r for r in get_json(f"{base}?per_page=30") if not r.get("draft")]
+    for release in releases:
+        if picked := _windows_cuda(release, driver_cuda):
+            return picked
+    have = f" (driver supports CUDA {driver_cuda[0]}.{driver_cuda[1]})" if driver_cuda else ""
+    which = f"llama.cpp {tag}" if tag else "No recent llama.cpp release"
+    raise SourceError(f"{which} has no Windows CUDA 12.8+ build{have}")
+
+
+def _windows_cuda(
+    release: dict[str, Any], driver_cuda: tuple[int, int] | None
+) -> RuntimeRelease | None:
     assets = {a["name"]: a for a in release.get("assets", [])}
     builds: list[tuple[tuple[int, int], dict[str, Any]]] = []
     for name, asset in assets.items():
@@ -76,10 +92,7 @@ def llama_release(
             if cuda >= MIN_CUDA and (driver_cuda is None or cuda <= driver_cuda):
                 builds.append((cuda, asset))
     if not builds:
-        have = f" (driver supports CUDA {driver_cuda[0]}.{driver_cuda[1]})" if driver_cuda else ""
-        raise SourceError(
-            f"llama.cpp {release.get('tag_name', tag)} has no Windows CUDA 12.8+ build{have}"
-        )
+        return None
     cuda, asset = max(builds, key=lambda b: b[0])
     files = [_github_file(asset)]
     if cudart := assets.get(_CUDART_ZIP.format(major=cuda[0], minor=cuda[1])):

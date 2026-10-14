@@ -26,11 +26,17 @@ def settings_file() -> Path | None:
 
 
 def models_folder_setting(path: Path | None) -> Path | None:
-    """The owner's models folder from Settings > Local AI (D-046), if they changed it."""
+    """The owner's models folder from Settings > Local AI (D-046), if they changed it.
+
+    The app stores it as `local_ai.models_dir`; a top-level `models_folder` is read too.
+    """
     if path is None or not path.is_file():
         return None
     try:
-        folder = json.loads(path.read_text(encoding="utf-8")).get("models_folder")
+        data = json.loads(path.read_text(encoding="utf-8"))
+        local_ai = data.get("local_ai")
+        folder = local_ai.get("models_dir") if isinstance(local_ai, dict) else None
+        folder = folder or data.get("models_folder")
     except (OSError, ValueError, AttributeError):
         return None
     return Path(folder) if isinstance(folder, str) and folder else None
