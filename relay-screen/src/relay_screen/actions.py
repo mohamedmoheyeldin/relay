@@ -22,6 +22,7 @@ from relay_screen.errors import ActionError
 from relay_screen.input.driver import MAX_DURATION, InputDriver
 from relay_screen.input.events import Button
 from relay_screen.input.keys import parse_modifiers
+from relay_screen.ocr import OcrService
 from relay_screen.safety.approval import ActRequest
 from relay_screen.safety.audit import AuditLog, elapsed_ms
 from relay_screen.scaling import Rect, ScreenshotGeometry
@@ -59,6 +60,7 @@ RELAY_MEMBERS: dict[str, Kind] = {
     "uia_find": "read",
     "uia_invoke": "act",
     "uia_set_value": "act",
+    "find_text": "read",
 }
 
 MEMBERS: dict[str, Kind] = {**TOOLSET_MEMBERS, **RELAY_MEMBERS}
@@ -89,6 +91,7 @@ _ALLOWED_PARAMS: dict[str, frozenset[str]] = {
     "uia_find": frozenset({"query", "role", "window"}),
     "uia_invoke": frozenset({"element"}),
     "uia_set_value": frozenset({"element", "value"}),
+    "find_text": frozenset({"text", "region", "fuzzy"}),
 }
 
 PREVIEW_EDGE = 720  # px, long edge of the screenshot shown in the approval prompt
@@ -121,6 +124,7 @@ class Computer:
     sleep: Callable[[float], None] = time.sleep
     audit: AuditLog | None = None
     uia: UiaService | None = None
+    ocr: OcrService | None = None
 
     # -- public ---------------------------------------------------------------
 
@@ -476,6 +480,26 @@ class Computer:
         uia = self._uia()
         area = self._element_area(element)
         return self._act(area, lambda: uia.set_value(element, value))
+
+    # -- OCR (Relay-only) -----------------------------------------------------
+
+    def _do_find_text(
+        self, text: str | None = None, region: Any = None, fuzzy: bool = True
+    ) -> ActionResult:
+        if self.ocr is None:
+            raise ActionError("OCR is not available in this server")
+        if text is not None and not isinstance(text, str):
+            raise ActionError("text must be text")
+        box = None
+        if region is not None:
+            if (
+                not isinstance(region, (list, tuple))
+                or len(region) != 4
+                or not all(isinstance(v, int) and not isinstance(v, bool) for v in region)
+            ):
+                raise ActionError("region must be [x0, y0, x1, y1] integers in screenshot pixels")
+            box = (region[0], region[1], region[2], region[3])
+        return ActionResult(self.ocr.find_text(self._geometry(), text, box, bool(fuzzy)))
 
 
 def _duration(value: Any) -> float:
