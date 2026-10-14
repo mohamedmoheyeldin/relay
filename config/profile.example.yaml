@@ -1,0 +1,15 @@
+# Copy to profile.yaml (gitignored) and fill in. Only the fields a step needs are sent to Claude.
+name: Jane Example
+email: jane@example.com
+phone: "+1 555 0100"
+address:
+  line1: 1 Example Street
+  city: Springfield
+  region: IL
+  postal_code: "62704"
+  country: US
+business:
+  name: Example LLC
+  website: https://example.com
+preferences:
+  browser: edge        # edge | brave | chrome
