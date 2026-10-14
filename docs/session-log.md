@@ -9,6 +9,10 @@ Short entries so later sessions can pick up where earlier ones stopped. Newest f
 - Owner: no more draft PRs; Claude merges its own PRs into `dev` and then `dev` into `main` on green CI (D-031). Owner stopped live PC checks that kept opening windows: run them only when asked.
 - Adopted the final architecture proposal as D-032 to D-039 (Rust always-on core wrapping the Python hands, warm MCP over localhost HTTP, speed ladder, Brave extension browser lane, two vision models resident, runtime in the core from M2, Windows through v1, D-001 confirmed).
 
+## 2026-10-14 · Final architecture: how RefBox gets smooth control
+- Owner asked to rethink the proposal against how RefBox achieves smooth Windows/macOS automation. Read refbox.ai and its Q&A (routing table, HDMI/HID, models, text-only cloud summaries) alongside research/refbox.md.
+- Revised [proposals/final-architecture.md](proposals/final-architecture.md): new section 2 (what RefBox does, what Relay copies, beats, skips); relay-core gains always-on perception (WGC frame stream, settle events, UIA events, overlay); text-first observations to Claude; models warm for the whole task; optional uiAccess helper; macOS AX wake-up attributes. Decisions 9-12 added for the plan thread.
+
 ## 2026-10-14 · App discovery
 - `list_apps` and `launch_app` (`relay_screen/apps.py` pure, `apps_windows.py` for Start menu, App Paths, registered browsers and window tracking). `"browser"` picks the owner's browser even though the https handler still names EdgeCore. Design: D-030.
 - On-PC check: `uv run python scripts/check_apps.py` (discovery, Notepad by name in front, browser with a URL). `check_uia.py` finds Brave Origin through the catalog.
