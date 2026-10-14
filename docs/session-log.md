@@ -2,6 +2,12 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
+## 2026-10-14 · Local checks only, pnpm
+- Owner: no GitHub Actions for tests; run every check locally. Removed `.github/workflows/ci.yml`, added `scripts/check.py` (ruff, format, pyright, pytest) as the gate before push and merge. The app will use pnpm. D-050.
+
+## 2026-10-14 · Product target: one download, one app
+- Owner wants a complete RefBox-like app: one installer, local model chosen in Settings, all MCP connections managed in one place. Recorded as D-044 (one installer + first-run wizard), D-045 (Relay sets up Claude Code with Anthropic's official installer and an in-app sign-in), D-046 (model picker), D-047 (MCP hub over `claude mcp`), D-048 (all settings in the app) and D-049 (live PC checks only on request). Roadmap rewritten around v1.0 = clean install from `Relay-Setup.exe`.
+
 ## 2026-10-14 · More architecture decisions
 - Adopted D-040 to D-043 from the revised proposal (#31): always-on perception in relay-core (WGC frame stream, change events, UIA watcher, overlay), text-first observations to Claude, models load at task start and unload 60 s after it ends, optional signed uiAccess helper for elevated windows.
 
