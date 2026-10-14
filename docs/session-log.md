@@ -2,6 +2,11 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
+## 2026-10-14 · M1-02..04 verified on the owner's PC
+- PR #19 merged (displays, screenshots, input). All three monitors capture correctly; cursor moves land with 0 px error.
+- Live typing found two bugs fixed in the follow-up PR: Windows 11 Notepad garbles Unicode packets for letters (now real key presses, D-023) and emoji crashed `VkKeyScanW`. `scripts/check_input.py` now types into its own Tk box and compares read-back.
+- Next: M1-05 (computer toolset member tools + batch, with D-018 change verdicts), then M1-06 safety.
+
 ## 2026-10-14 · M1-01 done, M1-02..04 built
 - PR #16 (plan + scaffolding) merged into `dev`; repo cloned to `C:\Projects\relay` on the owner's PC; headless `claude -p` called `mcp__relay-screen__ping` successfully. Owner still needs to accept the folder trust prompt in `C:\Projects\relay` once.
 - Built display geometry/scaling, screenshot + zoom + list/select display tools, and the SendInput input layer (not yet exposed as tools; that is M1-05).
