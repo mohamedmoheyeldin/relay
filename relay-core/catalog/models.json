@@ -1,0 +1,93 @@
+{
+  "_comment": "Local model catalog for Settings > Local AI (D-046). Sizes are estimates for the VRAM fit check only; the files, their source repo and SHA-256 come from relay-screen's runtime at download time (D-052).",
+  "models": [
+    {
+      "id": "ui-venus-1.5-8b",
+      "name": "UI-Venus-1.5-8B",
+      "role": "grounding",
+      "summary": "Finds where things are on screen. Relay's default \"where is it\" model (D-036).",
+      "license": "Apache-2.0",
+      "default_quant": "Q4_K_M",
+      "quants": [
+        {
+          "quant": "Q4_K_M",
+          "size": 5027785472
+        },
+        {
+          "quant": "Q5_K_M",
+          "size": 5851114240
+        },
+        {
+          "quant": "Q8_0",
+          "size": 8709520128
+        }
+      ],
+      "mmproj_size": 1160000000
+    },
+    {
+      "id": "qwen3-vl-8b-instruct",
+      "name": "Qwen3-VL-8B-Instruct",
+      "role": "describe",
+      "summary": "Checks and describes what is on screen. Relay's default \"check / describe\" model (D-036).",
+      "license": "Apache-2.0",
+      "default_quant": "Q4_K_M",
+      "quants": [
+        {
+          "quant": "Q4_K_M",
+          "size": 5027784800
+        },
+        {
+          "quant": "Q8_0",
+          "size": 8709519456
+        }
+      ],
+      "mmproj_size": 1160000000
+    },
+    {
+      "id": "holo2-8b",
+      "name": "Holo2-8B",
+      "role": "both",
+      "summary": "One model for both finding and checking. The single-model fallback (D-036).",
+      "license": "See the model card",
+      "default_quant": "Q4_K_M",
+      "quants": [
+        {
+          "quant": "Q4_K_M",
+          "size": 5027785664
+        },
+        {
+          "quant": "Q5_K_M",
+          "size": 5851114432
+        },
+        {
+          "quant": "Q8_0",
+          "size": 8709520320
+        }
+      ],
+      "mmproj_size": 1160000000
+    },
+    {
+      "id": "holo2-4b",
+      "name": "Holo2-4B",
+      "role": "both",
+      "summary": "A smaller model for both roles, for GPUs with less VRAM.",
+      "license": "See the model card",
+      "default_quant": "Q4_K_M",
+      "quants": [
+        {
+          "quant": "Q4_K_M",
+          "size": 2716070336
+        },
+        {
+          "quant": "Q5_K_M",
+          "size": 3156922816
+        },
+        {
+          "quant": "Q8_0",
+          "size": 4693672896
+        }
+      ],
+      "mmproj_size": 840000000
+    }
+  ]
+}
