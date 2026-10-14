@@ -6,7 +6,7 @@ non-obvious choice is in `docs/decisions.md` (append-only, D-0xx).
 
 ## Conventions
 - The owner's local checkout lives at `C:\Projects\relay` (all their projects are under `C:\Projects`).
-- Branches: work on a feature branch, PR into `dev`. `main` is stable only.
+- Branches: work on a feature branch, PR into `dev`, then `dev` into `main`. Claude opens PRs ready for review (not drafts) and merges them itself once CI is green, `dev` and `main` alike, closing linked issues (owner request, D-031).
 - Small commits with clear messages. Add a `docs/session-log.md` entry at the end of a working session.
 - New design decisions get a new D-entry in `docs/decisions.md`; never rewrite old ones.
 - Python 3.12 via uv workspace. Run `uv run ruff check`, `uv run ruff format --check`, `uv run pyright`, `uv run pytest` before pushing.

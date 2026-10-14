@@ -78,6 +78,7 @@ items 2-4 can run in parallel after 1.
 - Download pinned llama.cpp CUDA build + model files to `%LOCALAPPDATA%\Relay\` with resume and SHA-256 verification; progress reported.
 - Start on demand on a private port with full GPU offload; stop after 60 s idle; NVML free-VRAM check before load; never spill to system RAM.
 - `relay-screen doctor` CLI: driver/CUDA, VRAM, runtime, models, Claude Code version and login state.
+- Moves into the Rust relay-core in M2 (D-037).
 
 **Acceptance:** cold start -> first answer measured and logged; after 60 s idle `nvidia-smi` shows the VRAM released; doctor output readable and correct on the owner's PC.
 
@@ -91,7 +92,8 @@ items 2-4 can run in parallel after 1.
 ### M1-11 Grounding benchmark and model decision
 - Small eval set: ~60 labelled targets from the owner's own apps (3440x1440) + the test site + a ScreenSpot-Pro subset.
 - Compare UI-Venus-1.5-8B, Holo2-8B, Holo2-4B, Qwen3-VL-8B at Q4_K_M and Q8_0: accuracy, latency, VRAM peak, swap time.
-- Update D-005 with the result and set defaults in config.
+- Also measure both models resident together at Q4/Q5 (D-036).
+- Update D-005/D-036 with the result and set defaults in config.
 
 **Acceptance:** results table committed under `docs/research/`; D-005 marked accepted with the chosen default(s).
 

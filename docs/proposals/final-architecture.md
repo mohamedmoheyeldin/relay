@@ -1,6 +1,6 @@
 # Proposal: Relay final architecture
 
-> Status: proposal, 2026-10-14. Written in response to the owner's revised
+> Status: adopted 2026-10-14 as D-032 to D-039. Written in response to the owner's revised
 > architecture brief (Rust always-on core, speed ladder, local model table,
 > cross-platform). Nothing here changes `architecture.md` or `decisions.md`;
 > section 9 lists the decisions the plan thread should adopt as new D-entries.
