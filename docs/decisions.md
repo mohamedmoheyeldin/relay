@@ -383,3 +383,35 @@ px are upscaled 2x, because small UI text reads better bigger. Queries match
 spans of consecutive words. They are fuzzy by default (similarity of 0.8 or
 more, so OCR slips like "Cancle" still match) and exact with `fuzzy=false`.
 Results give centers in screenshot pixels and the OCR time.
+
+## D-030 Relay discovers installed apps instead of using fixed paths
+*2026-10-14 · accepted · owner request*
+
+The owner asked that Relay find installed programs itself. Two Relay-only tools
+do it. `list_apps(query, refresh)` is a read. `launch_app(name, args)` is an act,
+behind the approval prompt like any other. The catalog merges three sources at
+run time:
+- Start menu apps from `Get-StartApps`, Store apps included. Known-folder AppIDs
+  are resolved to their program path.
+- Registered App Paths (HKCU, HKLM and WOW6432Node).
+- Registered browsers (`Clients\StartMenuInternet`). The https `UserChoice`
+  handler is marked as the default.
+
+Start menu names win, browsers fill in exe paths, and App Paths add what is left.
+The scan is cached for 5 minutes, and a name that is not found triggers one
+rescan. Names resolve exact first, then by program name, prefix, word and fuzzy.
+A name that stays ambiguous returns the closest candidates instead of guessing.
+`"browser"` means the default browser, unless that browser has no Start menu
+entry and exactly one other browser does. That covers this PC (D-028): the
+handler still names EdgeCore, and Brave Origin is the browser the owner uses.
+
+Launching goes through `shell:AppsFolder` when there are no args, the same way a
+Start menu click does, so Store apps work too. With args, the program is started
+directly, detached and outside Claude Code's job object where Windows allows it.
+Relay only launches apps from the catalog, never an arbitrary path. Afterwards it
+waits up to 10 s for the app's window. That is a new window, the window that came
+to the front, or one of the app's windows whose title changed (a browser adding a
+tab). Relay brings the window to the front with AttachThreadInput, because the
+server is a background process, and reports the window's title and its display.
+Live checks use the catalog too (`scripts/check_apps.py`; `check_uia.py` finds
+Brave Origin this way).
