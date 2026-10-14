@@ -216,3 +216,144 @@ dedicated profile and remote debugging on localhost, and add a DOM lane between
 UIA and vision. Trade-off: a separate browser profile means logins are not
 shared with the owner's everyday profile. Decide in M2 with real data from the
 M1 form demo.
+
+## D-017 Wake up accessibility trees while Relay is armed
+*2026-10-14 · accepted · from the Violoop research thread (PR #18)*
+
+Chromium/Electron apps only build a full UIA tree when they believe assistive
+technology is running. While Relay is armed it sets `SPI_SETSCREENREADER` (and
+restores the previous value on exit or crash recovery). When Relay launches a
+browser itself it adds `--force-renderer-accessibility`. This makes the UIA
+layer (D-008) useful in Electron apps without bundling a screen reader such as
+NVDA (GPL). Tracked in #7.
+
+## D-018 Every act reports what changed
+*2026-10-14 · accepted · from the Violoop research thread*
+
+After each state-changing action relay-screen re-reads the target cheaply
+(UIA value/focus where available, otherwise a pixel diff of the region around
+the target) and appends a one-line verdict to the tool result, e.g.
+`OK · target changed` or `OK · no visible change`. The local VLM `verify` stays
+on demand. This catches silent misses early without a cloud round trip.
+Tracked in #5.
+
+## D-019 Approvals cannot be given by synthetic input
+*2026-10-14 · accepted · from the Violoop research thread*
+
+The approval prompt is Relay's own top-most window and ignores injected input
+(events flagged `LLMHF_INJECTED`/`LLKHF_INJECTED`, including Relay's own
+SendInput events), so the agent can never click "Approve" on itself. Tracked
+in #6; the M3 tray UI keeps the same rule.
+
+## D-020 Playbooks are Claude Code skill compatible
+*2026-10-14 · accepted (amends architecture §7) · from the Violoop research thread*
+
+Playbook front matter uses the Claude Code `SKILL.md` keys (`name`,
+`description`) plus Relay's own keys (`app`, `match`, `inputs`,
+`irreversible_steps`, `last_success`). Relay replays them locally without a
+cloud call; when escalation is needed, Claude Code can load the same file as a
+skill. Tracked in #12.
+
+## D-021 More API lanes before pixels
+*2026-10-14 · accepted for M2 · from the Violoop research thread*
+
+Extends D-003/D-008: Office apps are driven through COM automation (Word,
+Excel, Outlook) before screen automation; browsers get the DOM lane from D-016
+using Playwright's `aria_snapshot()` over CDP, with form field values redacted
+before anything is sent to Claude. Both are M2 work.
+
+## D-022 Rejected for now: OmniParser icon fallback; deferred: PP-OCR
+*2026-10-14 · accepted*
+
+OmniParser v2 stays out even as an optional out-of-process helper: its detector
+is AGPL-3.0 and it scores 39.6 on ScreenSpot-Pro against ~68 for the planned
+grounding model (D-005), so it adds licence risk for little gain. Revisit in M4
+only if the benchmark (#11) shows icon-only targets failing. PP-OCRv4 stays the
+optional faster/denser OCR from D-013, to be added only if Windows OCR misses
+text in #8.
+
+## D-023 Typing: real key presses first, Unicode packets for the rest, paced
+*2026-10-14 · accepted · measured on the owner's PC*
+
+Windows 11 Notepad garbled `KEYEVENTF_UNICODE` packets for ordinary letters,
+even with pacing, while a plain Tk text box received them fine. `type` now
+sends every character the active keyboard layout can produce (`VkKeyScanW`)
+as a virtual-key press with any shift state it needs, uses Unicode packets
+only for characters outside the layout (✓, é on a US layout, emoji as
+surrogate pairs), and sends one character per SendInput call with an 8 ms
+pause. Verified on the owner's PC: exact read-back of ASCII, ✓, é/è and 😀 in
+Notepad and in the Tk check; cursor moves land with 0 px error on all three
+monitors. Clipboard paste remains an option for very long text (not needed yet).
+
+## D-024 Change verdicts wait for animations
+*2026-10-14 · accepted · measured on the owner's PC*
+
+The D-018 verdict compared the screen once, 0.15 s after an act. Windows shell
+surfaces animate: the Start menu and its search box were reported as
+"no visible change" on the owner's PC although they had opened, and closing
+Start with Escape too. The verdict now looks again every 0.1 s and stops at the
+first change; only after 0.75 s with nothing changed does it say
+"no visible change". Acts that change something cost no extra time; acts that
+change nothing cost up to 0.6 s more. Verified with `scripts/check_batch.py`:
+every step of the Start → "notepad" → Return batch now reports "screen changed".
+
+## D-025 Relay's own prompt is the approval gate
+*2026-10-14 · accepted (amends D-011) · M1-06*
+
+D-011 left interactive approvals to Claude Code's permission prompts. Two problems
+showed up while building M1-06: a `batch` is one tool call, so Claude Code could
+only approve it as a whole, and Claude Code's prompt lives in a terminal that
+Relay can type into, so Claude could approve its own actions (against D-019).
+
+Relay's own prompt is therefore the gate for every act, in single tools and in
+each step of a batch. It is a small top-most window in a separate process that
+drops injected mouse and keyboard input aimed at it, shows the action in words
+plus a screenshot with the target circled, and gives focus back to the window
+that had it. Buttons: Approve, Approve rest of batch (batches only), Deny. No
+answer in 120 s counts as Deny. The relay-screen act tools are allowlisted in
+`.claude/settings.json` so the owner is not asked twice. The `approve` tool
+(for `claude -p --permission-prompt-tool`) allows relay-screen tools for the
+same reason and shows any other tool in the same prompt.
+`RELAY_APPROVAL=off` turns the per-act prompt off; it is never the default.
+
+Kill switch details: Relay refuses to move the mouse into the 8x8 px corner
+itself, so a cursor found there was put there by the owner. When stopped, key
+and button releases still go through so nothing stays held. Reads
+(screenshot, zoom, cursor_position) keep working. Re-arming needs the owner's
+answer in the same prompt (`rearm` tool).
+
+Audit log: `runs/<run-id>/actions.jsonl` (cwd or `RELAY_RUNS_DIR`), one line
+per action with input, approval, result or error and duration, plus 480 px
+before/after thumbnails of the active display for acts.
+
+## D-026 UI Automation runs on one thread and hands out element ids
+*2026-10-14 · accepted · M1-07*
+
+`uia_tree` and `uia_find` give every element they list a short id (`e12`) that
+`uia_invoke` and `uia_set_value` take, so Claude never has to describe an element
+twice. Ids stay valid for the server's lifetime (last 5,000 kept); a vanished
+element gives a clear error. All COM calls run on one dedicated thread, because
+UIA element pointers belong to the thread that created them and MCP calls
+arrive on varying worker threads. Listings are capped at 400 elements, 24k
+characters (about 6-8k tokens) and 6 s, with a note telling Claude how to narrow
+the search. With no `window` given, the search covers the foreground window plus
+the other visible top-level windows of the same process, so menus and dialogs
+that open as separate windows are found. `uia_invoke` uses the control's own
+action (Invoke, then Toggle, Expand/Collapse, Select) and moves no mouse. The
+UIA tools go through the same kill switch, approval prompt and audit log as the
+computer tools, and can be used inside `batch`. The screen-reader flag (D-017) is
+set when the UIA backend starts and restored at exit.
+
+## D-027 UIA listings name the display and skip layout noise
+*2026-10-14 · accepted · M1-07, amends D-026*
+
+The live check on the owner's three monitors showed two gaps. An element on a
+monitor other than the active one was listed only as "not on the active
+display", which left Claude no way forward. It now reads "on display N, not the
+active one (select_display N)". `uia_tree` also skips unnamed elements with no
+automation id when they are hidden (no bounds) or are bare layout containers
+(Pane, Group, Custom, Text with no action). Their children are still listed one
+level up, and `depth` still counts real levels. A filtered listing hides
+nothing. On example.com in Edge this cut the depth-12 tree from about 5.5k to
+2.6k tokens without losing any control that has a name, an id or an action.
+`uia_find` is unchanged.

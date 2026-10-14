@@ -34,12 +34,33 @@
       "mcp__relay-screen__describe",
       "mcp__relay-screen__verify",
       "mcp__relay-screen__playbook_list",
-      "mcp__relay-screen__playbook_load"
+      "mcp__relay-screen__playbook_load",
+      "mcp__relay-screen__batch",
+      "mcp__relay-screen__safety_status",
+      "mcp__relay-screen__rearm",
+      "mcp__relay-screen__approve",
+      "mcp__relay-screen__mouse_move",
+      "mcp__relay-screen__left_click",
+      "mcp__relay-screen__right_click",
+      "mcp__relay-screen__middle_click",
+      "mcp__relay-screen__double_click",
+      "mcp__relay-screen__triple_click",
+      "mcp__relay-screen__left_click_drag",
+      "mcp__relay-screen__left_mouse_down",
+      "mcp__relay-screen__left_mouse_up",
+      "mcp__relay-screen__scroll",
+      "mcp__relay-screen__type",
+      "mcp__relay-screen__key",
+      "mcp__relay-screen__hold_key",
+      "mcp__relay-screen__uia_invoke",
+      "mcp__relay-screen__uia_set_value"
     ],
     "deny": [
       "Read(./.env)",
       "Read(./.env.*)"
     ]
   },
-  "enabledMcpjsonServers": ["relay-screen"]
+  "enabledMcpjsonServers": [
+    "relay-screen"
+  ]
 }
