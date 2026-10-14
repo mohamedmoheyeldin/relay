@@ -15,6 +15,7 @@ run reports success (D-051). It uses the GitHub CLI's login (`gh auth login`).
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
 
@@ -26,6 +27,29 @@ STEPS = [
     ["pyright"],
     ["pytest", "-q", "-m", "not desktop"],
 ]
+
+
+# The Rust core and the Tauri app (relay-core, relay-ui). They run when cargo and pnpm
+# are installed. Off Windows the app is checked for the MinGW target, which needs no
+# Linux GUI libraries (rustup target add x86_64-pc-windows-gnu).
+APP_STEPS = [
+    ["cargo", "fmt", "--all", "--check"],
+    ["cargo", "clippy", "-p", "relay-core", "--all-targets", "--", "-D", "warnings"],
+    ["cargo", "test", "-p", "relay-core"],
+    ["pnpm", "--dir", "relay-ui", "exec", "tsc", "--noEmit"],
+]
+APP_CLIPPY = ["cargo", "clippy", "-p", "relay-ui", "--", "-D", "warnings"]
+
+
+def app_steps() -> list[list[str]]:
+    if not (shutil.which("cargo") and shutil.which("pnpm")):
+        print("Skipping the app checks: cargo and pnpm are needed.")
+        return []
+    steps = [list(s) for s in APP_STEPS]
+    clippy = list(APP_CLIPPY)
+    if sys.platform != "win32":
+        clippy[4:4] = ["--target", "x86_64-pc-windows-gnu"]
+    return [*steps, clippy]
 
 
 def git(*args: str) -> str:
@@ -73,6 +97,10 @@ def main() -> int:
     for step in steps:
         print(f"$ uv run {' '.join(step)}", flush=True)
         if subprocess.run(["uv", "run", *step], check=False).returncode != 0:
+            failed.append(" ".join(step))
+    for step in app_steps():
+        print(f"$ {' '.join(step)}", flush=True)
+        if subprocess.run(step, check=False).returncode != 0:
             failed.append(" ".join(step))
     summary = "ALL CHECKS PASS" if not failed else f"FAILED: {', '.join(failed)}"
     print(summary)
