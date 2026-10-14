@@ -162,9 +162,11 @@ def test_type_text_unicode_newlines_and_surrogates():
     assert events[12:] == [KeyEvent(keys.VK_TAB, True), KeyEvent(keys.VK_TAB, False)]
 
 
-def test_type_text_is_chunked():
-    d, b = driver()
-    d.type_text("x" * 70)
-    assert len(b.batches) == 3
+def test_type_text_sends_one_character_per_call_with_pause():
+    backend = RecordingBackend()
+    d = InputDriver(backend, step_delay=0, char_delay=0.01)
+    d.type_text("abc")
+    assert len(backend.batches) == 3
+    assert backend.sleeps == [0.01, 0.01, 0.01]
     with pytest.raises(ValueError):
         d.type_text("")

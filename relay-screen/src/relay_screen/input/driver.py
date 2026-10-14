@@ -29,7 +29,9 @@ from relay_screen.input.keys import (
 )
 
 WHEEL_DELTA = 120
-TYPE_CHUNK = 32  # characters per SendInput call when typing
+# Delay between typed characters. Some editors (Windows 11 Notepad's WinUI editor)
+# drop characters that arrive in one large SendInput burst, so typing is paced.
+CHAR_DELAY = 0.008
 MAX_REPEAT = 100
 MAX_DURATION = 300.0
 
@@ -42,9 +44,12 @@ def _modifier_events(modifiers: Sequence[str], down: bool) -> list[Event]:
 
 
 class InputDriver:
-    def __init__(self, backend: Backend, step_delay: float = 0.02) -> None:
+    def __init__(
+        self, backend: Backend, step_delay: float = 0.02, char_delay: float = CHAR_DELAY
+    ) -> None:
         self.backend = backend
         self.step_delay = step_delay
+        self.char_delay = char_delay
 
     # -- mouse -----------------------------------------------------------------
 
@@ -163,26 +168,25 @@ class InputDriver:
             self.backend.send(self._chord_events(chord, False))
 
     def type_text(self, text: str) -> None:
-        """Type text layout-independently with Unicode events; newlines and tabs as keys."""
+        """Type text layout-independently with Unicode events; newlines and tabs as keys.
+
+        Each character is its own SendInput call followed by a short pause.
+        """
         if not text:
             raise ValueError("text must not be empty")
-        events: list[Event] = []
         normalized = text.replace("\r\n", "\n").replace("\r", "\n")
-        for count, char in enumerate(normalized, start=1):
+        for char in normalized:
+            events: list[Event]
             if char == "\n":
-                events += [KeyEvent(VK_RETURN, True), KeyEvent(VK_RETURN, False)]
+                events = [KeyEvent(VK_RETURN, True), KeyEvent(VK_RETURN, False)]
             elif char == "\t":
-                events += [KeyEvent(VK_TAB, True), KeyEvent(VK_TAB, False)]
+                events = [KeyEvent(VK_TAB, True), KeyEvent(VK_TAB, False)]
             else:
+                events = []
                 for unit in _utf16_units(char):
                     events += [UnicodeEvent(unit, True), UnicodeEvent(unit, False)]
-            if count % TYPE_CHUNK == 0:
-                self.backend.send(events)
-                events = []
-                self.backend.sleep(self.step_delay)
-        if events:
             self.backend.send(events)
-
+            self.backend.sleep(self.char_delay)
 
 def _utf16_units(char: str) -> list[int]:
     data = char.encode("utf-16-le")
