@@ -5,7 +5,7 @@ use std::path::Path;
 use serde::Serialize;
 
 use crate::settings::Settings;
-use crate::{claude, gpu, mcp, models, paths, runtime};
+use crate::{claude, gpu, local_ai, mcp, paths};
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct Check {
@@ -93,32 +93,37 @@ pub async fn run(settings: &Settings, python: Option<&Path>, app_version: &str) 
         ),
         None => check("GPU", false, "No NVIDIA GPU found; local models are off"),
     });
-    let rt = runtime::state();
-    checks.push(check(
-        "Local AI runtime",
-        rt.installed,
-        if rt.installed {
-            format!(
-                "llama.cpp {} ({:?})",
-                rt.build,
-                rt.flavor.unwrap_or(runtime::Flavor::Cuda)
-            )
-        } else {
-            "not downloaded yet (Settings > Local AI)".into()
-        },
-    ));
-    let dir = settings.local_ai.models_dir();
-    let installed = models::installed(&dir);
-    checks.push(check(
-        "Local models",
-        !installed.is_empty(),
-        format!(
-            "{} installed in {} ({:.1} GB)",
-            installed.len(),
-            dir.display(),
-            paths::dir_size(&dir) as f64 / 1_073_741_824.0
-        ),
-    ));
+    let listing = match python.filter(|p| p.is_file()) {
+        Some(python) => local_ai::list(python).await.map_err(|e| format!("{e:#}")),
+        None => Err("relay-screen is not bundled with this build".into()),
+    };
+    match &listing {
+        Ok(l) => {
+            checks.push(match &l.runtime {
+                Some(rt) => check(
+                    "Local AI runtime",
+                    true,
+                    format!("llama.cpp {} (CUDA {})", rt.tag, rt.cuda),
+                ),
+                None => check(
+                    "Local AI runtime",
+                    false,
+                    "not downloaded yet (Settings > Local AI)",
+                ),
+            });
+            let ready = l.installed.iter().filter(|m| m.ready).count();
+            checks.push(check(
+                "Local models",
+                ready > 0,
+                format!(
+                    "{ready} downloaded in {} ({:.1} GB)",
+                    l.models_folder.display(),
+                    paths::dir_size(&l.models_folder) as f64 / 1_073_741_824.0
+                ),
+            ));
+        }
+        Err(e) => checks.push(check("Local AI runtime", false, e.clone())),
+    }
     checks.push(check(
         "Settings file",
         true,

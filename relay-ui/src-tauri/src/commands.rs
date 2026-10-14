@@ -8,9 +8,7 @@ use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_opener::OpenerExt;
 
 use relay_core::settings::{ActiveModel, Settings};
-use relay_core::{
-    catalog, chat, claude, doctor, gpu, mcp, models, paths, runtime, system, updates,
-};
+use relay_core::{catalog, chat, claude, doctor, gpu, local_ai, mcp, paths, system, updates};
 
 use crate::jobs;
 use crate::state::{self, AppState};
@@ -48,9 +46,7 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
         model_install,
         model_activate,
         model_delete,
-        custom_add_disk,
-        custom_add_hf,
-        custom_remove,
+        custom_add,
         mcp_list,
         mcp_get,
         mcp_catalog,
@@ -267,35 +263,46 @@ fn pty_kill(state: State<'_, AppState>) {
 struct LocalAiState {
     gpu: Option<gpu::Gpu>,
     recommendation: catalog::Recommendation,
-    models: Vec<models::ModelView>,
-    installed: Vec<models::Installed>,
-    custom: Vec<relay_core::settings::CustomModel>,
+    models: Vec<local_ai::ModelView>,
+    custom: Vec<local_ai::CustomView>,
     grounding: Option<ActiveModel>,
     describe: Option<ActiveModel>,
-    runtime: runtime::RuntimeState,
-    runtime_flavor: runtime::Flavor,
-    runtime_download_bytes: u64,
+    runtime: Option<local_ai::RuntimeInfo>,
+    /// Why the model store could not be read (no bundled relay-screen, say).
+    error: Option<String>,
     models_dir: PathBuf,
     models_dir_bytes: u64,
     idle_unload_secs: u32,
 }
 
+/// The bundled Python that runs relay-screen's model runtime.
+fn runtime_python(app: &AppHandle) -> Res<PathBuf> {
+    state::python_path(app)
+        .filter(|p| p.is_file())
+        .ok_or_else(|| "Local AI needs the relay-screen that comes with the installer.".into())
+}
+
 #[tauri::command]
-async fn local_ai_state(state: State<'_, AppState>) -> Res<LocalAiState> {
+async fn local_ai_state(app: AppHandle, state: State<'_, AppState>) -> Res<LocalAiState> {
     let s = state.settings();
     let g = gpu::detect().await;
-    let flavor = runtime::flavor_for(g.as_ref());
-    let dir = s.local_ai.models_dir();
+    let listing = match runtime_python(&app) {
+        Ok(python) => local_ai::list(&python).await.map_err(anyhow_err),
+        Err(e) => Err(e),
+    };
+    let l = listing.as_ref().ok();
+    let (models, custom) = local_ai::views(&s.local_ai, g.as_ref(), l);
+    let dir = l
+        .map(|l| l.models_folder.clone())
+        .unwrap_or_else(|| s.local_ai.models_dir());
     Ok(LocalAiState {
         recommendation: catalog::recommend(g.as_ref()),
-        models: models::views(&s.local_ai, g.as_ref()),
-        installed: models::installed(&dir),
-        custom: s.local_ai.custom_models.clone(),
+        models,
+        custom,
         grounding: s.local_ai.grounding.clone(),
         describe: s.local_ai.describe.clone(),
-        runtime: runtime::state(),
-        runtime_flavor: flavor,
-        runtime_download_bytes: runtime::download_bytes(flavor),
+        runtime: l.and_then(|l| l.runtime.clone()),
+        error: listing.err(),
         models_dir_bytes: paths::dir_size(&dir),
         models_dir: dir,
         idle_unload_secs: s.local_ai.idle_unload_secs,
@@ -305,13 +312,9 @@ async fn local_ai_state(state: State<'_, AppState>) -> Res<LocalAiState> {
 
 #[tauri::command]
 fn runtime_install(app: AppHandle) -> Res<()> {
+    let python = runtime_python(&app)?;
     jobs::spawn(&app, "runtime", move |r, cancel| async move {
-        let g = gpu::detect().await;
-        runtime::install(runtime::flavor_for(g.as_ref()), &cancel, &|stage, d, t| {
-            r.progress(&stage, d, t)
-        })
-        .await?;
-        Ok(())
+        local_ai::install_runtime(&python, &cancel, &|stage, d, t| r.progress(&stage, d, t)).await
     })
 }
 
@@ -332,27 +335,35 @@ fn set_active(s: &mut Settings, role: &str, active: Option<ActiveModel>) {
     }
 }
 
-#[tauri::command]
-fn model_install(app: AppHandle, model_id: String, quant: String) -> Res<()> {
-    let model = catalog::find(&model_id).ok_or("unknown model")?;
-    let job = format!("model:{model_id}:{quant}");
+/// Download `model` (a catalog id or a Hugging Face repo) and give it every role in
+/// `role` that has no model yet.
+fn download_job(
+    app: AppHandle,
+    job: String,
+    model: String,
+    id: String,
+    quant: String,
+    role: String,
+) -> Res<()> {
+    let python = runtime_python(&app)?;
     let app2 = app.clone();
     jobs::spawn(&app, &job, move |r, cancel| async move {
-        let st = app2.state::<AppState>();
-        let dir = st.settings().local_ai.models_dir();
-        let installed = models::install(&model, &quant, &dir, &cancel, &|stage, d, t| {
+        local_ai::download(&python, &model, &quant, &cancel, &|stage, d, t| {
             r.progress(&stage, d, t)
         })
         .await?;
-        // A freshly downloaded model takes any role that has none yet.
-        st.update(|s| {
-            for role in roles_for(&model.role) {
-                let empty = match role {
+        app2.state::<AppState>().update(|s| {
+            for slot in roles_for(&role) {
+                let empty = match slot {
                     "grounding" => s.local_ai.grounding.is_none(),
                     _ => s.local_ai.describe.is_none(),
                 };
                 if empty {
-                    set_active(s, role, Some(installed.active()));
+                    let active = ActiveModel {
+                        model_id: id.clone(),
+                        quant: quant.clone(),
+                    };
+                    set_active(s, slot, Some(active));
                 }
             }
         })?;
@@ -360,34 +371,47 @@ fn model_install(app: AppHandle, model_id: String, quant: String) -> Res<()> {
     })
 }
 
-/// Use an installed catalog model (or a custom one: quant "custom") for a role.
 #[tauri::command]
-fn model_activate(
+fn model_install(app: AppHandle, model_id: String, quant: String) -> Res<()> {
+    let model = catalog::find(&model_id).ok_or("unknown model")?;
+    download_job(
+        app,
+        format!("model:{model_id}"),
+        model_id.clone(),
+        model_id,
+        quant,
+        model.role,
+    )
+}
+
+/// Download any GGUF repo from Hugging Face as a custom model (D-046).
+#[tauri::command]
+fn custom_add(app: AppHandle, repo: String, quant: String) -> Res<()> {
+    let repo = local_ai::check_repo(&repo).map_err(anyhow_err)?;
+    let quant = quant.trim().to_string();
+    if quant.is_empty() {
+        return Err("Enter a quantization such as Q4_K_M.".into());
+    }
+    let id = local_ai::custom_id(&repo);
+    download_job(app, "custom".into(), repo, id, quant, "both".into())
+}
+
+/// Use a downloaded model for a role ("grounding", "describe" or "both").
+#[tauri::command]
+async fn model_activate(
+    app: AppHandle,
     state: State<'_, AppState>,
     role: String,
     model_id: String,
-    quant: String,
 ) -> Res<Settings> {
-    let s = state.settings();
-    let active = if quant == "custom" {
-        let c = s
-            .local_ai
-            .custom_models
-            .iter()
-            .find(|c| c.id == model_id)
-            .ok_or("unknown custom model")?;
-        ActiveModel {
-            model_id: c.id.clone(),
-            quant: "custom".into(),
-            model_path: c.model_path.clone(),
-            mmproj_path: c.mmproj_path.clone(),
-        }
-    } else {
-        models::installed(&s.local_ai.models_dir())
-            .into_iter()
-            .find(|i| i.model_id == model_id && i.quant == quant)
-            .ok_or("download this model first")?
-            .active()
+    let python = runtime_python(&app)?;
+    let listing = local_ai::list(&python).await.map_err(anyhow_err)?;
+    let m = listing
+        .installed(&model_id)
+        .ok_or("Download this model first.")?;
+    let active = ActiveModel {
+        model_id: m.id.clone(),
+        quant: m.quant.clone(),
     };
     state
         .update(|s| set_active(s, &role, Some(active)))
@@ -395,90 +419,19 @@ fn model_activate(
 }
 
 #[tauri::command]
-fn model_delete(state: State<'_, AppState>, model_id: String, quant: String) -> Res<Settings> {
-    let dir = state.settings().local_ai.models_dir();
-    models::delete(&dir, &model_id, &quant).map_err(anyhow_err)?;
-    state
-        .update(|s| {
-            let gone = |a: &Option<ActiveModel>| {
-                a.as_ref()
-                    .is_some_and(|a| a.model_id == model_id && a.quant == quant)
-            };
-            if gone(&s.local_ai.grounding) {
-                s.local_ai.grounding = None;
-            }
-            if gone(&s.local_ai.describe) {
-                s.local_ai.describe = None;
-            }
-        })
-        .map_err(anyhow_err)
-}
-
-#[tauri::command]
-fn custom_add_disk(
+async fn model_delete(
+    app: AppHandle,
     state: State<'_, AppState>,
-    name: String,
-    role: String,
-    model_path: String,
-    mmproj_path: String,
+    model_id: String,
 ) -> Res<Settings> {
-    let c = models::custom_from_disk(&name, &role, model_path.as_ref(), mmproj_path.as_ref())
+    let python = runtime_python(&app)?;
+    local_ai::remove(&python, &model_id)
+        .await
         .map_err(anyhow_err)?;
     state
         .update(|s| {
-            s.local_ai.custom_models.retain(|x| x.id != c.id);
-            s.local_ai.custom_models.push(c);
-        })
-        .map_err(anyhow_err)
-}
-
-#[tauri::command]
-fn custom_add_hf(
-    app: AppHandle,
-    name: String,
-    role: String,
-    model_url: String,
-    mmproj_url: String,
-) -> Res<()> {
-    models::parse_hf_url(&model_url).map_err(anyhow_err)?;
-    models::parse_hf_url(&mmproj_url).map_err(anyhow_err)?;
-    let app2 = app.clone();
-    jobs::spawn(&app, "custom", move |r, cancel| async move {
-        let st = app2.state::<AppState>();
-        let dir = st.settings().local_ai.models_dir();
-        let c = models::install_custom_from_hf(
-            &name,
-            &role,
-            &model_url,
-            &mmproj_url,
-            &dir,
-            &cancel,
-            &|stage, d, t| r.progress(&stage, d, t),
-        )
-        .await?;
-        st.update(|s| {
-            s.local_ai.custom_models.retain(|x| x.id != c.id);
-            s.local_ai.custom_models.push(c);
-        })?;
-        Ok(())
-    })
-}
-
-/// Forget a custom model; its files are deleted only if Relay downloaded them.
-#[tauri::command]
-fn custom_remove(state: State<'_, AppState>, id: String) -> Res<Settings> {
-    let s = state.settings();
-    let dir = s.local_ai.models_dir();
-    if let Some(c) = s.local_ai.custom_models.iter().find(|c| c.id == id) {
-        if c.model_path.starts_with(&dir) {
-            let _ = std::fs::remove_dir_all(dir.join(&c.id));
-        }
-    }
-    state
-        .update(|s| {
-            s.local_ai.custom_models.retain(|c| c.id != id);
             for slot in [&mut s.local_ai.grounding, &mut s.local_ai.describe] {
-                if slot.as_ref().is_some_and(|a| a.model_id == id) {
+                if slot.as_ref().is_some_and(|a| a.model_id == model_id) {
                     *slot = None;
                 }
             }

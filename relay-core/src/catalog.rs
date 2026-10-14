@@ -14,21 +14,15 @@ const RUNTIME_OVERHEAD_BYTES: u64 = 1_200 * 1024 * 1024;
 /// VRAM left for Windows, the browser and other apps.
 const DESKTOP_RESERVE_MB: u64 = 1_536;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct FileRef {
-    pub file: String,
-    pub size: u64,
-    pub sha256: String,
-}
-
+/// One quantization with its approximate weights size, for the fit check.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Quant {
     pub quant: String,
-    pub file: String,
     pub size: u64,
-    pub sha256: String,
 }
 
+/// A catalog model as the app describes it. Where it downloads from, and the
+/// checksums, come from relay-screen's runtime at download time (D-052).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Model {
     pub id: String,
@@ -37,10 +31,10 @@ pub struct Model {
     pub role: String,
     pub summary: String,
     pub license: String,
-    pub repo: String,
     pub default_quant: String,
     pub quants: Vec<Quant>,
-    pub mmproj: FileRef,
+    /// Approximate size of the full-precision vision projector.
+    pub mmproj_size: u64,
 }
 
 #[derive(Deserialize)]
@@ -63,13 +57,9 @@ impl Model {
         self.quants.iter().find(|q| q.quant == quant)
     }
 
-    pub fn url(&self, file: &str) -> String {
-        format!("https://huggingface.co/{}/resolve/main/{file}", self.repo)
-    }
-
-    /// Download size of the weights plus the vision projector.
+    /// Approximate download size of the weights plus the vision projector.
     pub fn download_bytes(&self, quant: &str) -> Option<u64> {
-        self.quant(quant).map(|q| q.size + self.mmproj.size)
+        self.quant(quant).map(|q| q.size + self.mmproj_size)
     }
 
     /// Estimated VRAM to run this model at `quant`.
@@ -77,6 +67,11 @@ impl Model {
         self.download_bytes(quant)
             .map(|b| b + RUNTIME_OVERHEAD_BYTES)
     }
+}
+
+/// Estimated VRAM for a model of `size` bytes on disk (custom models).
+pub fn vram_for_size(size: u64) -> u64 {
+    size + RUNTIME_OVERHEAD_BYTES
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -225,11 +220,8 @@ mod tests {
                 m.id
             );
             assert!(["grounding", "describe", "both"].contains(&m.role.as_str()));
-            for q in &m.quants {
-                assert_eq!(q.sha256.len(), 64);
-                assert!(q.file.ends_with(".gguf"));
-            }
-            assert_eq!(m.mmproj.sha256.len(), 64);
+            assert!(m.quants.iter().all(|q| q.size > 1_000_000_000));
+            assert!(m.mmproj_size > 0);
         }
     }
 
