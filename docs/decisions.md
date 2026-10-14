@@ -296,3 +296,32 @@ first change; only after 0.75 s with nothing changed does it say
 "no visible change". Acts that change something cost no extra time; acts that
 change nothing cost up to 0.6 s more. Verified with `scripts/check_batch.py`:
 every step of the Start → "notepad" → Return batch now reports "screen changed".
+
+## D-025 Relay's own prompt is the approval gate
+*2026-10-14 · accepted (amends D-011) · M1-06*
+
+D-011 left interactive approvals to Claude Code's permission prompts. Two problems
+showed up while building M1-06: a `batch` is one tool call, so Claude Code could
+only approve it as a whole, and Claude Code's prompt lives in a terminal that
+Relay can type into, so Claude could approve its own actions (against D-019).
+
+Relay's own prompt is therefore the gate for every act, in single tools and in
+each step of a batch. It is a small top-most window in a separate process that
+drops injected mouse and keyboard input aimed at it, shows the action in words
+plus a screenshot with the target circled, and gives focus back to the window
+that had it. Buttons: Approve, Approve rest of batch (batches only), Deny. No
+answer in 120 s counts as Deny. The relay-screen act tools are allowlisted in
+`.claude/settings.json` so the owner is not asked twice. The `approve` tool
+(for `claude -p --permission-prompt-tool`) allows relay-screen tools for the
+same reason and shows any other tool in the same prompt.
+`RELAY_APPROVAL=off` turns the per-act prompt off; it is never the default.
+
+Kill switch details: Relay refuses to move the mouse into the 8x8 px corner
+itself, so a cursor found there was put there by the owner. When stopped, key
+and button releases still go through so nothing stays held. Reads
+(screenshot, zoom, cursor_position) keep working. Re-arming needs the owner's
+answer in the same prompt (`rearm` tool).
+
+Audit log: `runs/<run-id>/actions.jsonl` (cwd or `RELAY_RUNS_DIR`), one line
+per action with input, approval, result or error and duration, plus 480 px
+before/after thumbnails of the active display for acts.

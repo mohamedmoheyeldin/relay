@@ -2,6 +2,11 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
+## 2026-10-14 · M1-06 safety layer
+- Owner asked for more autonomy: verify on the PC, fix, push and merge into `dev` without waiting on them (memory: relay-autonomy). PR #22 (verdict polling, D-024) from the PC session was merged that way.
+- Built `relay_screen/safety/`: kill switch (corner watcher, Ctrl+Alt+Pause, guarded input backend), approval gate with Relay's own prompt window (ignores injected input, D-019), `approve` tool for headless runs, `rearm` and `safety_status` tools, audit log in `runs/`. Design in D-025, which amends D-011: Relay's prompt is the gate, and act tools are allowlisted in Claude Code.
+- Next: live check on the PC (prompt appears, Deny stops, corner stops a batch, log written), then M1-07 UI Automation.
+
 ## 2026-10-14 · Change verdict fix found by a live check
 - Running `scripts/check_batch.py` on the owner's PC: Notepad opened, but Start, typing "notepad" and Return were all reported as "no visible change". A probe showed capture was fine (Start covers ~19% of the primary display within 0.25 s); the single 0.15 s look was too early for shell animations, and Escape closing Start was missed the same way.
 - Fix (D-024): the verdict polls every 0.1 s up to 0.75 s and returns on the first change. Two unit tests added; ruff, format, pyright and 124 tests pass; live re-run reports "screen changed" for every step.
