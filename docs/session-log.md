@@ -2,6 +2,10 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
+## 2026-10-14 · App discovery
+- `list_apps` and `launch_app` (`relay_screen/apps.py` pure, `apps_windows.py` for Start menu, App Paths, registered browsers and window tracking). `"browser"` picks the owner's browser even though the https handler still names EdgeCore. Design: D-030.
+- On-PC check: `uv run python scripts/check_apps.py` (discovery, Notepad by name in front, browser with a URL). `check_uia.py` finds Brave Origin through the catalog.
+
 ## 2026-10-14 · M1-08 OCR and the next step, app discovery
 - `find_text` (`relay_screen/ocr.py` pure, `ocr_windows.py` on the WinRT OCR projections): tiles wide displays, upscales small regions, fuzzy phrase matching, centers in screenshot px (D-029). On-PC check: `uv run python scripts/check_ocr.py` (Save dialog buttons, median latency).
 - Owner: Brave Origin is their only browser (D-028). Owner asked that Relay find installed tools by itself instead of hard-coded paths: next is app discovery (`list_apps`, `launch_app`, default browser).
