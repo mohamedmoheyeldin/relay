@@ -123,6 +123,7 @@ Relay-only additions:
 | `list_displays` / `select_display` | Multi-monitor: which display screenshots and coordinates refer to |
 | `uia_tree`, `uia_find`, `uia_invoke`, `uia_set_value` | Accessibility tree: exact control bounds and actions without vision |
 | `find_text` | Windows OCR: locate visible text, return boxes in screenshot pixels |
+| `list_apps`, `launch_app` | Installed apps found at run time (Start menu, App Paths, browsers); open one by name and get its window (D-030) |
 | `locate` | Local VLM grounding: "the Submit button" -> coordinate |
 | `describe`, `verify` | Local VLM: summarize a region; check an expectation after an action |
 | `playbook_list`, `playbook_load`, `playbook_save` | Markdown playbooks |
@@ -241,8 +242,8 @@ personal data and gitignored, except `playbooks/examples/`.
 ## 8. Canonical flow (form example)
 
 1. Router sees "fill the form at <site>"; no connector exists -> screen lane.
-2. Open preferred browser (`profile.yaml`; owner's default is Edge, Brave is
-   installed) and navigate.
+2. Open preferred browser (`profile.yaml`; the owner uses Brave Origin only, D-028)
+   and navigate.
 3. `verify` detects a login page -> `request_login` -> owner logs in -> continue.
 4. Fact fields from `profile.yaml` typed via UIA/OCR/VLM targets.
 5. Judgment fields: field label + page context + profile -> Claude text -> typed.

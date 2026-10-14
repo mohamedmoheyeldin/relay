@@ -22,8 +22,10 @@ from mcp.types import CallToolResult, ContentBlock, ImageContent, TextContent
 
 from relay_screen import __version__
 from relay_screen.actions import ActionError, ActionResult, Computer
+from relay_screen.apps import AppCatalog
 from relay_screen.capture import Grabber
 from relay_screen.input.driver import InputDriver
+from relay_screen.ocr import OcrService
 from relay_screen.safety.approval import ActRequest, ApprovalGate, describe
 from relay_screen.safety.audit import AuditLog
 from relay_screen.safety.killswitch import GuardedBackend, KillSwitch
@@ -49,6 +51,8 @@ class Services:
     gate: ApprovalGate | None = None
     audit: AuditLog | None = None
     uia: UiaService | None = None
+    ocr: OcrService | None = None
+    apps: AppCatalog | None = None
 
     def computer(self) -> Computer:
         hooks: list[Callable[[ActRequest], str | None]] = []
@@ -69,6 +73,8 @@ class Services:
             before_act=hooks,
             audit=self.audit,
             uia=self.uia,
+            ocr=self.ocr,
+            apps=self.apps,
         )
         if self.sleep is not None:
             computer.sleep = self.sleep
@@ -94,14 +100,31 @@ def default_services() -> Services:
         uia = UiaService(WinUiaBackend())
     except Exception as exc:  # the rest of Relay still works without UIA
         print(f"relay-screen: UI Automation unavailable: {exc}", file=sys.stderr)
+    grabber = MssGrabber()
+    ocr: OcrService | None = None
+    try:
+        from relay_screen.ocr_windows import WinOcrEngine
+
+        ocr = OcrService(WinOcrEngine(), grabber)
+    except Exception as exc:
+        print(f"relay-screen: OCR unavailable: {exc}", file=sys.stderr)
+    apps: AppCatalog | None = None
+    try:
+        from relay_screen.apps_windows import WinAppBackend
+
+        apps = AppCatalog(WinAppBackend())
+    except Exception as exc:
+        print(f"relay-screen: app discovery unavailable: {exc}", file=sys.stderr)
     return Services(
         state=ScreenState(displays.enumerate_displays, displays.foreground_display),
-        grabber=MssGrabber(),
+        grabber=grabber,
         driver=InputDriver(GuardedBackend(SendInputBackend(), switch)),
         killswitch=switch,
         gate=ApprovalGate(SubprocessPrompter(), mode="off" if mode == "off" else "ask"),
         audit=AuditLog.create(),
         uia=uia,
+        ocr=ocr,
+        apps=apps,
     )
 
 
@@ -354,6 +377,43 @@ def build_server(services: Services | None = None) -> FastMCP:
     async def uia_set_value(element: str, value: str) -> CallToolResult:
         """Set the text of an edit field (by id from uia_tree/uia_find) directly."""
         return await run("uia_set_value", {"element": element, "value": value})
+
+    # -- OCR ------------------------------------------------------------------
+
+    @mcp.tool()
+    async def find_text(
+        text: str | None = None, region: list[int] | None = None, fuzzy: bool = True
+    ) -> CallToolResult:
+        """Read text on the active display with Windows OCR and say where it is.
+
+        With `text`, returns the best matches for that word or phrase (fuzzy unless
+        fuzzy=false) with centers in screenshot pixels, ready to click. Without it,
+        lists the lines of text. `region` [x0, y0, x1, y1] limits the search and reads
+        small text better. Use it when uia_find can't see a control (custom-drawn UIs).
+        """
+        return await run("find_text", {"text": text, "region": region, "fuzzy": fuzzy})
+
+    # -- apps (D-030) ---------------------------------------------------------
+
+    @mcp.tool()
+    async def list_apps(query: str | None = None, refresh: bool = False) -> CallToolResult:
+        """List the apps installed on this PC by name: Start menu apps (Store apps too),
+        registered programs and web browsers, with the default browser marked.
+
+        query filters by name (fuzzy). The list is cached for 5 minutes; refresh=true
+        rescans, e.g. right after an install. Open one with launch_app.
+        """
+        return await run("list_apps", {"query": query, "refresh": refresh or None})
+
+    @mcp.tool()
+    async def launch_app(name: str, args: list[str] | None = None) -> CallToolResult:
+        """Open an installed app by its list_apps name; "browser" opens the web browser.
+
+        args are passed to the app, e.g. ["https://example.com"] for a browser or a file
+        path for an editor. Waits for the app's window, brings it to the front and says
+        its title and display.
+        """
+        return await run("launch_app", {"name": name, "args": args})
 
     @mcp.tool()
     async def batch(actions: list[dict[str, Any]]) -> CallToolResult:
