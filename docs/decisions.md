@@ -556,3 +556,135 @@ under Program Files and signed with a certificate the owner creates on their
 own machine. The helper forwards input to elevated windows. It is off by
 default, and the same kill switch and approvals apply to it. Relay never asks
 for admin rights for everything else.
+
+## D-044 Target: one download that sets up the whole app
+*2026-10-14 · accepted · owner request · reshapes the roadmap*
+
+The owner wants a complete, Violoop-like product: download one installer,
+click through it, and have everything work, with no other app to set up by
+hand. v1.0 is defined by that experience:
+- **One installer** (`Relay-Setup.exe`, the Tauri NSIS bundle). It ships the
+  app (D-007), the Rust relay-core (D-032), relay-screen frozen with
+  PyInstaller `--onedir` (D-013), and the pinned llama.cpp CUDA build (D-004).
+  Python, uv and the repo are not needed on the machine.
+- **A first-run wizard in the app.** It checks the GPU and free VRAM, sets up
+  Claude Code (D-045), lets the owner pick and download the local model (D-046),
+  helps them install the Brave extension (D-035), and runs a short
+  self-test with the owner watching. It can be re-run from Settings.
+- **Everything else lives in Settings** (D-048). No config files to edit, and
+  no terminal.
+- **Updates from inside the app**: Tauri's updater reads signed releases that
+  CI builds from tags on `main`.
+
+The personal-use rule (D-002) stays. The installer is built for the owner's
+machine, and each install signs in to Claude Code with its own account.
+
+## D-045 Claude Code is set up by Relay, not bundled
+*2026-10-14 · accepted · refines D-002*
+
+Relay can't ship the Claude Code binary or touch its credentials (D-002), but
+it can make setting it up feel like part of Relay. The wizard runs
+`claude --version`. If Claude Code is missing, Relay runs Anthropic's official
+Windows installer, unmodified, from Anthropic's own URL, and shows its
+progress. Relay then opens `claude` in a terminal pane inside the app, where
+the owner signs in with their own subscription. Relay only checks that it
+worked (`claude -p` with a trivial prompt) and never reads the token. Settings
+shows the Claude Code version and login state, with "Update" and "Sign in
+again" buttons that run the official commands.
+
+## D-046 The owner picks the local UI model in Settings
+*2026-10-14 · accepted · amends D-005 and D-036*
+
+Settings > Local AI lists a curated model catalog:
+- UI-Venus-1.5-8B
+- Holo2-8B
+- Holo2-4B
+- Qwen3-VL-8B-Instruct
+- newer GUI models as they appear.
+
+Each entry shows:
+- its role: "where is it" (grounding), "check / describe", or both;
+- its download size and VRAM need at each quant;
+- a fit badge from the detected GPU (fits / tight / won't fit with the other
+  model loaded);
+- its score and latency from Relay's own benchmark on the owner's screens
+  (M1-11), when available.
+
+One option is marked recommended, from the benchmark and the GPU. Picking a
+model downloads it with resume and SHA-256 checks, and Relay switches to it
+without a restart. The owner can also add a custom GGUF (model plus mmproj)
+from disk or a Hugging Face URL. A button runs the benchmark again for any
+installed model. D-036's resident pair stays the default. The picker lets the
+owner override it, and nothing is downloaded until they pick or accept the
+recommendation.
+
+Model files live in a models folder the owner can change in Settings. The
+default is `%LOCALAPPDATA%\Relay\models`, and Settings shows how much space
+each model uses and can delete it.
+
+## D-047 One MCP hub for Claude and Relay
+*2026-10-14 · accepted · owner request*
+
+Settings > Connections is the one place to manage MCP servers. It does not
+keep its own copy of the list: it reads and writes Claude Code's MCP config
+through the official `claude mcp list/add/remove/get` commands, at user
+scope. Whatever the owner adds there is what Claude sees, and the other way
+round.
+- **Relay's own servers** (relay-screen through relay-core D-033, the browser
+  bridge) are registered there by the installer and shown as built in. They
+  can be paused but not deleted.
+- **Local MCP servers** (stdio or HTTP) can be added from a short catalog of
+  well-known servers or by hand. Their secrets go into Windows Credential
+  Manager and reach the server as environment variables at launch. They are
+  never written to the config file or the repo.
+- **claude.ai connectors** (Gmail, Calendar, Drive, ...) belong to the owner's
+  Claude account. They are listed with their state, and "Manage" opens
+  claude.ai's connector settings. Relay cannot add them for the owner.
+- relay-core's playbook runner can call local MCP servers from this same list
+  directly when it replays a step, so a playbook doesn't need Claude for a step
+  it already knows.
+
+## D-048 Every setting lives in the app
+*2026-10-14 · accepted*
+
+Settings covers:
+- General: start at login, keep running in the tray, language.
+- Claude: version, sign-in state, model and effort passed to `claude -p`.
+- Local AI: the model picker (D-046), the idle unload time (D-042), the models
+  folder.
+- Connections (D-047).
+- Browser: Brave extension status and the browser to use.
+- Safety: the approval mode, the kill switch corner and hotkey, which actions
+  always need approval, phone approvals.
+- Playbooks: list, edit, delete.
+- Privacy: where the audit logs and screenshots are kept, and how long.
+- Updates.
+- Diagnostics: the `doctor` checks, the log folder, a "copy report" button.
+
+Settings are stored in `%APPDATA%\Relay\settings.json`, which relay-core owns.
+The app edits them through relay-core's API, never by writing the file
+directly.
+
+## D-049 Live checks on the owner's PC run only on request
+*2026-10-14 · accepted · owner instruction · amends the autonomy note in D-031*
+
+Checks that open windows or move the mouse on the owner's PC (`scripts/check_*.py`)
+run only when the owner asks for one. Green CI is the gate for merging into
+`dev` and `main`. The first-run self-test (D-044) is the owner-started check
+for releases.
+
+## D-050 Local checks only, no GitHub Actions; pnpm for the app
+*2026-10-14 · accepted · owner instruction · amends D-031, D-044 and D-049*
+
+The owner wants no GitHub Actions for tests or checks. `.github/workflows/ci.yml`
+is removed. Every check runs locally, and `uv run python scripts/check.py`
+(ruff, format check, pyright, pytest without `desktop` tests) must pass before
+every push and every merge. That replaces "green CI" as the merge gate in D-031
+and D-049. Windows-only tests that open no windows can run on the owner's PC.
+Tests and checks that open windows still run only when the owner asks. The
+release installer (D-044) is also built and checked locally and then attached
+to a GitHub Release. No Actions workflow builds it.
+
+The Tauri + React app uses **pnpm** as its package manager. That covers
+`pnpm create tauri-app`, `pnpm install`, `pnpm tauri dev` and
+`pnpm tauri build`, with `pnpm-lock.yaml` committed. npm and yarn are not used.
