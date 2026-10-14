@@ -271,3 +271,16 @@ grounding model (D-005), so it adds licence risk for little gain. Revisit in M4
 only if the benchmark (#11) shows icon-only targets failing. PP-OCRv4 stays the
 optional faster/denser OCR from D-013, to be added only if Windows OCR misses
 text in #8.
+
+## D-023 Typing: real key presses first, Unicode packets for the rest, paced
+*2026-10-14 · accepted · measured on the owner's PC*
+
+Windows 11 Notepad garbled `KEYEVENTF_UNICODE` packets for ordinary letters,
+even with pacing, while a plain Tk text box received them fine. `type` now
+sends every character the active keyboard layout can produce (`VkKeyScanW`)
+as a virtual-key press with any shift state it needs, uses Unicode packets
+only for characters outside the layout (✓, é on a US layout, emoji as
+surrogate pairs), and sends one character per SendInput call with an 8 ms
+pause. Verified on the owner's PC: exact read-back of ASCII, ✓, é/è and 😀 in
+Notepad and in the Tk check; cursor moves land with 0 px error on all three
+monitors. Clipboard paste remains an option for very long text (not needed yet).
