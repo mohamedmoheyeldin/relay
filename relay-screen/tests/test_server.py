@@ -168,3 +168,63 @@ async def test_batch_halts_after_failure(owner_displays):
     assert lines[1].startswith("2. key: ") and "hyper" in lines[1]
     assert lines[2] == f"3. key: {HALT_TEXT}"
     assert len(backend.batches) == 1
+
+
+class Answers:
+    def __init__(self, *answers):
+        self.answers = list(answers)
+        self.titles = []
+
+    def ask(self, request):
+        self.titles.append(request.title)
+        return self.answers.pop(0) if self.answers else "deny"
+
+
+def safe_services(displays, *answers):
+    from relay_screen.safety.approval import ApprovalGate
+    from relay_screen.safety.killswitch import GuardedBackend, KillSwitch
+
+    backend = RecordingBackend()
+    backend.position = (500, 500)
+    switch = KillSwitch()
+    s = services(displays, backend)
+    s.driver = InputDriver(GuardedBackend(backend, switch))
+    s.killswitch = switch
+    prompter = Answers(*answers)
+    s.gate = ApprovalGate(prompter)
+    return s, backend, prompter
+
+
+async def test_approve_tool_contract(owner_displays):
+    s, _, prompter = safe_services(owner_displays, "approve", "deny")
+    server = build_server(s)
+    relay = await call(
+        server, "approve", {"tool_name": "mcp__relay-screen__left_click", "input": {"x": 1}}
+    )
+    assert json.loads(text(relay)) == {"behavior": "allow", "updatedInput": {"x": 1}}
+    assert prompter.titles == []  # Relay asks per act itself
+    bash = {"tool_name": "Bash", "input": {"command": "dir"}, "tool_use_id": "t1"}
+    assert json.loads(text(await call(server, "approve", bash)))["behavior"] == "allow"
+    denied = json.loads(text(await call(server, "approve", bash)))
+    assert denied == {"behavior": "deny", "message": "The owner denied this tool call."}
+    assert prompter.titles == ["Claude wants to use Bash"] * 2
+
+
+async def test_kill_switch_rearm_and_status(owner_displays):
+    s, backend, prompter = safe_services(owner_displays, "deny", "approve")
+    server = build_server(s)
+    assert json.loads(text(await call(server, "safety_status")))["armed"] is True
+    assert s.killswitch is not None
+    s.killswitch.trip("mouse moved to the top-left corner")
+    result = await call(server, "key", {"text": "a"})
+    assert result.isError and "kill switch" in text(result)
+    status = json.loads(text(await call(server, "safety_status")))
+    assert status["armed"] is False and "corner" in status["stopped_because"]
+    backend.position = (2, 2)
+    assert (await call(server, "rearm")).isError  # mouse still in the corner
+    backend.position = (500, 500)
+    assert (await call(server, "rearm")).isError  # the owner said no
+    assert text(await call(server, "rearm")) == "Relay is armed again."
+    assert prompter.titles == ["Re-arm Relay?", "Re-arm Relay?"]
+    result = await call(server, "key", {"text": "a"})  # armed again, so the gate asks
+    assert result.isError and "denied" in text(result)
