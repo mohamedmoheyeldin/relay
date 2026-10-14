@@ -1,7 +1,15 @@
 import pytest
 from PIL import Image
 
-from relay_screen.actions import HALT_TEXT, MEMBERS, ActionError, Computer
+from relay_screen.actions import (
+    CHANGE_PATIENCE,
+    CHANGE_POLL,
+    CHANGE_SETTLE,
+    HALT_TEXT,
+    MEMBERS,
+    ActionError,
+    Computer,
+)
 from relay_screen.input.driver import InputDriver
 from relay_screen.input.events import KeyEvent, MouseButton, MouseMove, MouseWheel
 from relay_screen.input.keys import VK_CONTROL, VK_LWIN, VK_RETURN
@@ -277,6 +285,48 @@ def test_key_reports_screen_changed(owner_displays):
     computer, _, grabber = make(owner_displays, changes=Rect(0, 0, 800, 400), report=True)
     assert computer.run("key", {"text": "super"}).text == "OK · screen changed"
     assert grabber.grabs[0] == computer.state.geometry().display
+
+
+class LateGrabber(FlipGrabber):
+    """Like FlipGrabber, but the change only shows from the `late`-th grab on."""
+
+    def __init__(self, backend: RecordingBackend, changes: Rect, late: int) -> None:
+        super().__init__(backend, changes)
+        self.late = late
+
+    def grab(self, rect: Rect) -> Image.Image:
+        if len(self.grabs) + 1 < self.late:
+            return GradientGrabber.grab(self, rect)
+        return super().grab(rect)
+
+
+def make_timed(owner_displays, grabber_for):
+    backend = RecordingBackend()
+    state = ScreenState(lambda: owner_displays, lambda ds: None)
+    grabber = grabber_for(backend)
+    sleeps: list[float] = []
+    computer = Computer(
+        state, grabber, InputDriver(backend), report_changes=True, sleep=sleeps.append
+    )
+    return computer, grabber, sleeps
+
+
+def test_slow_animation_still_counts_as_changed(owner_displays):
+    # Start menu opens over a few hundred ms: the first look after the act sees nothing yet.
+    computer, grabber, sleeps = make_timed(
+        owner_displays, lambda b: LateGrabber(b, Rect(0, 0, 800, 400), late=4)
+    )
+    assert computer.run("key", {"text": "super"}).text == "OK · screen changed"
+    assert len(grabber.grabs) == 4  # before, then three looks
+    assert sleeps == [CHANGE_SETTLE, CHANGE_POLL, CHANGE_POLL]
+
+
+def test_no_change_gives_up_after_patience(owner_displays):
+    computer, grabber, sleeps = make_timed(owner_displays, lambda b: FlipGrabber(b, None))
+    assert computer.run("key", {"text": "super"}).text == "OK · no visible change"
+    assert sum(sleeps) <= CHANGE_PATIENCE + 1e-9
+    assert sum(sleeps) > CHANGE_PATIENCE - CHANGE_POLL
+    assert len(grabber.grabs) == len(sleeps) + 1
 
 
 def test_verdicts_off_skips_capture(owner_displays):
