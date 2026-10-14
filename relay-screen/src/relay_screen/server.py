@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -27,6 +28,7 @@ from relay_screen.safety.approval import ActRequest, ApprovalGate, describe
 from relay_screen.safety.audit import AuditLog
 from relay_screen.safety.killswitch import GuardedBackend, KillSwitch
 from relay_screen.state import ScreenState
+from relay_screen.uia import UiaService
 
 SERVER_NAME = "relay-screen"
 RELAY_TOOL_PREFIX = f"mcp__{SERVER_NAME}__"
@@ -46,6 +48,7 @@ class Services:
     killswitch: KillSwitch | None = None
     gate: ApprovalGate | None = None
     audit: AuditLog | None = None
+    uia: UiaService | None = None
 
     def computer(self) -> Computer:
         hooks: list[Callable[[ActRequest], str | None]] = []
@@ -65,6 +68,7 @@ class Services:
             self.report_changes,
             before_act=hooks,
             audit=self.audit,
+            uia=self.uia,
         )
         if self.sleep is not None:
             computer.sleep = self.sleep
@@ -83,6 +87,13 @@ def default_services() -> Services:
     switch.start_cursor_watcher(win32.cursor_position)
     switch.start_hotkey_watcher()
     mode = os.environ.get("RELAY_APPROVAL", "ask")
+    uia: UiaService | None = None
+    try:
+        from relay_screen.uia_windows import WinUiaBackend
+
+        uia = UiaService(WinUiaBackend())
+    except Exception as exc:  # the rest of Relay still works without UIA
+        print(f"relay-screen: UI Automation unavailable: {exc}", file=sys.stderr)
     return Services(
         state=ScreenState(displays.enumerate_displays, displays.foreground_display),
         grabber=MssGrabber(),
@@ -90,6 +101,7 @@ def default_services() -> Services:
         killswitch=switch,
         gate=ApprovalGate(SubprocessPrompter(), mode="off" if mode == "off" else "ask"),
         audit=AuditLog.create(),
+        uia=uia,
     )
 
 
@@ -307,6 +319,41 @@ def build_server(services: Services | None = None) -> FastMCP:
     async def hold_key(text: str, duration: float) -> CallToolResult:
         """Hold a key or chord down for duration seconds (up to 300), then release it."""
         return await run("hold_key", {"text": text, "duration": duration})
+
+    # -- UI Automation (exact controls without vision) ------------------------
+
+    @mcp.tool()
+    async def uia_tree(
+        window: str | None = None, depth: int = 6, filter: str | None = None
+    ) -> CallToolResult:
+        """List the accessibility tree of the foreground window (or the open window whose
+        title contains `window`), with bounds in screenshot pixels.
+
+        Each element has an id like e12 for uia_invoke / uia_set_value. `filter` keeps
+        only elements whose name, role or automation id contains it. Prefer this and
+        uia_find over screenshots when an app exposes its controls.
+        """
+        return await run("uia_tree", {"window": window, "depth": depth, "filter": filter})
+
+    @mcp.tool()
+    async def uia_find(
+        query: str, role: str | None = None, window: str | None = None
+    ) -> CallToolResult:
+        """Find controls by name or automation id (exact matches first), optionally only
+        one role such as Button, Edit or MenuItem. Returns ids and centers in screenshot
+        pixels."""
+        return await run("uia_find", {"query": query, "role": role, "window": window})
+
+    @mcp.tool()
+    async def uia_invoke(element: str) -> CallToolResult:
+        """Activate a control by id from uia_tree/uia_find: press a button, open a menu,
+        toggle a checkbox or select an item, without moving the mouse."""
+        return await run("uia_invoke", {"element": element})
+
+    @mcp.tool()
+    async def uia_set_value(element: str, value: str) -> CallToolResult:
+        """Set the text of an edit field (by id from uia_tree/uia_find) directly."""
+        return await run("uia_set_value", {"element": element, "value": value})
 
     @mcp.tool()
     async def batch(actions: list[dict[str, Any]]) -> CallToolResult:
