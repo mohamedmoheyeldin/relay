@@ -2,6 +2,9 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
+## 2026-10-14 · Auto-merge when ready
+- `scripts/check.py --report` posts a `local-checks` commit status via the GitHub CLI; a `dev and main` ruleset requiring it makes "Auto-merge when ready" available (D-051). The ruleset is set up in the repo settings by the owner; Claude's PRs merge directly under the admin bypass.
+
 ## 2026-10-14 · Local checks only, pnpm
 - Owner: no GitHub Actions for tests; run every check locally. Removed `.github/workflows/ci.yml`, added `scripts/check.py` (ruff, format, pyright, pytest) as the gate before push and merge. The app will use pnpm. D-050.
 
