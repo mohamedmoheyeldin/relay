@@ -325,3 +325,21 @@ answer in the same prompt (`rearm` tool).
 Audit log: `runs/<run-id>/actions.jsonl` (cwd or `RELAY_RUNS_DIR`), one line
 per action with input, approval, result or error and duration, plus 480 px
 before/after thumbnails of the active display for acts.
+
+## D-026 UI Automation runs on one thread and hands out element ids
+*2026-10-14 · accepted · M1-07*
+
+`uia_tree` and `uia_find` give every element they list a short id (`e12`) that
+`uia_invoke` and `uia_set_value` take, so Claude never has to describe an element
+twice. Ids stay valid for the server's lifetime (last 5,000 kept); a vanished
+element gives a clear error. All COM calls run on one dedicated thread, because
+UIA element pointers belong to the thread that created them and MCP calls
+arrive on varying worker threads. Listings are capped at 400 elements, 24k
+characters (about 6-8k tokens) and 6 s, with a note telling Claude how to narrow
+the search. With no `window` given, the search covers the foreground window plus
+the other visible top-level windows of the same process, so menus and dialogs
+that open as separate windows are found. `uia_invoke` uses the control's own
+action (Invoke, then Toggle, Expand/Collapse, Select) and moves no mouse. The
+UIA tools go through the same kill switch, approval prompt and audit log as the
+computer tools, and can be used inside `batch`. The screen-reader flag (D-017) is
+set when the UIA backend starts and restored at exit.

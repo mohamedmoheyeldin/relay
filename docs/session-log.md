@@ -2,6 +2,10 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
+## 2026-10-14 · M1-07 UI Automation tools
+- `uia_tree`, `uia_find`, `uia_invoke`, `uia_set_value` (`relay_screen/uia.py` pure, `uia_windows.py` on the `uiautomation` package, Apache-2.0). Element ids, one COM thread, output caps: D-026. Screen-reader flag from D-017 is set while the server runs.
+- On-PC check: `uv run python scripts/check_uia.py` (Notepad File > Save without vision, Edge page links with bounds, tree size).
+
 ## 2026-10-14 · M1-06 safety layer
 - Owner asked for more autonomy: verify on the PC, fix, push and merge into `dev` without waiting on them (memory: relay-autonomy). PR #22 (verdict polling, D-024) from the PC session was merged that way.
 - Built `relay_screen/safety/`: kill switch (corner watcher, Ctrl+Alt+Pause, guarded input backend), approval gate with Relay's own prompt window (ignores injected input, D-019), `approve` tool for headless runs, `rearm` and `safety_status` tools, audit log in `runs/`. Design in D-025, which amends D-011: Relay's prompt is the gate, and act tools are allowlisted in Claude Code.

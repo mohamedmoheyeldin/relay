@@ -10,6 +10,7 @@ dependencies = [
     "mcp>=1.28,<2",
     "mss>=10",
     "pillow>=11",
+    "uiautomation>=2.0.20 ; sys_platform == 'win32'",
 ]
 
 [project.scripts]
