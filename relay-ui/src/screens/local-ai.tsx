@@ -1,7 +1,7 @@
 // Settings > Local AI: the model picker (D-046), and the wizard's "recommended" step.
 import { useCallback, useEffect, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { CpuChip01, Download01, Folder, Plus, Stars01, Trash01 } from "@untitledui/icons";
+import { CpuChip01, Download01, Folder, Stars01, Trash01 } from "@untitledui/icons";
 import { Badge } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
 import { Input } from "@/components/base/input/input";
@@ -56,28 +56,33 @@ export const GpuCard = ({ state }: { state: LocalAiState }) => (
     </Card>
 );
 
-/** Downloads the runtime (if needed) and every recommended model, in parallel. */
+const runtimeJob = "runtime";
+const modelJob = (id: string) => `model:${id}`;
+
+/** The recommended models relay-screen has a download source for. */
+const downloadable = (state: LocalAiState) =>
+    state.recommendation.picks.filter((p) => state.models.find((m) => m.id === p.model_id)?.source);
+
+const isInstalled = (state: LocalAiState, id: string) => !!state.models.find((m) => m.id === id)?.installed?.ready;
+
+/** Downloads the runtime (if needed) and every recommended model that has a source, in parallel. */
 export async function downloadRecommended(state: LocalAiState) {
     const waits: Promise<void>[] = [];
-    if (!state.runtime.installed) {
-        clearJob("runtime");
+    if (!state.runtime) {
+        clearJob(runtimeJob);
         await api.runtimeInstall();
-        waits.push(waitForJob("runtime"));
+        waits.push(waitForJob(runtimeJob));
     }
-    for (const p of state.recommendation.picks) {
-        const installed = state.installed.some((i) => i.model_id === p.model_id && i.quant === p.quant);
-        if (installed) {
-            await api.modelActivate(p.role, p.model_id, p.quant);
-            continue;
-        }
-        const id = `model:${p.model_id}:${p.quant}`;
-        clearJob(id);
+    const picks = downloadable(state);
+    for (const p of picks) {
+        if (isInstalled(state, p.model_id)) continue;
+        clearJob(modelJob(p.model_id));
         await api.modelInstall(p.model_id, p.quant);
-        waits.push(waitForJob(id));
+        waits.push(waitForJob(modelJob(p.model_id)));
     }
     await Promise.all(waits);
     // Make the recommendation the active choice even if other models were set before.
-    for (const p of state.recommendation.picks) await api.modelActivate(p.role, p.model_id, p.quant);
+    for (const p of picks) await api.modelActivate(p.role, p.model_id);
 }
 
 export const RecommendedDownloads = ({ state, onDone }: { state: LocalAiState; onDone: () => void }) => {
@@ -85,15 +90,16 @@ export const RecommendedDownloads = ({ state, onDone }: { state: LocalAiState; o
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const picks = state.recommendation.picks;
-    const allInstalled =
-        state.runtime.installed && picks.every((p) => state.installed.some((i) => i.model_id === p.model_id && i.quant === p.quant));
-    const total =
-        (state.runtime.installed ? 0 : state.runtime_download_bytes) +
-        picks
-            .filter((p) => !state.installed.some((i) => i.model_id === p.model_id && i.quant === p.quant))
-            .reduce((sum, p) => sum + (state.models.find((m) => m.id === p.model_id)?.quants.find((q) => q.quant === p.quant)?.download_bytes ?? 0), 0);
+    const ready = downloadable(state);
+    const pending = ready.filter((p) => !isInstalled(state, p.model_id));
+    const allInstalled = !!state.runtime && pending.length === 0;
+    const total = pending.reduce(
+        (sum, p) => sum + (state.models.find((m) => m.id === p.model_id)?.quants.find((q) => q.quant === p.quant)?.download_bytes ?? 0),
+        0,
+    );
 
     if (picks.length === 0) return null;
+    if (state.error) return <Notice tone="warning">{state.error}</Notice>;
     const start = async () => {
         setBusy(true);
         setError(null);
@@ -102,6 +108,7 @@ export const RecommendedDownloads = ({ state, onDone }: { state: LocalAiState; o
             onDone();
         } catch (e) {
             setError(errorText(e));
+            onDone();
         }
         setBusy(false);
     };
@@ -123,26 +130,27 @@ export const RecommendedDownloads = ({ state, onDone }: { state: LocalAiState; o
                                 {roleLabel[p.role]}
                             </Badge>
                         </div>
-                        <JobProgress job={jobs[`model:${p.model_id}:${p.quant}`]} onCancel={() => api.cancelJob(`model:${p.model_id}:${p.quant}`)} />
+                        {m && !m.source && <span className="text-xs text-tertiary">Its download source is picked with the benchmark, so it isn't offered yet.</span>}
+                        <JobProgress job={jobs[modelJob(p.model_id)]} onCancel={() => api.cancelJob(modelJob(p.model_id))} />
                     </div>
                 );
             })}
-            {!state.runtime.installed && (
+            {!state.runtime && (
                 <div className="flex flex-col gap-2">
                     <div className="text-sm font-medium text-secondary">
-                        Local AI runtime <span className="text-tertiary">· llama.cpp {state.runtime.build} ({state.runtime_flavor === "cuda" ? "CUDA" : "Vulkan"})</span>
+                        Local AI runtime <span className="text-tertiary">· llama.cpp for your NVIDIA GPU</span>
                     </div>
-                    <JobProgress job={jobs.runtime} onCancel={() => api.cancelJob("runtime")} />
+                    <JobProgress job={jobs[runtimeJob]} onCancel={() => api.cancelJob(runtimeJob)} />
                 </div>
             )}
             {allInstalled ? (
-                <Notice tone="success">Everything is downloaded and in use.</Notice>
+                <Notice tone="success">Everything available is downloaded and in use.</Notice>
             ) : (
                 <div className="flex items-center gap-3">
                     <Button iconLeading={Download01} onClick={start} isLoading={busy} showTextWhileLoading>
-                        Download ({bytes(total)})
+                        {pending.length ? `Download (about ${bytes(total)} plus the runtime)` : "Download the runtime"}
                     </Button>
-                    <span className="text-sm text-tertiary">Downloads resume if they are interrupted.</span>
+                    <span className="text-sm text-tertiary">Downloads are checked and resume if interrupted.</span>
                 </div>
             )}
             {error && <Notice tone="error">{error}</Notice>}
@@ -152,10 +160,11 @@ export const RecommendedDownloads = ({ state, onDone }: { state: LocalAiState; o
 
 const ModelCard = ({ model, state, onChange }: { model: ModelView; state: LocalAiState; onChange: () => void }) => {
     const jobs = useJobs();
-    const [quant, setQuant] = useState(model.recommended_quant ?? model.default_quant);
+    const installed = model.installed?.ready ? model.installed : null;
+    const [quant, setQuant] = useState(installed?.quant ?? model.recommended_quant ?? model.default_quant);
     const [error, setError] = useState<string | null>(null);
     const q = model.quants.find((x) => x.quant === quant) ?? model.quants[0];
-    const jobId = `model:${model.id}:${q.quant}`;
+    const jobId = modelJob(model.id);
     const job = jobs[jobId];
 
     const act = async (f: () => Promise<unknown>) => {
@@ -173,9 +182,7 @@ const ModelCard = ({ model, state, onChange }: { model: ModelView; state: LocalA
             await api.modelInstall(model.id, q.quant);
             await waitForJob(jobId);
         });
-    const isActive = (role: string) =>
-        (role === "grounding" ? state.grounding : state.describe)?.model_id === model.id &&
-        (role === "grounding" ? state.grounding : state.describe)?.quant === q.quant;
+    const isActive = (role: string) => (role === "grounding" ? state.grounding : state.describe)?.model_id === model.id;
     const roles = model.role === "both" ? ["grounding", "describe"] : [model.role];
 
     return (
@@ -205,14 +212,18 @@ const ModelCard = ({ model, state, onChange }: { model: ModelView; state: LocalA
                     label="Quality"
                     size="sm"
                     selectedKey={q.quant}
+                    isDisabled={!!installed}
                     onSelectionChange={(k) => setQuant(String(k))}
-                    items={model.quants.map((x) => ({ id: x.quant, label: x.quant, supportingText: x.installed ? "downloaded" : undefined }))}
+                    items={model.quants.map((x) => ({ id: x.quant, label: x.quant, supportingText: installed?.quant === x.quant ? "downloaded" : undefined }))}
                 >
                     {(item) => <Select.Item id={item.id} label={item.label} supportingText={item.supportingText} />}
                 </Select>
                 <div className="flex flex-col gap-1 text-sm text-tertiary">
                     <span>
-                        Download {bytes(q.download_bytes)} · needs about {bytes(q.vram_bytes)} of VRAM
+                        {installed ? `Downloaded, ${bytes(installed.size)}` : `Download about ${bytes(q.download_bytes)}`} · needs about {bytes(q.vram_bytes)} of VRAM
+                    </span>
+                    <span>
+                        {model.source ? `From ${model.source}` : "Download source: picked with the benchmark, not offered yet"} · {model.license}
                     </span>
                     <span>
                         Benchmark on your screens:{" "}
@@ -222,25 +233,25 @@ const ModelCard = ({ model, state, onChange }: { model: ModelView; state: LocalA
             </div>
             <JobProgress job={job} onCancel={() => api.cancelJob(jobId)} />
             <div className="flex flex-wrap gap-2">
-                {!q.installed && (
+                {!installed && model.source && (
                     <Button size="sm" iconLeading={Download01} onClick={download} isDisabled={job?.state === "running" || q.fit === "wont_fit"}>
                         Download
                     </Button>
                 )}
-                {q.installed &&
+                {installed &&
                     roles.map((r) => (
                         <Button
                             key={r}
                             size="sm"
                             color={isActive(r) ? "secondary" : "primary"}
                             isDisabled={isActive(r)}
-                            onClick={() => act(() => api.modelActivate(r, model.id, q.quant))}
+                            onClick={() => act(() => api.modelActivate(r, model.id))}
                         >
                             {isActive(r) ? `Using for ${roleLabel[r].toLowerCase()}` : `Use for ${roleLabel[r].toLowerCase()}`}
                         </Button>
                     ))}
-                {q.installed && (
-                    <Button size="sm" color="tertiary-destructive" iconLeading={Trash01} onClick={() => act(() => api.modelDelete(model.id, q.quant))}>
+                {installed && (
+                    <Button size="sm" color="tertiary-destructive" iconLeading={Trash01} onClick={() => act(() => api.modelDelete(model.id))}>
                         Delete
                     </Button>
                 )}
@@ -255,10 +266,8 @@ const ModelCard = ({ model, state, onChange }: { model: ModelView; state: LocalA
 
 const CustomModels = ({ state, onChange }: { state: LocalAiState; onChange: () => void }) => {
     const jobs = useJobs();
-    const [name, setName] = useState("");
-    const [role, setRole] = useState("grounding");
-    const [modelUrl, setModelUrl] = useState("");
-    const [mmprojUrl, setMmprojUrl] = useState("");
+    const [repo, setRepo] = useState("");
+    const [quant, setQuant] = useState("Q4_K_M");
     const [error, setError] = useState<string | null>(null);
 
     const run = async (f: () => Promise<unknown>) => {
@@ -270,71 +279,53 @@ const CustomModels = ({ state, onChange }: { state: LocalAiState; onChange: () =
         }
         onChange();
     };
-    const pick = async (title: string) => {
-        const f = await openDialog({ title, filters: [{ name: "GGUF", extensions: ["gguf"] }] });
-        return typeof f === "string" ? f : null;
-    };
-    const fromDisk = () =>
-        run(async () => {
-            const m = await pick("Choose the model .gguf");
-            if (!m) return;
-            const p = await pick("Choose the vision projector (mmproj) .gguf");
-            if (!p) return;
-            await api.customAddDisk(name || "Custom model", role, m, p);
-        });
-    const fromHf = () =>
+    const add = () =>
         run(async () => {
             clearJob("custom");
-            await api.customAddHf(name || "Custom model", role, modelUrl, mmprojUrl);
+            await api.customAdd(repo, quant);
             await waitForJob("custom");
+            setRepo("");
         });
+    const isActive = (role: string, id: string) => (role === "grounding" ? state.grounding : state.describe)?.model_id === id;
 
     return (
         <div className="flex flex-col gap-4">
-            {state.custom.map((c) => (
+            {state.custom.map(({ model: c, fit }) => (
                 <Card key={c.id} className="flex flex-wrap items-center justify-between gap-3">
                     <div className="min-w-0">
-                        <div className="text-sm font-semibold text-primary">{c.name}</div>
-                        <div className="truncate text-xs text-tertiary">{c.model_path}</div>
+                        <div className="flex items-center gap-2 text-sm font-semibold text-primary">
+                            {c.repo} {fitBadge(fit)}
+                        </div>
+                        <div className="truncate text-xs text-tertiary">
+                            {c.quant} · {bytes(c.size)}
+                            {c.ready ? "" : " · files missing, download it again"}
+                        </div>
                     </div>
                     <div className="flex gap-2">
-                        {(c.role === "both" ? ["grounding", "describe"] : [c.role]).map((r) => (
-                            <Button key={r} size="sm" color="secondary" onClick={() => run(() => api.modelActivate(r, c.id, "custom"))}>
-                                Use for {roleLabel[r].toLowerCase()}
-                            </Button>
-                        ))}
-                        <Button size="sm" color="tertiary-destructive" iconLeading={Trash01} onClick={() => run(() => api.customRemove(c.id))}>
-                            Remove
+                        {c.ready &&
+                            ["grounding", "describe"].map((r) => (
+                                <Button key={r} size="sm" color="secondary" isDisabled={isActive(r, c.id)} onClick={() => run(() => api.modelActivate(r, c.id))}>
+                                    {isActive(r, c.id) ? `Using for ${roleLabel[r].toLowerCase()}` : `Use for ${roleLabel[r].toLowerCase()}`}
+                                </Button>
+                            ))}
+                        <Button size="sm" color="tertiary-destructive" iconLeading={Trash01} onClick={() => run(() => api.modelDelete(c.id))}>
+                            Delete
                         </Button>
                     </div>
                 </Card>
             ))}
             <Card className="flex flex-col gap-3">
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <Input label="Name" placeholder="My model" value={name} onChange={setName} size="sm" />
-                    <Select
-                        label="Role"
-                        size="sm"
-                        selectedKey={role}
-                        onSelectionChange={(k) => setRole(String(k))}
-                        items={[
-                            { id: "grounding", label: roleLabel.grounding },
-                            { id: "describe", label: roleLabel.describe },
-                            { id: "both", label: roleLabel.both },
-                        ]}
-                    >
-                        {(item) => <Select.Item id={item.id} label={item.label} />}
-                    </Select>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_160px]">
+                    <Input label="Hugging Face repo" placeholder="Qwen/Qwen3-VL-8B-Instruct-GGUF" value={repo} onChange={setRepo} size="sm" />
+                    <Input label="Quantization" placeholder="Q4_K_M" value={quant} onChange={setQuant} size="sm" />
                 </div>
-                <Input label="Model file link (Hugging Face)" placeholder="https://huggingface.co/…/resolve/main/model.gguf" value={modelUrl} onChange={setModelUrl} size="sm" />
-                <Input label="Vision projector link (mmproj)" placeholder="https://huggingface.co/…/resolve/main/mmproj.gguf" value={mmprojUrl} onChange={setMmprojUrl} size="sm" />
+                <p className="text-xs text-tertiary">
+                    The repo needs a GGUF for that quantization and a vision projector (mmproj). Each file is checked against the SHA-256 Hugging Face publishes.
+                </p>
                 <JobProgress job={jobs.custom} onCancel={() => api.cancelJob("custom")} />
-                <div className="flex flex-wrap gap-2">
-                    <Button size="sm" iconLeading={Download01} onClick={fromHf} isDisabled={!modelUrl || !mmprojUrl || jobs.custom?.state === "running"}>
+                <div>
+                    <Button size="sm" iconLeading={Download01} onClick={add} isDisabled={!repo || !quant || jobs.custom?.state === "running"}>
                         Download from Hugging Face
-                    </Button>
-                    <Button size="sm" color="secondary" iconLeading={Plus} onClick={fromDisk}>
-                        Add files from this PC
                     </Button>
                 </div>
                 {error && <Notice tone="error">{error}</Notice>}
@@ -368,31 +359,30 @@ export const LocalAiPage = ({ settings, save }: { settings: Settings; save: (s: 
                     <ModelCard key={m.id} model={m} state={state} onChange={refresh} />
                 ))}
             </Section>
-            <Section title="Custom models" description="Add any GGUF vision model with its projector, from Hugging Face or from disk.">
+            <Section title="Custom models" description="Add any GGUF vision model from Hugging Face.">
                 <CustomModels state={state} onChange={refresh} />
             </Section>
-            <Section title="Runtime" description="llama.cpp runs the models on your GPU. Relay downloads a pinned, checked build.">
+            <Section title="Runtime" description="llama.cpp runs the models on your NVIDIA GPU. Relay downloads the newest CUDA build your driver supports and checks it against the SHA-256 llama.cpp publishes.">
                 <Card className="flex flex-col gap-2">
-                    <KeyValue label="Build" value={`llama.cpp ${state.runtime.build}`} />
-                    <KeyValue label="Status" value={state.runtime.installed ? `Installed (${state.runtime.flavor})` : "Not downloaded"} />
-                    {!state.runtime.installed && (
+                    <KeyValue label="Status" value={state.runtime ? `llama.cpp ${state.runtime.tag} (CUDA ${state.runtime.cuda})` : "Not downloaded"} />
+                    {!state.runtime && !state.error && (
                         <div>
                             <Button
                                 size="sm"
                                 iconLeading={Download01}
-                                isDisabled={jobs.runtime?.state === "running"}
+                                isDisabled={jobs[runtimeJob]?.state === "running" || !state.gpu}
                                 onClick={async () => {
-                                    clearJob("runtime");
+                                    clearJob(runtimeJob);
                                     await api.runtimeInstall();
-                                    await waitForJob("runtime").catch(() => {});
+                                    await waitForJob(runtimeJob).catch(() => {});
                                     refresh();
                                 }}
                             >
-                                Download runtime ({bytes(state.runtime_download_bytes)})
+                                Download runtime
                             </Button>
                         </div>
                     )}
-                    <JobProgress job={jobs.runtime} onCancel={() => api.cancelJob("runtime")} />
+                    <JobProgress job={jobs[runtimeJob]} onCancel={() => api.cancelJob(runtimeJob)} />
                 </Card>
             </Section>
             <Section title="Storage and memory" description="Where models are kept, and when they leave video memory.">
@@ -419,7 +409,7 @@ export const LocalAiPage = ({ settings, save }: { settings: Settings; save: (s: 
                             </Button>
                         )}
                     </div>
-                    <p className="text-xs text-tertiary">Changing the folder doesn't move models already downloaded.</p>
+                    <p className="text-xs text-tertiary">Changing the folder doesn't move models already downloaded; download them again in the new folder.</p>
                 </Card>
                 <Select
                     label="Unload models after a task"

@@ -3,23 +3,29 @@
     relay-screen doctor [--verify]
     relay-screen runtime install [--tag bNNNN]
     relay-screen runtime try MODEL [--no-wait]
-    relay-screen models [list]
-    relay-screen models download MODEL|HF_REPO [--quant Q4_K_M]
+    relay-screen models [list] [--json]
+    relay-screen models download MODEL|HF_REPO [--quant Q4_K_M] [--json]
     relay-screen models remove MODEL
 
 Files go under RELAY_HOME (default %LOCALAPPDATA%\\Relay); models go to the models
 folder from Settings (D-046). Nothing here opens a window.
+
+`--json` is for the Relay app: `models list --json` prints the catalog and what is
+installed as one JSON object, and on `runtime install` / `models download` it prints
+progress as JSON lines (`{"done": n, "total": n, "file": name}`).
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import time
+from dataclasses import asdict
 
 from relay_screen.runtime import catalog, doctor, gpu
 from relay_screen.runtime.catalog import ModelSpec
-from relay_screen.runtime.download import DownloadError
+from relay_screen.runtime.download import DownloadError, Progress
 from relay_screen.runtime.paths import RelayPaths
 from relay_screen.runtime.sources import SourceError
 from relay_screen.runtime.store import Store
@@ -49,6 +55,26 @@ class _Progress:
         print(f"\r  {size}{pct}   ", end=end, flush=True)
 
 
+class _JsonProgress:
+    """Progress as JSON lines; a new file starts when `done` goes back to the start."""
+
+    def __init__(self) -> None:
+        self.last = 0.0
+        self.file = 0
+        self.prev = -1
+
+    def __call__(self, done: int, total: int | None) -> None:
+        new_file = done < self.prev
+        if new_file:
+            self.file += 1
+        self.prev = done
+        now = time.monotonic()
+        if now - self.last < 0.25 and done != total and not new_file:
+            return
+        self.last = now
+        print(json.dumps({"done": done, "total": total, "file": self.file}), flush=True)
+
+
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="relay-screen", description="Relay's local model runtime.")
     sub = p.add_subparsers(dest="command", required=True)
@@ -60,16 +86,19 @@ def parser() -> argparse.ArgumentParser:
     )
     install = r.add_parser("install", help="download and verify llama.cpp (CUDA)")
     install.add_argument("--tag", help="a llama.cpp release tag such as b6500 (default: latest)")
+    install.add_argument("--json", action="store_true", help="progress as JSON lines")
     try_ = r.add_parser("try", help="load a model, time the first answer, wait for the unload")
     try_.add_argument("model")
     try_.add_argument("--no-wait", action="store_true", help="stop right after the answer")
 
     m = sub.add_parser("models", help="local vision models")
     ms = m.add_subparsers(dest="action")
-    ms.add_parser("list", help="the catalog and what is downloaded")
+    ls = ms.add_parser("list", help="the catalog and what is downloaded")
+    ls.add_argument("--json", action="store_true", help="one JSON object for the app")
     dl = ms.add_parser("download", help="download a catalog model or a Hugging Face GGUF repo")
     dl.add_argument("model")
     dl.add_argument("--quant", help="e.g. Q4_K_M, Q5_K_M, Q8_0")
+    dl.add_argument("--json", action="store_true", help="progress as JSON lines")
     rm = ms.add_parser("remove", help="delete a downloaded model")
     rm.add_argument("model")
     return p
@@ -78,7 +107,8 @@ def parser() -> argparse.ArgumentParser:
 def main(argv: list[str]) -> int:
     args = parser().parse_args(argv)
     paths = RelayPaths.default()
-    store = Store(paths, progress=_Progress())
+    progress: Progress = _JsonProgress() if getattr(args, "json", False) else _Progress()
+    store = Store(paths, progress=progress)
     try:
         if args.command == "doctor":
             return _doctor(store, args.verify)
@@ -98,6 +128,9 @@ def main(argv: list[str]) -> int:
             removed = store.remove_model(args.model)
             print(f"Removed {args.model}." if removed else f"{args.model} is not downloaded.")
             return 0 if removed else 1
+        if getattr(args, "json", False):
+            print(json.dumps(listing(store)))
+            return 0
         return _list(store)
     except (DownloadError, SourceError, RuntimeUnavailable, OSError) as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -112,6 +145,36 @@ def _spec(name: str, quant: str | None) -> ModelSpec:
         return catalog.custom(name, quant or "Q4_K_M")
     known = ", ".join(m.id for m in catalog.CATALOG)
     raise SourceError(f"Unknown model {name!r}; use one of {known} or a Hugging Face repo")
+
+
+def listing(store: Store) -> dict[str, object]:
+    """The catalog, the runtime and the installed models, for the app's Local AI page."""
+    installed = store.installed()
+    server = store.server_exe()
+    return {
+        "home": str(store.paths.home),
+        "models_folder": str(store.paths.models),
+        "runtime": {
+            "tag": installed.runtime.tag,
+            "cuda": installed.runtime.cuda,
+            "server": str(server),
+        }
+        if installed.runtime is not None and server is not None
+        else None,
+        "catalog": [asdict(spec) for spec in catalog.CATALOG],
+        "defaults": {"locate": catalog.DEFAULT_LOCATE, "check": catalog.DEFAULT_CHECK},
+        "installed": [
+            {
+                "id": m.id,
+                "repo": m.repo,
+                "revision": m.revision,
+                "quant": m.quant,
+                "size": m.size,
+                "ready": store.model_files(m.id) is not None,
+            }
+            for m in installed.models.values()
+        ],
+    }
 
 
 def _doctor(store: Store, verify: bool) -> int:

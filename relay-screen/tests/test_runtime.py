@@ -269,6 +269,10 @@ def test_models_folder_comes_from_settings(tmp_path: Path) -> None:
     assert models_folder_setting(settings) is None
     settings.write_text(json.dumps({"models_folder": r"D:\Models"}))
     assert models_folder_setting(settings) == Path(r"D:\Models")
+    settings.write_text(json.dumps({"local_ai": {"models_dir": r"E:\AI", "grounding": None}}))
+    assert models_folder_setting(settings) == Path(r"E:\AI")
+    settings.write_text(json.dumps({"local_ai": {"models_dir": None}}))
+    assert models_folder_setting(settings) is None
     settings.write_text("not json")
     assert models_folder_setting(settings) is None
 
@@ -486,3 +490,36 @@ def test_doctor_reads_only_the_signed_in_flag(tmp_path: Path) -> None:
     )
     results = {c.name: c for c in doctor.checks(Store(RelayPaths.at(tmp_path)), GPU, run)}
     assert results["Claude sign-in"].level == "fail"
+
+
+# --- app interface ----------------------------------------------------------
+
+
+def test_models_list_json_for_the_app(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from relay_screen.runtime import cli
+
+    installed_store(tmp_path)
+    monkeypatch.setenv("RELAY_HOME", str(tmp_path))
+    monkeypatch.delenv("APPDATA", raising=False)
+    assert cli.main(["models", "list", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["runtime"]["tag"] == "b1"
+    assert [m["id"] for m in data["installed"]] == ["m"]
+    assert data["installed"][0]["ready"] is True
+    assert {m["id"] for m in data["catalog"]} >= {catalog.DEFAULT_LOCATE, catalog.DEFAULT_CHECK}
+    venus = next(m for m in data["catalog"] if m["id"] == catalog.DEFAULT_LOCATE)
+    assert venus["repo"] is None
+
+
+def test_json_progress_counts_files(capsys: pytest.CaptureFixture[str]) -> None:
+    from relay_screen.runtime.cli import _JsonProgress
+
+    progress = _JsonProgress()
+    progress(0, 10)
+    progress(10, 10)
+    progress(0, 4)
+    lines = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert [line["file"] for line in lines] == [0, 0, 1]
+    assert lines[1] == {"done": 10, "total": 10, "file": 0}

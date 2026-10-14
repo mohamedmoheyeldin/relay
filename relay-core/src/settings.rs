@@ -63,23 +63,12 @@ pub struct ClaudeSettings {
     pub effort: String,
 }
 
-/// A model chosen for one role, with the files resolved so the runtime can load it.
+/// A downloaded model chosen for one role. relay-screen finds its files by id in
+/// `installed.json` (D-052).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ActiveModel {
     pub model_id: String,
     pub quant: String,
-    pub model_path: PathBuf,
-    pub mmproj_path: PathBuf,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct CustomModel {
-    pub id: String,
-    pub name: String,
-    /// "grounding", "describe" or "both".
-    pub role: String,
-    pub model_path: PathBuf,
-    pub mmproj_path: PathBuf,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -91,9 +80,8 @@ pub struct LocalAi {
     pub describe: Option<ActiveModel>,
     /// Models unload this many seconds after a task ends (D-042).
     pub idle_unload_secs: u32,
-    /// None means the default `%LOCALAPPDATA%\Relay\models`.
+    /// None means the default `%LOCALAPPDATA%\Relay\models`. relay-screen reads it too.
     pub models_dir: Option<PathBuf>,
-    pub custom_models: Vec<CustomModel>,
 }
 
 impl Default for LocalAi {
@@ -103,7 +91,6 @@ impl Default for LocalAi {
             describe: None,
             idle_unload_secs: 60,
             models_dir: None,
-            custom_models: Vec::new(),
         }
     }
 }

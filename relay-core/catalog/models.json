@@ -1,5 +1,5 @@
 {
-  "_comment": "Local UI-automation model catalog (D-046). Sizes and SHA-256 come from the Hugging Face file listings (LFS oid). Files download from https://huggingface.co/<repo>/resolve/main/<file>.",
+  "_comment": "Local model catalog for Settings > Local AI (D-046). Sizes are estimates for the VRAM fit check only; the files, their source repo and SHA-256 come from relay-screen's runtime at download time (D-052).",
   "models": [
     {
       "id": "ui-venus-1.5-8b",
@@ -7,14 +7,22 @@
       "role": "grounding",
       "summary": "Finds where things are on screen. Relay's default \"where is it\" model (D-036).",
       "license": "Apache-2.0",
-      "repo": "mradermacher/UI-Venus-1.5-8B-GGUF",
       "default_quant": "Q4_K_M",
       "quants": [
-        { "quant": "Q4_K_M", "file": "UI-Venus-1.5-8B.Q4_K_M.gguf", "size": 5027785472, "sha256": "77e55f01b00f13a32c630fc02d39d15b27842dfd0fa6bfa99983787677b741c6" },
-        { "quant": "Q5_K_M", "file": "UI-Venus-1.5-8B.Q5_K_M.gguf", "size": 5851114240, "sha256": "20b0ed2cb61ae89447d32543ad811173f2bc35a1fe8616bea7369452a1ed92cd" },
-        { "quant": "Q8_0", "file": "UI-Venus-1.5-8B.Q8_0.gguf", "size": 8709520128, "sha256": "bea869625d42cd14b5666811aa22be4174a25202cd5b8e44d4b1472455f784d8" }
+        {
+          "quant": "Q4_K_M",
+          "size": 5027785472
+        },
+        {
+          "quant": "Q5_K_M",
+          "size": 5851114240
+        },
+        {
+          "quant": "Q8_0",
+          "size": 8709520128
+        }
       ],
-      "mmproj": { "file": "UI-Venus-1.5-8B.mmproj-Q8_0.gguf", "size": 752289984, "sha256": "094afe9d1056eda8686e89a6449247f793ae6e0d2d06e259fe1385aceccdea17" }
+      "mmproj_size": 1160000000
     },
     {
       "id": "qwen3-vl-8b-instruct",
@@ -22,13 +30,18 @@
       "role": "describe",
       "summary": "Checks and describes what is on screen. Relay's default \"check / describe\" model (D-036).",
       "license": "Apache-2.0",
-      "repo": "Qwen/Qwen3-VL-8B-Instruct-GGUF",
       "default_quant": "Q4_K_M",
       "quants": [
-        { "quant": "Q4_K_M", "file": "Qwen3VL-8B-Instruct-Q4_K_M.gguf", "size": 5027784800, "sha256": "67d1659bfe71b89d50b45a4ad1a9e5b997e5bb16ce5da66a6a6167abd569e9e2" },
-        { "quant": "Q8_0", "file": "Qwen3VL-8B-Instruct-Q8_0.gguf", "size": 8709519456, "sha256": "0d264b3941185d00a74f75c4245521dae088ff1efc90ab8d1754e83f5844adb0" }
+        {
+          "quant": "Q4_K_M",
+          "size": 5027784800
+        },
+        {
+          "quant": "Q8_0",
+          "size": 8709519456
+        }
       ],
-      "mmproj": { "file": "mmproj-Qwen3VL-8B-Instruct-Q8_0.gguf", "size": 752289728, "sha256": "c6ba85508d82f42590e6eb77d5340369ab6fecf107a7561d809523d8aa5f3bfd" }
+      "mmproj_size": 1160000000
     },
     {
       "id": "holo2-8b",
@@ -36,14 +49,22 @@
       "role": "both",
       "summary": "One model for both finding and checking. The single-model fallback (D-036).",
       "license": "See the model card",
-      "repo": "mradermacher/Holo2-8B-GGUF",
       "default_quant": "Q4_K_M",
       "quants": [
-        { "quant": "Q4_K_M", "file": "Holo2-8B.Q4_K_M.gguf", "size": 5027785664, "sha256": "7934210a87a5f0ff623c3986883acc1cdf7e2a8276bb91303dd4f8878032a814" },
-        { "quant": "Q5_K_M", "file": "Holo2-8B.Q5_K_M.gguf", "size": 5851114432, "sha256": "3737ed5b2f8cd6d69cc1858d19f049ce2ecfecfc15edd2f42e6e6451daf6bac8" },
-        { "quant": "Q8_0", "file": "Holo2-8B.Q8_0.gguf", "size": 8709520320, "sha256": "84206567069438072105cb4b8024f634cbcbfe49457a364cac260e654e20ec6b" }
+        {
+          "quant": "Q4_K_M",
+          "size": 5027785664
+        },
+        {
+          "quant": "Q5_K_M",
+          "size": 5851114432
+        },
+        {
+          "quant": "Q8_0",
+          "size": 8709520320
+        }
       ],
-      "mmproj": { "file": "Holo2-8B.mmproj-Q8_0.gguf", "size": 752290208, "sha256": "9e6395523c9b191798a96437aa525ee957dcc84d1f78c7b4a03b856b74cc974b" }
+      "mmproj_size": 1160000000
     },
     {
       "id": "holo2-4b",
@@ -51,14 +72,22 @@
       "role": "both",
       "summary": "A smaller model for both roles, for GPUs with less VRAM.",
       "license": "See the model card",
-      "repo": "mradermacher/Holo2-4B-GGUF",
       "default_quant": "Q4_K_M",
       "quants": [
-        { "quant": "Q4_K_M", "file": "Holo2-4B.Q4_K_M.gguf", "size": 2716070336, "sha256": "7081e269fb8b93952d4a913989698ab54d176fb658251b3a4b21d587d83c4ca6" },
-        { "quant": "Q5_K_M", "file": "Holo2-4B.Q5_K_M.gguf", "size": 3156922816, "sha256": "a3cd047ca8c4f9bfff3d66c9039834f2ba77ea17b2aaf129614d3c4f98e985f2" },
-        { "quant": "Q8_0", "file": "Holo2-4B.Q8_0.gguf", "size": 4693672896, "sha256": "9f4c233b4fab6242575cabbbd19b43007929a604239ed697082eb7eaaf2b5473" }
+        {
+          "quant": "Q4_K_M",
+          "size": 2716070336
+        },
+        {
+          "quant": "Q5_K_M",
+          "size": 3156922816
+        },
+        {
+          "quant": "Q8_0",
+          "size": 4693672896
+        }
       ],
-      "mmproj": { "file": "Holo2-4B.mmproj-Q8_0.gguf", "size": 453974688, "sha256": "ddcadf125c400c605b56a97038c89dd3de9ef70df59af8c3cee88ea732086933" }
+      "mmproj_size": 840000000
     }
   ]
 }

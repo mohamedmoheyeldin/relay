@@ -1,6 +1,6 @@
 //! relay-core: the parts of Relay that are not UI.
 //!
-//! For now this is a library the app links in-process (D-052 in the PR notes); the
+//! For now this is a library the app links in-process (see the PR notes); the
 //! always-on daemon of D-032 wraps the same modules in M2. Every module works on any
 //! OS so tests run in the cloud, and Windows-only calls are guarded.
 
@@ -11,11 +11,10 @@ pub mod doctor;
 pub mod download;
 pub mod gpu;
 pub mod launcher;
+pub mod local_ai;
 pub mod mcp;
-pub mod models;
 pub mod paths;
 pub mod proc;
-pub mod runtime;
 pub mod secrets;
 pub mod settings;
 pub mod system;
