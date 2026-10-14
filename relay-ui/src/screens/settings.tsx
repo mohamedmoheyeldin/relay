@@ -28,6 +28,7 @@ import { bytes } from "@/lib/format";
 import { clearJob, useJobs } from "@/lib/jobs";
 import { cx } from "@/utils/cx";
 import { ClaudeSetup } from "./claude-setup";
+import { useTheme } from "@/providers/theme-provider";
 import { ConnectionsPage } from "./connections";
 import { LocalAiPage } from "./local-ai";
 
@@ -39,8 +40,30 @@ interface PageProps {
     rerunSetup: () => void;
 }
 
+const AppearanceSection = () => {
+    const { theme, setTheme } = useTheme();
+    return (
+        <Section title="Appearance" description="Follow Windows, or always use light or dark.">
+            <Select
+                size="sm"
+                aria-label="Theme"
+                selectedKey={theme}
+                onSelectionChange={(k) => setTheme(k as "light" | "dark" | "system")}
+                items={[
+                    { id: "system", label: "Same as Windows" },
+                    { id: "light", label: "Light" },
+                    { id: "dark", label: "Dark" },
+                ]}
+            >
+                {(item) => <Select.Item id={item.id} label={item.label} />}
+            </Select>
+        </Section>
+    );
+};
+
 const GeneralPage = ({ settings, save, rerunSetup }: PageProps) => (
     <>
+        <AppearanceSection />
         <Section title="Startup" description="Relay lives in the tray so it is ready when you need it.">
             <Toggle
                 label="Start Relay when I sign in to Windows"
