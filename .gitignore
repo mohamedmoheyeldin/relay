@@ -218,3 +218,67 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ---------------------------------------------------------------------------
+# Relay
+# ---------------------------------------------------------------------------
+
+# Personal data: never committed (see docs/decisions.md D-012)
+playbooks/*
+!playbooks/README.md
+!playbooks/examples/
+profile.yaml
+**/profile.local.yaml
+.env
+.env.*
+!.env.example
+
+# Runtime output: screenshots, recordings, logs, run traces
+runs/
+screenshots/
+recordings/
+logs/
+*.log
+*.png
+!docs/**/*.png
+!relay-ui/**/*.png
+!relay-ui/**/icons/**
+
+# Local model weights and runtime caches
+models/
+*.gguf
+*.safetensors
+*.onnx
+.ollama/
+ollama-runtime/
+llama-runtime/
+
+# Python packaging (uv / PyInstaller / Nuitka)
+.uv/
+*.spec.bak
+*.build/
+*.dist/
+*.onefile-build/
+
+# Node / Tauri / Vite
+node_modules/
+.pnpm-store/
+relay-ui/dist/
+relay-ui/src-tauri/target/
+relay-ui/src-tauri/binaries/*
+!relay-ui/src-tauri/binaries/.gitkeep
+relay-ui/src-tauri/gen/
+.vite/
+*.tsbuildinfo
+
+# Editors and OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Claude Code local-only settings
+.claude/settings.local.json
