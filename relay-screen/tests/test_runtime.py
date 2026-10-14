@@ -142,24 +142,41 @@ RELEASE = release(
 )
 
 
+RELEASES = [release("v0.6.0", {"llama-v0.6.0.tar.gz": b"src"}), RELEASE]
+"""What GitHub lists: a newer tag without Windows binaries, then the bNNNN build."""
+
+
 def test_llama_release_picks_the_newest_cuda_the_driver_supports() -> None:
-    got = sources.llama_release(lambda url: RELEASE)
+    got = sources.llama_release(lambda url: RELEASES)
     assert got.tag == "b7000" and got.cuda == (13, 1)
     assert [f.name for f in got.files] == [
         "llama-b7000-bin-win-cuda-13.1-x64.zip",
         "cudart-llama-bin-win-cuda-13.1-x64.zip",
     ]
-    older = sources.llama_release(lambda url: RELEASE, driver_cuda=(12, 9))
+    older = sources.llama_release(lambda url: RELEASES, driver_cuda=(12, 9))
     assert older.cuda == (12, 8)
     with pytest.raises(sources.SourceError, match=r"12\.8"):
-        sources.llama_release(lambda url: RELEASE, driver_cuda=(12, 6))
+        sources.llama_release(lambda url: RELEASES, driver_cuda=(12, 6))
+
+
+def test_llama_release_by_tag() -> None:
+    urls: list[str] = []
+
+    def get(url: str) -> Any:
+        urls.append(url)
+        return RELEASE
+
+    assert sources.llama_release(get, "b7000").tag == "b7000"
+    assert urls == ["https://api.github.com/repos/ggml-org/llama.cpp/releases/tags/b7000"]
+    with pytest.raises(sources.SourceError, match=r"llama\.cpp v0\.6\.0 has no Windows"):
+        sources.llama_release(lambda url: RELEASES[0], "v0.6.0")
 
 
 def test_llama_release_needs_a_published_digest() -> None:
     bare = {"tag_name": "b1", "assets": [{**asset("llama-b1-bin-win-cuda-13.0-x64.zip", b"x")}]}
     del bare["assets"][0]["digest"]
     with pytest.raises(sources.SourceError, match="SHA-256"):
-        sources.llama_release(lambda url: bare)
+        sources.llama_release(lambda url: [bare])
 
 
 WEIGHTS = b"gguf weights" * 100
@@ -209,7 +226,7 @@ def test_install_runtime_and_model(tmp_path: Path) -> None:
     paths = RelayPaths.at(tmp_path)
     repo = "Org/Model-GGUF"
     api = {
-        "https://api.github.com/repos/ggml-org/llama.cpp/releases/latest": RELEASE,
+        "https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=30": RELEASES,
         **hf_api(repo),
     }
     web = FakeWeb(
@@ -251,7 +268,7 @@ def test_install_runtime_refuses_a_zip_that_escapes(tmp_path: Path) -> None:
     evil = zip_bytes({"../evil.exe": b"x", "llama-server.exe": b"MZ"})
     rel = release("b1", {"llama-b1-bin-win-cuda-13.0-x64.zip": evil})
     web = FakeWeb({"https://gh/llama-b1-bin-win-cuda-13.0-x64.zip": evil})
-    store = Store(RelayPaths.at(tmp_path / "home"), lambda url: rel, web)
+    store = Store(RelayPaths.at(tmp_path / "home"), lambda url: [rel], web)
     with pytest.raises(DownloadError, match="unsafe path"):
         store.install_runtime()
     assert not (tmp_path / "home" / "runtime" / "evil.exe").exists()
