@@ -5,6 +5,7 @@ Read `docs/README.md` first; design lives in `docs/architecture.md` and every
 non-obvious choice is in `docs/decisions.md` (append-only, D-0xx).
 
 ## Conventions
+- The owner's local checkout lives at `C:\Projects\relay` (all their projects are under `C:\Projects`).
 - Branches: work on a feature branch, PR into `dev`. `main` is stable only.
 - Small commits with clear messages. Add a `docs/session-log.md` entry at the end of a working session.
 - New design decisions get a new D-entry in `docs/decisions.md`; never rewrite old ones.
