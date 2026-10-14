@@ -241,8 +241,8 @@ personal data and gitignored, except `playbooks/examples/`.
 ## 8. Canonical flow (form example)
 
 1. Router sees "fill the form at <site>"; no connector exists -> screen lane.
-2. Open preferred browser (`profile.yaml`; owner's default is Edge, Brave is
-   installed) and navigate.
+2. Open preferred browser (`profile.yaml`; the owner uses Brave Origin only, D-028)
+   and navigate.
 3. `verify` detects a login page -> `request_login` -> owner logs in -> continue.
 4. Fact fields from `profile.yaml` typed via UIA/OCR/VLM targets.
 5. Judgment fields: field label + page context + profile -> Claude text -> typed.
