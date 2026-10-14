@@ -209,9 +209,17 @@ only the fields a step needs are sent to Claude.
 ## 6. relay-ui (M3)
 
 Tauri 2 tray app with one chat window, React + Untitled UI React (D-007).
-relay-core and llama-server ship as Tauri sidecars. Shows the activity log,
-approval prompts, login prompts and final screenshots. Phone approvals via
-ntfy.sh.
+relay-core, the frozen relay-screen and llama-server ship as sidecars in one
+installer (D-044). Shows the activity log, approval prompts, login prompts and
+final screenshots. Phone approvals via ntfy.sh.
+
+It is the only thing the owner touches:
+- a first-run wizard that sets up Claude Code with Anthropic's own installer
+  and an in-app sign-in (D-045), the local model, and the Brave extension;
+- Settings > Local AI, a model picker with fit and benchmark scores (D-046);
+- Settings > Connections, one MCP hub shared with Claude Code through
+  `claude mcp` (D-047);
+- every other setting (D-048), saved by relay-core.
 
 ## 7. Playbooks
 
