@@ -370,3 +370,16 @@ and close only that window. Brave builds a full UIA tree for page content while
 the screen-reader flag (D-017) is set, with no extra flags. For M2's browser lane
 (D-016), a dedicated Brave profile would need the owner to restore their
 purchase in it first.
+
+## D-029 OCR calls Windows.Media.Ocr directly
+*2026-10-14 · accepted (amends D-013) · M1-08*
+
+D-013 named the `winocr` package. It is a 40-line wrapper with no license field,
+so `find_text` uses the `winrt-Windows.Media.Ocr` projections (MIT) directly.
+The engine uses the owner's profile languages and falls back to en-US. Captures
+larger than the engine's limit (about 2600 px) are split into overlapping tiles,
+and each line is kept only by the tile that owns its center. Regions under 1200
+px are upscaled 2x, because small UI text reads better bigger. Queries match
+spans of consecutive words. They are fuzzy by default (similarity of 0.8 or
+more, so OCR slips like "Cancle" still match) and exact with `fuzzy=false`.
+Results give centers in screenshot pixels and the OCR time.

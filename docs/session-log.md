@@ -2,6 +2,10 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
+## 2026-10-14 · M1-08 OCR and the next step, app discovery
+- `find_text` (`relay_screen/ocr.py` pure, `ocr_windows.py` on the WinRT OCR projections): tiles wide displays, upscales small regions, fuzzy phrase matching, centers in screenshot px (D-029). On-PC check: `uv run python scripts/check_ocr.py` (Save dialog buttons, median latency).
+- Owner: Brave Origin is their only browser (D-028). Owner asked that Relay find installed tools by itself instead of hard-coded paths: next is app discovery (`list_apps`, `launch_app`, default browser).
+
 ## 2026-10-14 · M1-07 UI Automation tools
 - `uia_tree`, `uia_find`, `uia_invoke`, `uia_set_value` (`relay_screen/uia.py` pure, `uia_windows.py` on the `uiautomation` package, Apache-2.0). Element ids, one COM thread, output caps: D-026. Screen-reader flag from D-017 is set while the server runs.
 - On-PC check: `uv run python scripts/check_uia.py` (Notepad File > Save without vision, Edge page links with bounds, tree size).
