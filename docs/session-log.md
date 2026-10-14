@@ -2,6 +2,10 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
+## 2026-10-14 · App and installer (app thread)
+- PR #46 merged into `dev` and #47 into `main`: the Tauri app and Relay-Setup.exe (about 26 MB). Recorded as D-053 (relay-core is an in-process library for now), D-054 (embedded CPython replaces PyInstaller), D-055 (runtime and models download during setup), D-056 (Linux cross-build, MSVC on Windows; check.py runs cargo and tsc when present), D-057 (unsigned; updates download the new installer into Downloads), D-058 (Local AI drives relay-screen's CLI, `local_ai.models_dir`) and D-059 (llama.cpp: newest release with a Windows CUDA build; b11624 / CUDA 13.4 on the owner's PC).
+- Still to wire into relay-screen in M1-10/11: `local_ai.grounding`/`describe`, `local_ai.idle_unload_secs`, `safety.always_ask`, `phone_approvals`.
+
 ## 2026-10-14 · M1-09 local model runtime
 - Built `relay_screen/runtime/` and the `relay-screen doctor | runtime | models` commands (D-052). Pins come from the publisher (GitHub asset digests, Hugging Face LFS SHA-256) and are recorded in `installed.json`; the GUI models get a source in M1-11, Qwen3-VL-8B uses Qwen's own repo. 23 unit tests with fake downloads, processes, clock and GPU.
 - Not yet run on the owner's PC (it downloads about 7 GB and loads the GPU); waiting for them to ask.
