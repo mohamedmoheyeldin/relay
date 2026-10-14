@@ -5,6 +5,7 @@ from relay_screen.actions import HALT_TEXT, MEMBERS, ActionError, Computer
 from relay_screen.input.driver import InputDriver
 from relay_screen.input.events import KeyEvent, MouseButton, MouseMove, MouseWheel
 from relay_screen.input.keys import VK_CONTROL, VK_LWIN, VK_RETURN
+from relay_screen.safety.approval import ActRequest
 from relay_screen.scaling import Rect
 from relay_screen.state import ScreenState
 from tests.conftest import GradientGrabber, RecordingBackend
@@ -186,10 +187,11 @@ def test_before_act_hooks_run_for_acts_only(owner_displays):
     computer, backend, _ = make(owner_displays)
     seen: list[str] = []
 
-    def gate(name, params):
-        seen.append(name)
-        if name == "type":
+    def gate(request: ActRequest) -> str | None:
+        seen.append(request.name)
+        if request.name == "type":
             raise ActionError("denied")
+        return None
 
     computer.before_act.append(gate)
     computer.run("screenshot")

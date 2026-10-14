@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -22,9 +23,13 @@ from relay_screen import __version__
 from relay_screen.actions import ActionError, ActionResult, Computer
 from relay_screen.capture import Grabber
 from relay_screen.input.driver import InputDriver
+from relay_screen.safety.approval import ActRequest, ApprovalGate, describe
+from relay_screen.safety.audit import AuditLog
+from relay_screen.safety.killswitch import GuardedBackend, KillSwitch
 from relay_screen.state import ScreenState
 
 SERVER_NAME = "relay-screen"
+RELAY_TOOL_PREFIX = f"mcp__{SERVER_NAME}__"
 
 ScrollDirection = Literal["up", "down", "left", "right"]
 
@@ -38,23 +43,53 @@ class Services:
     driver: InputDriver | None = None
     report_changes: bool = True
     sleep: Callable[[float], None] | None = None
+    killswitch: KillSwitch | None = None
+    gate: ApprovalGate | None = None
+    audit: AuditLog | None = None
 
     def computer(self) -> Computer:
-        computer = Computer(self.state, self.grabber, self.driver, self.report_changes)
+        hooks: list[Callable[[ActRequest], str | None]] = []
+        if self.killswitch is not None:
+            switch = self.killswitch
+
+            def check_switch(request: ActRequest) -> None:
+                switch.check()
+
+            hooks.append(check_switch)
+        if self.gate is not None:
+            hooks.append(self.gate.check)
+        computer = Computer(
+            self.state,
+            self.grabber,
+            self.driver,
+            self.report_changes,
+            before_act=hooks,
+            audit=self.audit,
+        )
         if self.sleep is not None:
             computer.sleep = self.sleep
+        elif self.killswitch is not None:
+            computer.sleep = self.killswitch.wait
         return computer
 
 
 def default_services() -> Services:
-    from relay_screen import displays
+    from relay_screen import displays, win32
     from relay_screen.capture import MssGrabber
     from relay_screen.input.sendinput import SendInputBackend
+    from relay_screen.safety.approval import SubprocessPrompter
 
+    switch = KillSwitch()
+    switch.start_cursor_watcher(win32.cursor_position)
+    switch.start_hotkey_watcher()
+    mode = os.environ.get("RELAY_APPROVAL", "ask")
     return Services(
         state=ScreenState(displays.enumerate_displays, displays.foreground_display),
         grabber=MssGrabber(),
-        driver=InputDriver(SendInputBackend()),
+        driver=InputDriver(GuardedBackend(SendInputBackend(), switch)),
+        killswitch=switch,
+        gate=ApprovalGate(SubprocessPrompter(), mode="off" if mode == "off" else "ask"),
+        audit=AuditLog.create(),
     )
 
 
@@ -285,6 +320,60 @@ def build_server(services: Services | None = None) -> FastMCP:
         names = [str(a.get("name", "?")) if isinstance(a, dict) else "?" for a in actions]
         results = await anyio.to_thread.run_sync(computer.run_batch, actions)
         return _batch_result(names, results)
+
+    # -- safety (D-011, D-012, D-019) ----------------------------------------
+
+    @mcp.tool()
+    def safety_status() -> str:
+        """Whether Relay is armed, how acts are approved, and where the audit log is."""
+        s = svc()
+        switch, gate = s.killswitch, s.gate
+        status = {
+            "armed": switch is None or not switch.tripped,
+            "stopped_because": switch.reason if switch and switch.tripped else None,
+            "approval": gate.mode if gate else "none",
+            "audit_log": str(s.audit.path) if s.audit else None,
+        }
+        return json.dumps(status)
+
+    @mcp.tool()
+    async def rearm() -> CallToolResult:
+        """After the owner stopped Relay with the kill switch, ask them to re-arm it.
+
+        The owner answers in Relay's own prompt; Claude cannot re-arm Relay itself.
+        """
+        s = svc()
+        switch, gate = s.killswitch, s.gate
+        if switch is None or not switch.tripped:
+            return CallToolResult(content=[TextContent(type="text", text="Relay is armed.")])
+        if gate is None:
+            return _error("No approval prompt is available to ask the owner.")
+        if s.driver is not None and switch.in_zone(*s.driver.backend.cursor()):
+            return _error("The mouse is still in the kill-switch corner; the owner must move it.")
+        detail = f"Relay was stopped ({switch.reason}). Let Claude act on your PC again?"
+        ok = await anyio.to_thread.run_sync(gate.confirm, "Re-arm Relay?", detail, "Re-arm")
+        if not ok:
+            return _error("The owner did not re-arm Relay. Stay stopped and ask them in chat.")
+        switch.rearm()
+        return CallToolResult(content=[TextContent(type="text", text="Relay is armed again.")])
+
+    @mcp.tool()
+    async def approve(tool_name: str, input: dict[str, Any], tool_use_id: str | None = None) -> str:
+        """Permission prompt for headless runs (claude -p --permission-prompt-tool).
+
+        Relay's own tools are allowed here because Relay asks the owner before each act
+        itself. Any other tool is shown to the owner in Relay's prompt.
+        """
+        s = svc()
+        allow = json.dumps({"behavior": "allow", "updatedInput": input})
+        if tool_name.startswith(RELAY_TOOL_PREFIX) or s.gate is None or s.gate.mode == "off":
+            return allow
+        detail = describe(tool_name, input)
+        title = f"Claude wants to use {tool_name}"
+        ok = await anyio.to_thread.run_sync(s.gate.confirm, title, detail, "Allow")
+        if ok:
+            return allow
+        return json.dumps({"behavior": "deny", "message": "The owner denied this tool call."})
 
     return mcp
 

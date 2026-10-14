@@ -13,13 +13,16 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from PIL import Image, ImageChops
+from PIL import Image, ImageChops, ImageDraw
 
 from relay_screen import capture
 from relay_screen.capture import Grabber
+from relay_screen.errors import ActionError
 from relay_screen.input.driver import MAX_DURATION, InputDriver
 from relay_screen.input.events import Button
 from relay_screen.input.keys import parse_modifiers
+from relay_screen.safety.approval import ActRequest
+from relay_screen.safety.audit import AuditLog, elapsed_ms
 from relay_screen.scaling import Rect, ScreenshotGeometry
 from relay_screen.state import ScreenState
 
@@ -71,15 +74,13 @@ _ALLOWED_PARAMS: dict[str, frozenset[str]] = {
     **{name: frozenset({"coordinate", "text"}) for name in _CLICKS},
 }
 
+PREVIEW_EDGE = 720  # px, long edge of the screenshot shown in the approval prompt
+
 # Region checked around a coordinate target for the "what changed" verdict (D-018).
 CHANGE_RADIUS = 120  # physical px
 CHANGE_SETTLE = 0.15  # s to let the UI react before comparing
 CHANGE_THRESHOLD = 24  # per-channel difference that counts as changed
 CHANGE_MIN_FRACTION = 0.002  # share of pixels that must change
-
-
-class ActionError(ValueError):
-    """An action failed or its input was invalid; the message goes back to Claude."""
 
 
 @dataclass
@@ -95,33 +96,54 @@ class Computer:
     grabber: Grabber
     driver: InputDriver | None
     report_changes: bool = True
-    # Runs before every act (approval gate and kill switch plug in here, #6).
-    before_act: list[Callable[[str, Mapping[str, Any]], None]] = field(default_factory=list)
+    # Run before every act: the kill switch and approval gate (safety/). A hook raises
+    # to stop the act, or returns a label for the audit log (e.g. "approved").
+    before_act: list[Callable[[ActRequest], str | None]] = field(default_factory=list)
     sleep: Callable[[float], None] = time.sleep
+    audit: AuditLog | None = None
 
     # -- public ---------------------------------------------------------------
 
-    def run(self, name: str, params: Mapping[str, Any] | None = None) -> ActionResult:
+    def run(
+        self,
+        name: str,
+        params: Mapping[str, Any] | None = None,
+        step: int | None = None,
+        total: int | None = None,
+    ) -> ActionResult:
         params = dict(params or {})
         if name not in MEMBERS:
             raise ActionError(f"unknown action {name!r}")
         unknown = set(params) - _ALLOWED_PARAMS[name]
         if unknown:
             raise ActionError(f"{name} does not take {', '.join(sorted(unknown))}")
-        if MEMBERS[name] == "act":
-            for hook in self.before_act:
-                hook(name, params)
+        is_act = MEMBERS[name] == "act"
+        start = time.monotonic()
+        entry: dict[str, Any] = {"action": name, "input": params}
+        if step is not None:
+            entry["batch_step"] = f"{step}/{total}"
         try:
-            return getattr(self, f"_do_{name}")(**params)
-        except ActionError:
+            if is_act:
+                request = ActRequest(name, params, step, total, lambda: self._preview(params))
+                labels = [label for hook in self.before_act if (label := hook(request))]
+                entry["approval"] = "; ".join(labels) or None
+                entry["before"] = self._audit_thumbnail("before")
+            result = self._dispatch(name, params)
+        except Exception as exc:
+            entry.update(error=str(exc) or type(exc).__name__, duration_ms=elapsed_ms(start))
+            self._audit(entry)
             raise
-        except (ValueError, TypeError) as exc:
-            raise ActionError(f"{name}: {exc}") from exc
+        entry.update(result=result.text, duration_ms=elapsed_ms(start))
+        if is_act:
+            entry["after"] = self._audit_thumbnail("after")
+        self._audit(entry)
+        return result
 
     def run_batch(self, actions: Sequence[Any]) -> list[ActionResult]:
         results: list[ActionResult] = []
         failed = False
-        for action in actions:
+        total = len(actions)
+        for step, action in enumerate(actions, start=1):
             if failed:
                 results.append(ActionResult(HALT_TEXT, is_error=True))
                 continue
@@ -130,7 +152,7 @@ class Computer:
                 params = (action.get("input") or {}) if isinstance(action, Mapping) else None
                 if not isinstance(name, str) or not isinstance(params, Mapping):
                     raise ActionError("each action needs a string 'name' and an object 'input'")
-                results.append(self.run(name, params))
+                results.append(self.run(name, params, step, total))
             except Exception as exc:  # any failure stops the batch
                 failed = True
                 message = str(exc)
@@ -138,6 +160,46 @@ class Computer:
                     message = f"{type(exc).__name__}: {exc}"
                 results.append(ActionResult(message, is_error=True))
         return results
+
+    def _dispatch(self, name: str, params: dict[str, Any]) -> ActionResult:
+        try:
+            return getattr(self, f"_do_{name}")(**params)
+        except ActionError:
+            raise
+        except (ValueError, TypeError) as exc:
+            raise ActionError(f"{name}: {exc}") from exc
+
+    # -- safety helpers -------------------------------------------------------
+
+    def _audit(self, entry: dict[str, Any]) -> None:
+        if self.audit is not None:
+            entry = {"seq": self.audit.next_seq(), **entry}
+            self.audit.record({k: v for k, v in entry.items() if v is not None})
+
+    def _audit_thumbnail(self, label: str) -> str | None:
+        if self.audit is None:
+            return None
+        try:
+            image = self.grabber.grab(self._geometry().display)
+            return self.audit.save_thumbnail(self.audit.next_seq(), label, image)
+        except Exception:  # the log must never stop an action
+            return None
+
+    def _preview(self, params: Mapping[str, Any]) -> bytes | None:
+        """The active display, small, with the target point(s) circled in red."""
+        try:
+            geometry = self._geometry()
+            image = capture.screenshot(self.grabber, geometry).convert("RGB")
+            draw = ImageDraw.Draw(image)
+            for key in ("start_coordinate", "coordinate"):
+                point = params.get(key)
+                if isinstance(point, (list, tuple)) and len(point) == 2:
+                    x, y = point
+                    draw.ellipse((x - 14, y - 14, x + 14, y + 14), outline=(230, 0, 0), width=4)
+            image.thumbnail((PREVIEW_EDGE, PREVIEW_EDGE))
+            return capture.encode_png(image)
+        except Exception:
+            return None
 
     # -- helpers --------------------------------------------------------------
 
