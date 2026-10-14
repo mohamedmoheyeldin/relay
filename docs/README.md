@@ -11,3 +11,4 @@ Start here when resuming work.
 | [setup.md](setup.md) | Dev setup and the owner's machine facts |
 | [session-log.md](session-log.md) | What each working session did, newest first |
 | [research/](research/) | Notes on Claude docs, local models, RefBox |
+| [proposals/](proposals/) | Proposals awaiting adoption (e.g. final architecture) |
