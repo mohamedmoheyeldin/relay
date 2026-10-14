@@ -284,3 +284,15 @@ surrogate pairs), and sends one character per SendInput call with an 8 ms
 pause. Verified on the owner's PC: exact read-back of ASCII, ✓, é/è and 😀 in
 Notepad and in the Tk check; cursor moves land with 0 px error on all three
 monitors. Clipboard paste remains an option for very long text (not needed yet).
+
+## D-024 Change verdicts wait for animations
+*2026-10-14 · accepted · measured on the owner's PC*
+
+The D-018 verdict compared the screen once, 0.15 s after an act. Windows shell
+surfaces animate: the Start menu and its search box were reported as
+"no visible change" on the owner's PC although they had opened, and closing
+Start with Escape too. The verdict now looks again every 0.1 s and stops at the
+first change; only after 0.75 s with nothing changed does it say
+"no visible change". Acts that change something cost no extra time; acts that
+change nothing cost up to 0.6 s more. Verified with `scripts/check_batch.py`:
+every step of the Start → "notepad" → Return batch now reports "screen changed".
