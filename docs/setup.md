@@ -38,5 +38,5 @@ Inside Claude Code, `/mcp` should list `relay-screen` as connected.
 | Monitors | DISPLAY2 3440x1440 (primary), DISPLAY1 3440x1440 (below), DISPLAY5 2560x720 (on iGPU); 100% scaling |
 | OS | Windows 11 Pro 26H2, build 26300 |
 | Tools | claude 2.1.296, Python 3.14.7 (system), node 26.8.1, git 2.55, winget 1.29; Ollama not installed |
-| Browsers | Brave Origin is the only browser the owner uses (a fresh profile asks to buy or restore the purchase). Edge exists only as the EdgeCore engine (`C:\Program Files (x86)\Microsoft\EdgeCore\<version>\msedge.exe`, used by checks). Chrome not installed. (Updated 2026-10-14.) |
+| Browsers | Brave Origin is the only browser the owner uses (corrected 2026-10-14, D-028). The Edge browser is gone; `EdgeCore\<version>\msedge.exe` remains as a Windows component and the https handler still points at `MSEdgeHTM`. Chrome not installed |
 | Paths | projects in `C:\Projects`; RefBox at `C:\Program Files\RefBox` |

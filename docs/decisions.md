@@ -357,3 +357,16 @@ level up, and `depth` still counts real levels. A filtered listing hides
 nothing. On example.com in Edge this cut the depth-12 tree from about 5.5k to
 2.6k tokens without losing any control that has a name, an id or an action.
 `uia_find` is unchanged.
+
+## D-028 The owner's browser is Brave Origin
+*2026-10-14 · accepted · corrects the browser facts behind D-016 and D-017*
+
+The owner uses Brave Origin only. Earlier notes said Edge was the default. The
+Edge browser is no longer installed, though `EdgeCore` (a Windows component)
+still has an `msedge.exe` and the https handler still names Edge. Brave Origin
+shows a purchase screen in a fresh profile, so a throwaway profile is not an
+option for it. Live checks open one new window in the owner's own Brave profile
+and close only that window. Brave builds a full UIA tree for page content while
+the screen-reader flag (D-017) is set, with no extra flags. For M2's browser lane
+(D-016), a dedicated Brave profile would need the owner to restore their
+purchase in it first.
