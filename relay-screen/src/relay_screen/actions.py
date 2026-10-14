@@ -73,7 +73,9 @@ _ALLOWED_PARAMS: dict[str, frozenset[str]] = {
 
 # Region checked around a coordinate target for the "what changed" verdict (D-018).
 CHANGE_RADIUS = 120  # physical px
-CHANGE_SETTLE = 0.15  # s to let the UI react before comparing
+CHANGE_SETTLE = 0.15  # s to let the UI react before the first comparison
+CHANGE_POLL = 0.1  # s between further comparisons while nothing has changed yet
+CHANGE_PATIENCE = 0.75  # s after the act before settling on "no visible change"
 CHANGE_THRESHOLD = 24  # per-channel difference that counts as changed
 CHANGE_MIN_FRACTION = 0.002  # share of pixels that must change
 
@@ -176,17 +178,21 @@ class Computer:
     def _verdict(self, before: Image.Image | None, area: Rect | None) -> str:
         if before is None:
             return "OK"
+        # Shell surfaces animate (Start menu, flyouts), so one early look can miss a change.
+        waited = CHANGE_SETTLE
         self.sleep(CHANGE_SETTLE)
-        after = self._observe(area)
-        if after is None or after.size != before.size:
-            return "OK"
-        diff = ImageChops.difference(before.convert("RGB"), after.convert("RGB")).convert("L")
-        histogram = diff.histogram()
-        changed = sum(histogram[CHANGE_THRESHOLD:])
-        total = before.size[0] * before.size[1]
-        if changed / total >= CHANGE_MIN_FRACTION:
-            return "OK · target changed" if area is not None else "OK · screen changed"
-        return "OK · no visible change"
+        while True:
+            after = self._observe(area)
+            if after is None or after.size != before.size:
+                return "OK"
+            diff = ImageChops.difference(before.convert("RGB"), after.convert("RGB")).convert("L")
+            changed = sum(diff.histogram()[CHANGE_THRESHOLD:])
+            if changed / (before.size[0] * before.size[1]) >= CHANGE_MIN_FRACTION:
+                return "OK · target changed" if area is not None else "OK · screen changed"
+            if waited + CHANGE_POLL > CHANGE_PATIENCE + 1e-9:
+                return "OK · no visible change"
+            self.sleep(CHANGE_POLL)
+            waited += CHANGE_POLL
 
     @staticmethod
     def _around(point: tuple[int, int]) -> Rect:

@@ -2,6 +2,10 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
+## 2026-10-14 · Change verdict fix found by a live check
+- Running `scripts/check_batch.py` on the owner's PC: Notepad opened, but Start, typing "notepad" and Return were all reported as "no visible change". A probe showed capture was fine (Start covers ~19% of the primary display within 0.25 s); the single 0.15 s look was too early for shell animations, and Escape closing Start was missed the same way.
+- Fix (D-024): the verdict polls every 0.1 s up to 0.75 s and returns on the first change. Two unit tests added; ruff, format, pyright and 124 tests pass; live re-run reports "screen changed" for every step.
+
 ## 2026-10-14 · M1-05 computer toolset tools and batch
 - PR #21: all 17 `computer_toolset_20260801` members are relay-screen tools; `batch` stops at the first failure and answers the rest with the exact halt text; acts report "target changed", "screen changed" or "no visible change" (D-018). `Computer.before_act` is the hook for M1-06's approval gate and kill switch.
 - Verified on the owner's PC with `uv run python scripts/check_batch.py`: Start menu, type "notepad", Return opened Notepad (Windows 11 Notepad restores unsaved tabs, so it showed the earlier typing test's text).
