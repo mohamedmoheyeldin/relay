@@ -1,1 +1,45 @@
-{"permissions":{"allow":["Bash(git commit:*)","Bash(git push:*)"]}}
+{
+  "permissions": {
+    "allow": [
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git branch:*)",
+      "Bash(git switch:*)",
+      "Bash(git checkout:*)",
+      "Bash(git fetch:*)",
+      "Bash(git pull:*)",
+      "Bash(git add:*)",
+      "Bash(git merge:*)",
+      "Bash(uv sync:*)",
+      "Bash(uv lock:*)",
+      "Bash(uv run pytest:*)",
+      "Bash(uv run ruff:*)",
+      "Bash(uv run pyright:*)",
+      "Bash(uv run relay-screen doctor:*)",
+      "mcp__relay-screen__ping",
+      "mcp__relay-screen__screenshot",
+      "mcp__relay-screen__zoom",
+      "mcp__relay-screen__cursor_position",
+      "mcp__relay-screen__wait",
+      "mcp__relay-screen__list_displays",
+      "mcp__relay-screen__select_display",
+      "mcp__relay-screen__uia_tree",
+      "mcp__relay-screen__uia_find",
+      "mcp__relay-screen__find_text",
+      "mcp__relay-screen__locate",
+      "mcp__relay-screen__describe",
+      "mcp__relay-screen__verify",
+      "mcp__relay-screen__playbook_list",
+      "mcp__relay-screen__playbook_load"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)"
+    ]
+  },
+  "enabledMcpjsonServers": ["relay-screen"]
+}
