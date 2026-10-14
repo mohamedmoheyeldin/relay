@@ -16,7 +16,7 @@ items 2-4 can run in parallel after 1.
 - uv workspace at the root with `relay-screen` as the first member; Python 3.12 pinned.
 - `relay-screen` package skeleton with `relay-screen` console entry point and a stdio MCP server that starts and lists one `ping` tool.
 - ruff (lint + format), pyright (basic), pytest configured; `uv run pytest` passes.
-- GitHub Actions on `windows-latest`: lint, type check, tests on push/PR to `dev` and `main`.
+- ~~GitHub Actions on `windows-latest`~~ removed by D-050: `scripts/check.py` runs lint, type check and tests locally.
 - `.mcp.json` registers relay-screen for Claude Code in this repo; `.claude/settings.json` extended (dev commands + read-only relay-screen tools allowed).
 - `CLAUDE.md` with project conventions and pointers to docs.
 

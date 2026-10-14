@@ -672,3 +672,19 @@ Checks that open windows or move the mouse on the owner's PC (`scripts/check_*.p
 run only when the owner asks for one. Green CI is the gate for merging into
 `dev` and `main`. The first-run self-test (D-044) is the owner-started check
 for releases.
+
+## D-050 Local checks only, no GitHub Actions; pnpm for the app
+*2026-10-14 · accepted · owner instruction · amends D-031, D-044 and D-049*
+
+The owner wants no GitHub Actions for tests or checks. `.github/workflows/ci.yml`
+is removed. Every check runs locally, and `uv run python scripts/check.py`
+(ruff, format check, pyright, pytest without `desktop` tests) must pass before
+every push and every merge. That replaces "green CI" as the merge gate in D-031
+and D-049. Windows-only tests that open no windows can run on the owner's PC.
+Tests and checks that open windows still run only when the owner asks. The
+release installer (D-044) is also built and checked locally and then attached
+to a GitHub Release. No Actions workflow builds it.
+
+The Tauri + React app uses **pnpm** as its package manager. That covers
+`pnpm create tauri-app`, `pnpm install`, `pnpm tauri dev` and
+`pnpm tauri build`, with `pnpm-lock.yaml` committed. npm and yarn are not used.
