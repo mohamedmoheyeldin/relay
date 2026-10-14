@@ -288,3 +288,4 @@ Desktop.ini
 /.cache/
 relay-ui/resources/python/*
 !relay-ui/resources/python/.gitkeep
+!relay-ui/src/lib/
