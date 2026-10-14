@@ -53,7 +53,9 @@
       "mcp__relay-screen__key",
       "mcp__relay-screen__hold_key",
       "mcp__relay-screen__uia_invoke",
-      "mcp__relay-screen__uia_set_value"
+      "mcp__relay-screen__uia_set_value",
+      "mcp__relay-screen__list_apps",
+      "mcp__relay-screen__launch_app"
     ],
     "deny": [
       "Read(./.env)",

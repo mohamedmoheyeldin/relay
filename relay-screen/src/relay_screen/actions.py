@@ -16,8 +16,11 @@ from typing import Any, Literal
 
 from PIL import Image, ImageChops, ImageDraw
 
+from relay_screen import apps as app_launch
 from relay_screen import capture
+from relay_screen.apps import MAX_ARGS, AppCatalog
 from relay_screen.capture import Grabber
+from relay_screen.displays import display_at
 from relay_screen.errors import ActionError
 from relay_screen.input.driver import MAX_DURATION, InputDriver
 from relay_screen.input.events import Button
@@ -61,6 +64,8 @@ RELAY_MEMBERS: dict[str, Kind] = {
     "uia_invoke": "act",
     "uia_set_value": "act",
     "find_text": "read",
+    "list_apps": "read",
+    "launch_app": "act",
 }
 
 MEMBERS: dict[str, Kind] = {**TOOLSET_MEMBERS, **RELAY_MEMBERS}
@@ -92,6 +97,8 @@ _ALLOWED_PARAMS: dict[str, frozenset[str]] = {
     "uia_invoke": frozenset({"element"}),
     "uia_set_value": frozenset({"element", "value"}),
     "find_text": frozenset({"text", "region", "fuzzy"}),
+    "list_apps": frozenset({"query", "refresh"}),
+    "launch_app": frozenset({"name", "args"}),
 }
 
 PREVIEW_EDGE = 720  # px, long edge of the screenshot shown in the approval prompt
@@ -125,6 +132,7 @@ class Computer:
     audit: AuditLog | None = None
     uia: UiaService | None = None
     ocr: OcrService | None = None
+    apps: AppCatalog | None = None
 
     # -- public ---------------------------------------------------------------
 
@@ -238,6 +246,11 @@ class Computer:
 
     def _summary(self, name: str, params: Mapping[str, Any]) -> str | None:
         """Plain words for acts the approval gate cannot describe from params alone."""
+        if name == "launch_app":
+            app = self._apps().resolve(str(params.get("name", "")))
+            args = _args(params.get("args"))
+            shown = " ".join(json.dumps(a, ensure_ascii=False) for a in args)
+            return f"Open {app.name}" + (f" with {shown[:300]}" if args else "")
         if name not in ("uia_invoke", "uia_set_value"):
             return None
         label = self._uia().label(str(params.get("element", "")))
@@ -500,6 +513,51 @@ class Computer:
                 raise ActionError("region must be [x0, y0, x1, y1] integers in screenshot pixels")
             box = (region[0], region[1], region[2], region[3])
         return ActionResult(self.ocr.find_text(self._geometry(), text, box, bool(fuzzy)))
+
+    # -- apps (Relay-only, D-030) ---------------------------------------------
+
+    def _apps(self) -> AppCatalog:
+        if self.apps is None:
+            raise ActionError("app discovery is not available in this server")
+        return self.apps
+
+    def _do_list_apps(self, query: str | None = None, refresh: bool = False) -> ActionResult:
+        if query is not None and not isinstance(query, str):
+            raise ActionError("query must be text")
+        return ActionResult(self._apps().listing(query, bool(refresh)))
+
+    def _do_launch_app(self, name: str, args: Any = None) -> ActionResult:
+        if not isinstance(name, str) or not name.strip():
+            raise ActionError("name must be an app name from list_apps")
+        catalog = self._apps()
+        app = catalog.resolve(name)
+        try:
+            window, in_front = app_launch.launch(catalog.backend, app, _args(args), self.sleep)
+        except OSError as exc:
+            raise ActionError(f"could not open {app.name}: {exc}") from exc
+        if window is None:
+            return ActionResult(
+                f"Started {app.name}, but no window of it appeared within "
+                f"{app_launch.WINDOW_PATIENCE:g} s. Check with screenshot."
+            )
+        text = f"Opened {app.name} · window {json.dumps(window.title, ensure_ascii=False)}"
+        text += " in front" if in_front else " (behind other windows)"
+        cx = window.rect.left + window.rect.width // 2
+        cy = window.rect.top + window.rect.height // 2
+        display = display_at(self.state.displays(), cx, cy)
+        if display is not None and display.id != self.state.active().id:
+            text += f" on display {display.id}, not the active one (select_display {display.id})"
+        return ActionResult(text)
+
+
+def _args(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, (list, tuple)) or not all(isinstance(a, str) for a in value):
+        raise ActionError("args must be a list of strings")
+    if len(value) > MAX_ARGS:
+        raise ActionError(f"args takes at most {MAX_ARGS} items")
+    return list(value)
 
 
 def _duration(value: Any) -> float:
