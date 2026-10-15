@@ -22,6 +22,8 @@ from mcp.types import CallToolResult, ContentBlock, ImageContent, TextContent
 
 from relay_screen import __version__
 from relay_screen.actions import ActionError, ActionResult, Computer
+from relay_screen.agent.local import MAX_STEPS, Outcome
+from relay_screen.agent.operator import Operator
 from relay_screen.apps import AppCatalog
 from relay_screen.capture import Grabber
 from relay_screen.input.driver import InputDriver
@@ -76,6 +78,7 @@ class Services:
     uia: UiaService | None = None
     ocr: OcrService | None = None
     apps: AppCatalog | None = None
+    operator: Operator | None = None  # the local operator for ui_task; made on first use
 
     def computer(self) -> Computer:
         hooks: list[Callable[[ActRequest], str | None]] = []
@@ -179,6 +182,17 @@ def _batch_result(names: list[str], results: list[ActionResult]) -> CallToolResu
     return CallToolResult(content=content, isError=any(r.is_error for r in results))
 
 
+def _ui_task_result(model_id: str, outcome: Outcome) -> CallToolResult:
+    lines = [f"Local operator ({model_id}): {outcome.status}. {outcome.message}"]
+    lines += [step.line() for step in outcome.steps]
+    if outcome.status != "done":
+        lines.append("Look at the screen (screenshot) before carrying on with the direct tools.")
+    text = "\n".join(lines)
+    return CallToolResult(
+        content=[TextContent(type="text", text=text)], isError=outcome.status != "done"
+    )
+
+
 def build_server(services: Services | None = None) -> FastMCP:
     """Create the server and register its tools. Services are created on first use."""
     mcp = FastMCP(
@@ -186,7 +200,8 @@ def build_server(services: Services | None = None) -> FastMCP:
         instructions=(
             "Relay's hands on this Windows PC. Coordinates are screenshot pixels of the "
             "active display (see list_displays). Prefer UI Automation and OCR tools before "
-            "vision. Use batch to run several computer actions in one call."
+            "vision. Use batch to run several computer actions in one call. ui_task hands a "
+            "whole UI task to the local operator, which works on this PC on its own."
         ),
     )
     holder: dict[str, Services] = {}
@@ -439,6 +454,38 @@ def build_server(services: Services | None = None) -> FastMCP:
         its title and display.
         """
         return await run("launch_app", {"name": name, "args": args})
+
+    # -- local operator (D-067, D-069) ------------------------------------------
+
+    @mcp.tool()
+    async def ui_task(task: str, max_steps: int | None = None) -> CallToolResult:
+        """Hand a whole UI task to Relay's local operator, which does it on this PC with
+        the local vision model, UI Automation and the apps catalog, then reports back.
+
+        Use it for clicking through an app ("in Notepad, replace every cat with bird",
+        "open Display settings and set scale to 125%"); keep the thinking (what to do,
+        what to write, whether it worked) for yourself. Describe one goal in plain words
+        with the app's name. Approvals and the kill switch apply to every action. If no
+        local model is downloaded it says so; do the task with the direct tools instead.
+        """
+        from relay_screen.agent.operator import LocalOperator
+        from relay_screen.runtime.supervisor import RuntimeUnavailable
+
+        s = svc()
+        try:
+            if s.operator is None:
+                s.operator = LocalOperator()
+            operator = s.operator
+            computer = s.computer()
+            steps = max_steps or MAX_STEPS
+            model_id, outcome = await anyio.to_thread.run_sync(
+                lambda: operator.run(task, computer, steps)
+            )
+        except RuntimeUnavailable as exc:
+            return _error(f"The local operator is unavailable: {exc}")
+        except Exception as exc:
+            return _error(f"The local operator failed: {exc.__class__.__name__}: {exc}")
+        return _ui_task_result(model_id, outcome)
 
     @mcp.tool()
     async def batch(actions: list[dict[str, Any]]) -> CallToolResult:

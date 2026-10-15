@@ -1,6 +1,6 @@
 # Relay architecture
 
-> Status: living document. Last revised 2026-10-14 (M1 planning).
+> Status: living document. Last revised 2026-10-15 (D-069: the local AI owns UI automation).
 > Decisions referenced as `D-0xx` live in [decisions.md](decisions.md).
 
 ## 1. What Relay is
@@ -11,17 +11,24 @@ counterpart of the RefBox hardware box: instead of an external capture/HID
 device with an 8B model on an NPU, Relay runs on the owner's own GPU and borrows
 its judgment from the owner's Claude subscription through Claude Code.
 
-**Local hands, cloud brain.**
+**Local hands, cloud brain.** The owner's goal (D-069): RefBox done in
+software and better than it, because Relay runs on the PC itself with full
+access to its hardware and software. The local AI owns UI automation end to
+end; everything else that needs intelligence goes to Claude.
 
 | Local (RTX 5080, on this PC) | Cloud (Claude via Claude Code) |
 |---|---|
-| Perception: screenshots, UI Automation tree, OCR, local vision model | Planning tasks it has not seen before |
-| Execution: click, type, keys, scroll, drag | Writing text for judgment fields |
-| Following saved playbooks step by step | Recovering when a step fails or the screen is unexpected |
-| Safety: kill switch, approval gates, audit log | Using MCP connectors (Gmail, Calendar, Drive, GitHub ...) |
+| UI automation, start to finish: the local operator plans and does UI tasks (D-067) | Deciding what to do and why; tasks that aren't UI work |
+| Perception: screenshots, UI Automation tree, OCR, local vision model | Writing text for judgment fields |
+| Execution: click, type, keys, scroll, drag, launch apps | MCP connectors (Gmail, Calendar, Drive, GitHub ...) |
+| Following saved playbooks step by step | Recovering when the local operator can't finish |
+| Safety: kill switch, approval gates, audit log | |
 
-The local model never "thinks" about what to do next. Claude never clicks
-pixels directly: it calls Relay's tools, and Relay does the clicking.
+With Claude available, Claude hands whole UI tasks to the local operator
+(`ui_task`) and keeps the direct tools for fine control. Without Claude, the
+app runs the local operator itself (`relay-screen agent`). Its target is 95%
+task success, measured with `relay-screen agent-bench` (D-068). Claude never
+clicks pixels directly: it calls Relay's tools, and Relay does the clicking.
 
 ## 2. Hard constraints
 
