@@ -17,8 +17,10 @@ use crate::{claude, mcp, paths, proc};
 /// Added to Claude Code's system prompt for Relay chats.
 pub const SYSTEM_PROMPT: &str =
     "You are running inside Relay, a desktop operator on the owner's Windows PC. \
-Use the relay-screen tools to see and act on the screen, preferring UI Automation and OCR tools \
-over raw clicks. For websites, prefer the relay-browser tools (the owner's browser, driven through \
+For work in desktop apps, hand whole UI tasks to Relay's local operator with relay-screen's ui_task \
+tool (one goal in plain words, with the app's name) and keep the deciding and writing for yourself. \
+If it fails or no local model is downloaded, finish with the direct relay-screen tools, preferring \
+UI Automation and OCR tools over raw clicks. For websites, prefer the relay-browser tools (the owner's browser, driven through \
 its page structure) and connectors for services. Keep replies short and say what you did.";
 
 #[derive(Debug, Clone, Default)]

@@ -8,6 +8,7 @@ from PIL import Image
 
 from relay_screen import __version__
 from relay_screen.actions import HALT_TEXT, MEMBERS
+from relay_screen.agent.local import Event, Hands, Outcome, Step
 from relay_screen.input.driver import InputDriver
 from relay_screen.input.events import KeyEvent, MouseButton, MouseMove
 from relay_screen.input.keys import VK_LWIN, VK_RETURN
@@ -268,3 +269,42 @@ async def test_kill_switch_rearm_and_status(owner_displays):
     assert prompter.titles == ["Re-arm Relay?", "Re-arm Relay?"]
     result = await call(server, "key", {"text": "a"})  # armed again, so the gate asks
     assert result.isError and "denied" in text(result)
+
+
+class FakeOperator:
+    def __init__(self, outcome: Outcome | None = None, error: Exception | None = None):
+        self.outcome, self.error = outcome or Outcome("done", ""), error
+        self.calls: list[tuple[str, int]] = []
+
+    def run(
+        self, task: str, hands: Hands, max_steps: int, on_event: Event | None = None
+    ) -> tuple[str, Outcome]:
+        self.calls.append((task, max_steps))
+        if self.error:
+            raise self.error
+        return "qwen3-vl-8b-instruct", self.outcome
+
+
+async def test_ui_task_hands_the_task_to_the_local_operator(owner_displays):
+    step = Step(1, "", {"action": "invoke", "element": "e4"}, "OK · target changed")
+    s = services(owner_displays)
+    operator = FakeOperator(Outcome("done", "Replaced.", [step]))
+    s.operator = operator
+    result = await call(build_server(s), "ui_task", {"task": "replace cat with bird"})
+    assert not result.isError
+    assert text(result).startswith("Local operator (qwen3-vl-8b-instruct): done. Replaced.")
+    assert 'Step 1: invoke "e4" -> OK · target changed' in text(result)
+    assert operator.calls == [("replace cat with bird", 25)]
+
+    s.operator = FakeOperator(Outcome("failed", "sign-in needed"))
+    result = await call(build_server(s), "ui_task", {"task": "x", "max_steps": 5})
+    assert result.isError and "sign-in needed" in text(result)
+
+
+async def test_ui_task_says_when_no_local_model_can_run(owner_displays):
+    from relay_screen.runtime.supervisor import RuntimeUnavailable
+
+    s = services(owner_displays)
+    s.operator = FakeOperator(error=RuntimeUnavailable("No local model is downloaded."))
+    result = await call(build_server(s), "ui_task", {"task": "x"})
+    assert result.isError and "local operator is unavailable" in text(result)
