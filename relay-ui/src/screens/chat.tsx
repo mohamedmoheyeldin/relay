@@ -5,6 +5,7 @@ import { CheckCircle, MessageChatCircle, Plus, Send01, StopCircle, Tool01, XCirc
 import { Button } from "@/components/base/buttons/button";
 import { TextAreaBase } from "@/components/base/textarea/textarea";
 import { FeaturedIcon } from "@/components/foundations/featured-icon/featured-icon";
+import { Markdown } from "@/components/relay/markdown";
 import { Notice, Spinner } from "@/components/relay/ui";
 import { type ChatEvent, api, errorText } from "@/lib/api";
 import { cx } from "@/utils/cx";
@@ -156,8 +157,8 @@ export const ChatScreen = ({ ready, onSetup }: { ready: boolean; onSetup: () => 
                             );
                         if (it.kind === "assistant")
                             return (
-                                <div key={i} className="max-w-[92%] text-md break-words whitespace-pre-wrap text-primary animate-in fade-in duration-300">
-                                    {it.text}
+                                <div key={i} className="max-w-[92%] text-md break-words text-primary animate-in fade-in duration-300">
+                                    <Markdown text={it.text} />
                                 </div>
                             );
                         if (it.kind === "tool") return <ToolItem key={i} item={it} />;
