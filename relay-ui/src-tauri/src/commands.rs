@@ -64,6 +64,7 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
         plugin_set_enabled,
         browser_state,
         browser_open,
+        browser_set_token,
         chat_send,
         chat_stop,
         chat_new,
@@ -807,18 +808,55 @@ async fn browser_state(app: AppHandle) -> BrowserState {
     }
 }
 
-/// Open the lane's browser on Relay's own profile so the owner can sign in to
-/// sites there. Only ever runs when the owner presses the button.
+/// Open the lane's browser so the owner can sign in to sites (Relay's profile) or
+/// add the Playwright Extension (their own browser). Only runs when they press the button.
 #[tauri::command]
-fn browser_open(app: AppHandle) -> Res<()> {
+fn browser_open(app: AppHandle, url: Option<String>) -> Res<()> {
     let lane = browser::state(&app.state::<AppState>().settings());
     let b = lane.browser.ok_or("No Chromium-based browser was found.")?;
-    std::fs::create_dir_all(&lane.profile_dir).map_err(err)?;
-    std::process::Command::new(&b.path)
-        .arg(format!("--user-data-dir={}", lane.profile_dir.display()))
-        .arg("--no-first-run")
-        .spawn()
-        .map_err(err)?;
+    let mut cmd = std::process::Command::new(&b.path);
+    if lane.use_own {
+        // Opens as a tab in the browser the owner already has open.
+        cmd.arg(url.unwrap_or_else(|| browser::EXTENSION_URL.into()));
+    } else {
+        std::fs::create_dir_all(&lane.profile_dir).map_err(err)?;
+        cmd.arg(format!("--user-data-dir={}", lane.profile_dir.display()))
+            .arg("--no-first-run");
+    }
+    cmd.spawn().map_err(err)?;
+    Ok(())
+}
+
+/// Keep the Playwright Extension's token in Credential Manager and hand it to
+/// relay-browser through the launcher. An empty token removes it.
+#[tauri::command]
+async fn browser_set_token(app: AppHandle, token: String) -> Res<()> {
+    let token = token.trim().to_string();
+    if token.is_empty() {
+        let _ = relay_core::secrets::delete(mcp::RELAY_BROWSER, browser::TOKEN_SECRET);
+    } else {
+        relay_core::secrets::set(mcp::RELAY_BROWSER, browser::TOKEN_SECRET, &token)
+            .map_err(anyhow_err)?;
+    }
+    app.state::<AppState>()
+        .update(|s| {
+            let names = s
+                .connections
+                .secret_names
+                .entry(mcp::RELAY_BROWSER.into())
+                .or_default();
+            names.retain(|n| n != browser::TOKEN_SECRET);
+            if !token.is_empty() {
+                names.push(browser::TOKEN_SECRET.into());
+            }
+            if names.is_empty() {
+                s.connections.secret_names.remove(mcp::RELAY_BROWSER);
+            }
+        })
+        .map_err(anyhow_err)?;
+    state::ensure_relay_browser(&app)
+        .await
+        .map_err(anyhow_err)?;
     Ok(())
 }
 
