@@ -174,9 +174,11 @@ class Answers:
     def __init__(self, *answers):
         self.answers = list(answers)
         self.titles = []
+        self.batch_labels = []
 
     def ask(self, request):
         self.titles.append(request.title)
+        self.batch_labels.append(request.batch_label if request.allow_batch else None)
         return self.answers.pop(0) if self.answers else "deny"
 
 
@@ -212,7 +214,40 @@ async def test_approve_tool_contract(owner_displays):
     assert prompter.titles == ["Claude wants to use Bash"] * 2
     look = {"tool_name": "mcp__relay-browser__browser_snapshot", "input": {}}
     assert json.loads(text(await call(server, "approve", look)))["behavior"] == "allow"
+    go = {"tool_name": "mcp__relay-browser__browser_navigate", "input": {"url": "https://x.y"}}
+    assert json.loads(text(await call(server, "approve", go)))["behavior"] == "allow"
     assert prompter.titles == ["Claude wants to use Bash"] * 2  # looking needs no prompt
+
+
+async def test_approve_can_allow_the_browser_for_the_request(owner_displays):
+    s, _, prompter = safe_services(owner_displays, "approve", "approve_batch", "deny")
+    server = build_server(s)
+    click = {"tool_name": "mcp__relay-browser__browser_click", "input": {"ref": "e1"}}
+    for _ in range(4):
+        assert json.loads(text(await call(server, "approve", click)))["behavior"] == "allow"
+    assert prompter.titles == ["Claude wants to use mcp__relay-browser__browser_click"] * 2
+    assert prompter.batch_labels == ["Allow the browser for this request"] * 2
+    bash = {"tool_name": "Bash", "input": {"command": "dir"}}
+    assert json.loads(text(await call(server, "approve", bash)))["behavior"] == "deny"
+    assert prompter.batch_labels[-1] is None  # other tools can't be allowed in bulk
+
+
+async def test_approve_says_when_the_prompt_is_broken(owner_displays):
+    from relay_screen.safety.approval import PromptUnavailableError
+
+    class Broken:
+        def ask(self, request):
+            raise PromptUnavailableError("ModuleNotFoundError: No module named 'tkinter'")
+
+    s, _, _ = safe_services(owner_displays)
+    assert s.gate is not None
+    s.gate.prompter = Broken()
+    server = build_server(s)
+    bash = {"tool_name": "Bash", "input": {"command": "dir"}}
+    answer = json.loads(text(await call(server, "approve", bash)))
+    assert answer["behavior"] == "deny"
+    assert "could not show its approval prompt" in answer["message"]
+    assert "tkinter" in answer["message"] and "did not refuse" in answer["message"]
 
 
 async def test_kill_switch_rearm_and_status(owner_displays):

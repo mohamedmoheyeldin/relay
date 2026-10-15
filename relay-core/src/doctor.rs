@@ -78,6 +78,11 @@ pub async fn run(settings: &Settings, python: Option<&Path>, app_version: &str) 
         ),
         None => check("relay-screen bundle", false, "not found next to the app"),
     });
+    if cfg!(windows) {
+        if let Some(python) = python.filter(|p| p.is_file()) {
+            checks.push(approval_prompt(python).await);
+        }
+    }
     let g = gpu::detect().await;
     checks.push(match &g {
         Some(g) => check(
@@ -137,6 +142,42 @@ pub async fn run(settings: &Settings, python: Option<&Path>, app_version: &str) 
         paths::settings_file().display().to_string(),
     ));
     checks
+}
+
+/// Builds Relay's approval prompt off screen (`prompt --check`), so a prompt that can't
+/// open shows up here instead of as every action being refused.
+async fn approval_prompt(python: &Path) -> Check {
+    let python = crate::local_ai::cli_python(python);
+    let run = crate::proc::run(&python, &["-m", "relay_screen.safety.prompt", "--check"]);
+    let out = match tokio::time::timeout(std::time::Duration::from_secs(30), run).await {
+        Ok(Ok(out)) => out,
+        Ok(Err(e)) => return check("Approval prompt", false, format!("{e:#}")),
+        Err(_) => return check("Approval prompt", false, "the check did not finish in 30 s"),
+    };
+    let answer: serde_json::Value = serde_json::from_str(out.stdout.trim()).unwrap_or_default();
+    if answer["ok"] == true {
+        return check(
+            "Approval prompt",
+            true,
+            "ready to ask you before Claude acts",
+        );
+    }
+    let reason = answer["error"]
+        .as_str()
+        .map(str::to_string)
+        .or_else(|| {
+            out.stderr
+                .lines()
+                .rev()
+                .find(|l| !l.trim().is_empty())
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| "it stopped without saying why".into());
+    check(
+        "Approval prompt",
+        false,
+        format!("can't open, so Claude's actions would be refused: {reason}"),
+    )
 }
 
 pub fn report(checks: &[Check]) -> String {
