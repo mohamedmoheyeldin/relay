@@ -24,7 +24,7 @@ def png(width: int = 2000, height: int = 1000) -> bytes:
     return out.getvalue()
 
 
-READS = ("screenshot", "uia_tree", "find_text", "list_apps")
+READS = ("screenshot", "uia_tree", "find_text", "list_apps", "list_windows")
 
 
 class FakeHands:
@@ -303,3 +303,39 @@ def test_reads_screen_text_and_clicks_it_when_ui_automation_sees_little() -> Non
 
 def done() -> dict[str, Any]:
     return {"action": "done", "summary": "ok"}
+
+
+# --- open windows (D-078) ---------------------------------------------------
+
+WINDOWS = (
+    "3 open window(s), topmost first:\n"
+    '"Relay" · relay.exe · Relay itself, never the target · in front\n'
+    '"Monster Jobs - Brave" · brave.exe · minimized\n'
+    '"notes.txt - Notepad" · notepad.exe'
+)
+
+
+def test_focuses_the_program_the_task_names_before_the_first_step() -> None:
+    hands = FakeHands({"list_windows": WINDOWS})
+    model = Script({"action": "done", "summary": "ok"})
+    LocalAgent(hands, model).run("In Brave, apply to the Monster job")
+    assert hands.acts() == [("focus_window", {"window": "brave"})]
+    prompt = model.prompt(0)
+    assert "Open windows (topmost first):" in prompt
+    assert "Relay itself, never the target" in prompt
+
+
+def test_no_focus_when_no_open_program_is_named() -> None:
+    hands = FakeHands({"list_windows": WINDOWS})
+    LocalAgent(hands, Script({"action": "done", "summary": "ok"})).run("open Calculator")
+    assert hands.acts() == []
+
+
+def test_focus_window_action_maps_to_the_member() -> None:
+    frame = Frame.from_png(png())
+    assert to_member({"action": "focus_window", "window": " Brave "}, frame, "rel1000") == (
+        "focus_window",
+        {"window": "Brave"},
+    )
+    with pytest.raises(ReplyError, match="focus_window needs"):
+        to_member({"action": "focus_window"}, frame, "rel1000")

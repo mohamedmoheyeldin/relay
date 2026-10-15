@@ -2,6 +2,10 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
+## 2026-10-15 · Relay finds and focuses the program to control (D-078)
+- Owner: the app should know where the program is and act on it by itself. In their run Relay screenshotted its own window, kept clicking the Brave taskbar button and Claude used PowerShell to find Brave. New `list_windows` and `focus_window` tools (Relay's own window marked and never chosen); the local operator sees the open windows each step, focuses the program the task names before its first step and has a `focus_window` action. 6 new tests.
+- Sent the white border around the setup dialog and moving Relay's window aside during tasks to the app thread. Nothing ran on the PC.
+
 ## 2026-10-15 · 0.1.6: Claude-desktop-style look and Relay Setup
 - Owner: the app looked bad; wanted it clean and modern like the Claude desktop app. Restyled relay-ui: warm neutrals with a terracotta accent, Inter for UI and a serif for replies, collapsible sidebar with New chat, centered chat column with a rounded composer and compact activity rows; settings and the wizard follow. No Anthropic assets.
 - Shipped together with Relay Setup (below) as 0.1.6, recorded as D-076 (look) and D-077 (Setup bootstrapper). In-app approvals and auto-allowed lookups are parked on a local branch until the owner answers in their own words.
