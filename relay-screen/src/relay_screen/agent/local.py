@@ -9,6 +9,7 @@ Claude uses, so the kill switch, approval prompt and audit log all apply.
 from __future__ import annotations
 
 import base64
+import contextlib
 import io
 import json
 import re
@@ -35,6 +36,7 @@ UIA_DEPTH = 8
 FEW_ELEMENTS = 6  # with fewer element lines than this, read the screen's text with OCR
 MAX_OCR_LINES = 40
 MAX_APPS_CHARS = 2500
+MAX_WINDOWS_CHARS = 1500
 
 SYSTEM_PROMPT = """\
 You are Relay, an assistant that operates a Windows PC for its owner. You see a \
@@ -52,6 +54,8 @@ ctrl+l, alt+F4, super
 - {"action": "scroll", "x": X, "y": Y, "direction": "down", "amount": 3}
 - {"action": "launch_app", "name": "Notepad", "args": []}  opens an installed app; \
 name "browser" opens the owner's web browser, and a URL in args opens that page
+- {"action": "focus_window", "window": "Brave"}  brings an open window to the front \
+(restoring it if minimized) by its title or program name from the open windows list
 - {"action": "wait", "seconds": 2}
 - {"action": "invoke", "element": "e12"}  presses a button, menu item, link, checkbox or \
 list item from the element list
@@ -71,7 +75,9 @@ with its ids over clicking and typing: they are faster and do not miss. Each lin
 [id] Role "name" ... {what it can do}. Next best is click_text with words you can \
 read on the screen. Click by position only when neither works.
 
-The installed apps are listed; open them by those names with launch_app.
+The open windows are listed, topmost first. When the program the task needs is \
+already open, focus_window it; open it with launch_app only when no window of it is \
+open. The installed apps are listed; open them by those names.
 
 Rules:
 - Click a field before typing into it. Prefer keyboard shortcuts when they are certain.
@@ -80,6 +86,8 @@ task, reply with fail and the reason "sign-in needed".
 - Only buy, pay, send, submit or delete when the task clearly asks for it. Relay asks \
 the owner before such steps either way.
 - If an action did not change the screen, try something different.
+- Never click taskbar buttons to switch programs (that minimizes them); use \
+focus_window. Never act on Relay's own window; it is marked in the windows list.
 """
 
 Status = Literal["done", "failed", "stopped"]
@@ -232,6 +240,11 @@ def to_member(action: Mapping[str, Any], frame: Frame, coords: Coords) -> tuple[
         if isinstance(args, str):
             args = [args]
         return "launch_app", {"name": app, "args": [str(a) for a in args]}
+    if name in ("focus_window", "focus", "switch_to"):
+        window = action.get("window") or action.get("name") or action.get("title")
+        if not isinstance(window, str) or not window.strip():
+            raise ReplyError("focus_window needs a window title or program name")
+        return "focus_window", {"window": window.strip()[:200]}
     if name in ("invoke", "set_value"):
         element = action.get("element") or action.get("id")
         if not isinstance(element, str) or not re.fullmatch(r"e\d+", element):
@@ -262,6 +275,7 @@ class Context:
     elements: str = ""
     screen_text: str = ""
     apps: str = ""
+    windows: str = ""
 
 
 def _few(elements: str) -> bool:
@@ -289,11 +303,13 @@ class LocalAgent:
         bad_replies = 0
         note = ""
         apps = self._apps()
+        self._focus_target(task)
         for n in range(1, self.max_steps + 1):
+            windows = self._windows()
             frame = Frame.from_png(self._screenshot())
             elements = self._elements()
             screen_text = self._screen_text() if _few(elements) else ""
-            context = Context(elements, screen_text, apps)
+            context = Context(elements, screen_text, apps, windows)
             reply = self.model(self._messages(task, steps, frame, note, context))
             note = ""
             try:
@@ -358,6 +374,39 @@ class LocalAgent:
         text = ", ".join(n for n in names if not n.startswith("..."))
         return text[:MAX_APPS_CHARS]
 
+    def _windows(self) -> str:
+        """The open windows, topmost first, so the model knows where each program is."""
+        try:
+            listing = self.hands.run("list_windows", {}).text or ""
+        except Exception:
+            return ""
+        head, _, rest = listing.partition("\n")
+        if "open window(s)" not in head:
+            return ""
+        return rest[:MAX_WINDOWS_CHARS]
+
+    def _focus_target(self, task: str) -> None:
+        """Before the first step, bring the task's program to the front (D-078).
+
+        Relay's own chat window is usually in front when a task starts, which left the
+        model screenshotting Relay and clicking the taskbar. When an open window's
+        program is named in the task ("in Brave, ..."), it goes in front first;
+        otherwise the model sees the windows list and can focus_window itself.
+        """
+        words = set(re.findall(r"[a-z0-9]+", task.casefold()))
+        for line in self._windows().splitlines():
+            parts = line.split(" · ")
+            if len(parts) < 2 or any(p.startswith("Relay itself") for p in parts):
+                continue
+            stem = parts[1].casefold().removesuffix(".exe")
+            if stem in words:
+                if "in front" not in parts:
+                    with contextlib.suppress(
+                        ActionError, ApprovalDeniedError, PromptUnavailableError
+                    ):
+                        self.hands.run("focus_window", {"window": stem})
+                return
+
     def _messages(
         self,
         task: str,
@@ -370,6 +419,9 @@ class LocalAgent:
         lines = [f"Task: {task}"]
         if context.apps:
             lines.append(f"Installed apps: {context.apps}")
+        if context.windows:
+            lines.append("Open windows (topmost first):")
+            lines.append(context.windows)
         if steps:
             lines.append("What you did so far:")
             lines.extend(s.line() for s in steps[-HISTORY:])

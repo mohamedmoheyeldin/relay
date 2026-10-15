@@ -8,6 +8,7 @@ into one catalog Claude can search with ``list_apps`` and open with ``launch_app
 
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
@@ -242,3 +243,95 @@ def launch(
     window = next((w for w in backend.windows() if w.handle == window.handle), window)
     in_front = backend.foreground() == window.handle or backend.bring_to_front(window.handle)
     return window, in_front
+
+
+# -- open windows (D-078) ------------------------------------------------------
+
+RELAY_EXE = "relay"  # the Tauri app's binary stem (productName "Relay")
+OFFSCREEN = -32000  # where Windows parks a minimized window
+WINDOW_LIMIT = 40
+
+
+def _stem(exe: str | None) -> str | None:
+    return PureWindowsPath(exe).stem.casefold() if exe else None
+
+
+def is_relay(window: Window) -> bool:
+    return _stem(window.exe) == RELAY_EXE
+
+
+def minimized(window: Window) -> bool:
+    return window.rect.left <= OFFSCREEN
+
+
+def window_label(window: Window, foreground: int) -> str:
+    parts = [json.dumps(window.title, ensure_ascii=False)]
+    if window.exe:
+        parts.append(PureWindowsPath(window.exe).name)
+    if is_relay(window):
+        parts.append("Relay itself, never the target")
+    if window.handle == foreground:
+        parts.append("in front")
+    elif minimized(window):
+        parts.append("minimized")
+    return " · ".join(parts)
+
+
+def window_listing(windows: Sequence[Window], foreground: int, query: str | None = None) -> str:
+    """Open windows, topmost first; what list_windows and the local operator see."""
+    shown = list(windows)
+    if query:
+        shown = [w for _, w in rank_windows(shown, query)]
+        if not shown:
+            return f"No open window matches {query!r}. Use launch_app to open the program."
+    if not shown:
+        return "No open windows."
+    head = f"{len(shown)} open window(s), topmost first:"
+    lines = [window_label(w, foreground) for w in shown[:WINDOW_LIMIT]]
+    if len(shown) > WINDOW_LIMIT:
+        lines.append(f"... {len(shown) - WINDOW_LIMIT} more; pass query to filter.")
+    return "\n".join([head, *lines])
+
+
+def window_score(window: Window, query: str, app: App | None = None) -> float:
+    q = query.casefold().strip()
+    title = window.title.casefold()
+    stem = _stem(window.exe)
+    if not q:
+        return 0.0
+    if title == q:
+        return 1.0
+    if stem == q or (app is not None and app.exe is not None and _same_exe(window.exe, app.exe)):
+        return 0.95
+    if app is not None and stem is not None and stem == app.stem:
+        return 0.95
+    if q in title:
+        return 0.85
+    if stem is not None and stem.startswith(q):
+        return 0.8
+    return 0.0
+
+
+def rank_windows(
+    windows: Sequence[Window], query: str, app: App | None = None
+) -> list[tuple[float, Window]]:
+    """Matching windows, best first; ties keep z-order (topmost first). Never Relay's own."""
+    scored = [(s, w) for w in windows if not is_relay(w) and (s := window_score(w, query, app)) > 0]
+    return sorted(scored, key=lambda pair: -pair[0])  # stable: z-order within a score
+
+
+def find_window(windows: Sequence[Window], query: str, catalog: AppCatalog | None = None) -> Window:
+    """The open window ``query`` means: a title, a program name, or an installed app's name."""
+    app = None
+    if catalog is not None:
+        try:
+            app = catalog.resolve(query)
+        except ActionError:
+            app = None
+    found = rank_windows(windows, query, app)
+    if not found:
+        raise ActionError(
+            f"No open window matches {query!r}. Use list_windows to see them, "
+            "or launch_app to open the program."
+        )
+    return found[0][1]
