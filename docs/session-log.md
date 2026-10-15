@@ -2,12 +2,17 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
+## 2026-10-15 · Removed the outside-product name from the project
+- Owner asked to remove every mention of the hardware operator product that Relay was first compared with. Rewrote README, CLAUDE.md, architecture, decisions, the final-architecture proposal, setup and this log to describe Relay on its own terms; the reasoning behind each decision stays.
+- Replaced the product research file with [research/screen-lane-notes.md](research/screen-lane-notes.md), which keeps only Relay's design takeaways.
+- Git history still has the old text; it was left as is.
+
 ## 2026-10-15 · Risky-only approval mode, local operator reads text (D-073)
 - Owner: still hasn't seen the local AI do UI tasks; too many popups. New approval mode "risky" asks only before clicks/invokes on controls named like send, pay, delete (UIA name under the pointer) and risky browser-lane calls; "ask" stays the default until the owner picks "risky". The local operator now also gets the installed apps, OCR text when UIA sees little, and a `click_text` action. 9 new tests.
 - Nothing ran on the PC (no access from the cloud session, and the owner didn't ask).
 
 ## 2026-10-15 · The local AI owns UI automation (D-069)
-- Owner: Relay is RefBox in software and should beat it; the local AI's job is UI automation, everything else goes to Claude. Recorded as D-069 and rewrote architecture §1. New relay-screen tool `ui_task` lets Claude hand a whole UI task to the local operator (model kept loaded in the MCP server, unloaded when idle, one task at a time). 3 new tests.
+- Owner: Relay is a desktop operator done in software and should beat hardware operators; the local AI's job is UI automation, everything else goes to Claude. Recorded as D-069 and rewrote architecture §1. New relay-screen tool `ui_task` lets Claude hand a whole UI task to the local operator (model kept loaded in the MCP server, unloaded when idle, one task at a time). 3 new tests.
 - App side (via the coordinator): Claude's instructions in the app should tell it to use `ui_task` for UI work.
 
 ## 2026-10-15 · 0.1.5: Relay uses the owner's open Brave; replies stream
@@ -66,7 +71,7 @@ Short entries so later sessions can pick up where earlier ones stopped. Newest f
 - Owner: no GitHub Actions for tests; run every check locally. Removed `.github/workflows/ci.yml`, added `scripts/check.py` (ruff, format, pyright, pytest) as the gate before push and merge. The app will use pnpm. D-050.
 
 ## 2026-10-14 · Product target: one download, one app
-- Owner wants a complete RefBox-like app: one installer, local model chosen in Settings, all MCP connections managed in one place. Recorded as D-044 (one installer + first-run wizard), D-045 (Relay sets up Claude Code with Anthropic's official installer and an in-app sign-in), D-046 (model picker), D-047 (MCP hub over `claude mcp`), D-048 (all settings in the app) and D-049 (live PC checks only on request). Roadmap rewritten around v1.0 = clean install from `Relay-Setup.exe`.
+- Owner wants a complete, polished app: one installer, local model chosen in Settings, all MCP connections managed in one place. Recorded as D-044 (one installer + first-run wizard), D-045 (Relay sets up Claude Code with Anthropic's official installer and an in-app sign-in), D-046 (model picker), D-047 (MCP hub over `claude mcp`), D-048 (all settings in the app) and D-049 (live PC checks only on request). Roadmap rewritten around v1.0 = clean install from `Relay-Setup.exe`.
 
 ## 2026-10-14 · More architecture decisions
 - Adopted D-040 to D-043 from the revised proposal (#31): always-on perception in relay-core (WGC frame stream, change events, UIA watcher, overlay), text-first observations to Claude, models load at task start and unload 60 s after it ends, optional signed uiAccess helper for elevated windows.
@@ -75,9 +80,9 @@ Short entries so later sessions can pick up where earlier ones stopped. Newest f
 - Owner: no more draft PRs; Claude merges its own PRs into `dev` and then `dev` into `main` on green CI (D-031). Owner stopped live PC checks that kept opening windows: run them only when asked.
 - Adopted the final architecture proposal as D-032 to D-039 (Rust always-on core wrapping the Python hands, warm MCP over localhost HTTP, speed ladder, Brave extension browser lane, two vision models resident, runtime in the core from M2, Windows through v1, D-001 confirmed).
 
-## 2026-10-14 · Final architecture: how RefBox gets smooth control
-- Owner asked to rethink the proposal against how RefBox achieves smooth Windows/macOS automation. Read refbox.ai and its Q&A (routing table, HDMI/HID, models, text-only cloud summaries) alongside research/refbox.md.
-- Revised [proposals/final-architecture.md](proposals/final-architecture.md): new section 2 (what RefBox does, what Relay copies, beats, skips); relay-core gains always-on perception (WGC frame stream, settle events, UIA events, overlay); text-first observations to Claude; models warm for the whole task; optional uiAccess helper; macOS AX wake-up attributes. Decisions 9-12 added for the plan thread.
+## 2026-10-14 · Final architecture: how to get smooth control
+- Owner asked to rethink the proposal around smooth Windows/macOS automation: routing table, HDMI/HID capture, models, text-only cloud summaries.
+- Revised [proposals/final-architecture.md](proposals/final-architecture.md): new section 2 (what makes control smooth, what Relay adopts, improves, skips); relay-core gains always-on perception (WGC frame stream, settle events, UIA events, overlay); text-first observations to Claude; models warm for the whole task; optional uiAccess helper; macOS AX wake-up attributes. Decisions 9-12 added for the plan thread.
 
 ## 2026-10-14 · App discovery
 - `list_apps` and `launch_app` (`relay_screen/apps.py` pure, `apps_windows.py` for Start menu, App Paths, registered browsers and window tracking). `"browser"` picks the owner's browser even though the https handler still names EdgeCore. Design: D-030.
@@ -122,9 +127,9 @@ Short entries so later sessions can pick up where earlier ones stopped. Newest f
 - Manual desktop check: `uv run python scripts/check_input.py` (moves the mouse, types into Notepad).
 
 ## 2026-10-14 · Planning and M1 kickoff
-- Read the project brief and the owner's screenshots (PC specs, drives, repo, RefBox site, installer, release notes, app).
+- Read the project brief and the owner's screenshots (PC specs, drives, repo, installer, release notes, app).
 - Read current docs: `computer_toolset_20260801` (platform.claude.com) and Claude Code headless/MCP/permissions/hooks (code.claude.com). Notes in [research/claude-integration.md](research/claude-integration.md).
-- Read-only scan of the owner's PC (with permission): RefBox is Electron 40 + Vue 3 + ant-design-vue; machine facts in [setup.md](setup.md#owners-machine-2026-10-14).
+- Read-only scan of the owner's PC (with permission); machine facts in [setup.md](setup.md#owners-machine-2026-10-14).
 - Researched local GUI-grounding models and runtimes: [research/local-models.md](research/local-models.md).
 - Wrote architecture, decisions D-001..D-016, roadmap, M1 plan; created `dev` from `main`.
 - Next: M1-01 scaffolding (in progress on branch `claude/relay-m1-plan-6zr3a1` -> PR into `dev`).

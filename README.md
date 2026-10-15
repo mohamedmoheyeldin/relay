@@ -8,8 +8,8 @@ you. Perception and execution run on your own GPU. Judgment (planning, writing,
 recovering when stuck) comes from Claude through your own Claude Code
 subscription login.
 
-It is a software take on the [RefBox](https://refbox.ai) hardware operator,
-built for one person's PC. It is not a product and is not meant to be shared
+It runs entirely on your own PC, with full access to its hardware and
+software, built for one person. It is not a product and is not meant to be shared
 or run on anyone else's subscription.
 
 > Status: **M1 in progress** (relay-screen MCP server). See [docs/roadmap.md](docs/roadmap.md).
