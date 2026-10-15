@@ -95,6 +95,20 @@ pub enum ChatEvent {
     Error {
         message: String,
     },
+    /// Claude couldn't run, so the local operator takes the task (D-067).
+    Fallback {
+        reason: String,
+    },
+    /// Progress from the local operator.
+    LocalNote {
+        text: String,
+    },
+    LocalStep {
+        step: u64,
+        thought: String,
+        action: String,
+        result: String,
+    },
 }
 
 fn truncate(text: &str, max: usize) -> String {
@@ -222,6 +236,10 @@ pub struct Turn {
 }
 
 impl Turn {
+    pub fn new(child: tokio::process::Child) -> Self {
+        Self { child }
+    }
+
     pub async fn stop(&mut self) {
         let _ = self.child.kill().await;
     }

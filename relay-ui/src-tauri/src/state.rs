@@ -15,6 +15,8 @@ pub struct AppState {
     pub jobs: Mutex<HashMap<String, Cancel>>,
     pub turn: tokio::sync::Mutex<Option<chat::Turn>>,
     pub session: Mutex<Option<String>>,
+    /// The owner pressed Stop, so a failed Claude turn must not fall back to the local AI.
+    pub stopped: std::sync::atomic::AtomicBool,
     pub pty: Mutex<Option<crate::pty::Session>>,
 }
 
@@ -25,6 +27,7 @@ impl AppState {
             jobs: Mutex::default(),
             turn: tokio::sync::Mutex::default(),
             session: Mutex::default(),
+            stopped: Default::default(),
             pty: Mutex::default(),
         }
     }

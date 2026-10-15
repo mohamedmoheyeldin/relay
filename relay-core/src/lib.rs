@@ -12,6 +12,7 @@ pub mod doctor;
 pub mod download;
 pub mod gpu;
 pub mod launcher;
+pub mod local_agent;
 pub mod local_ai;
 pub mod mcp;
 pub mod paths;

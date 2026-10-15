@@ -1,7 +1,7 @@
 // The chat window: one conversation with Claude, with Relay's activity shown inline.
 import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { CheckCircle, MessageChatCircle, Plus, Send01, StopCircle, Tool01, XCircle } from "@untitledui/icons";
+import { CheckCircle, CpuChip01, MessageChatCircle, Plus, Send01, StopCircle, Tool01, XCircle } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
 import { TextAreaBase } from "@/components/base/textarea/textarea";
 import { FeaturedIcon } from "@/components/foundations/featured-icon/featured-icon";
@@ -17,7 +17,10 @@ type Item =
     | { kind: "assistant"; text: string }
     | { kind: "tool"; id: string; name: string; input: string; result?: { ok: boolean; text: string; image: string | null } }
     | { kind: "done"; ok: boolean; text: string; seconds: number | null }
-    | { kind: "error"; text: string };
+    | { kind: "error"; text: string }
+    | { kind: "fallback"; reason: string }
+    | { kind: "note"; text: string }
+    | { kind: "step"; step: number; thought: string; action: string; result: string };
 
 const SUGGESTIONS = ["Summarise my unread email", "Open Notepad and write a shopping list", "Find a cheap flight to Cairo next month"];
 
@@ -49,7 +52,24 @@ const ToolItem = ({ item }: { item: Extract<Item, { kind: "tool" }> }) => {
     );
 };
 
-export const ChatScreen = ({ ready, onSetup }: { ready: boolean; onSetup: () => void }) => {
+const LocalStep = ({ item }: { item: Extract<Item, { kind: "step" }> }) => {
+    const failed = /^(error|failed|denied|blocked|not run)/i.test(item.result);
+    return (
+        <div className="rounded-lg bg-secondary px-3 py-2 text-sm animate-in fade-in duration-200">
+            <div className="flex items-center gap-2">
+                {failed ? <XCircle className="size-4 shrink-0 text-fg-error-primary" /> : <CheckCircle className="size-4 shrink-0 text-fg-success-primary" />}
+                <span className="font-medium text-secondary">Step {item.step}</span>
+                <span className="truncate font-mono text-xs text-tertiary">{item.action}</span>
+            </div>
+            {item.thought && <p className="mt-1 text-tertiary">{item.thought}</p>}
+            {item.result && <p className="mt-1 truncate text-xs text-quaternary">{item.result}</p>}
+        </div>
+    );
+};
+
+const LOCAL_MODEL_MISSING = /Settings > Local AI/;
+
+export const ChatScreen = ({ ready, onSetup, onLocalAi }: { ready: boolean; onSetup: () => void; onLocalAi: () => void }) => {
     const [items, setItems] = useState<Item[]>([]);
     const [input, setInput] = useState("");
     const [busy, setBusy] = useState(false);
@@ -89,6 +109,13 @@ export const ChatScreen = ({ ready, onSetup }: { ready: boolean; onSetup: () => 
                         return [...prev, { kind: "done", ok: !e.is_error, text: e.is_error ? e.result : "", seconds: e.duration_ms ? e.duration_ms / 1000 : null }];
                     case "error":
                         return [...prev, { kind: "error", text: e.message }];
+                    case "fallback":
+                        refreshClaude().catch(() => {});
+                        return [...prev, { kind: "fallback", reason: e.reason }];
+                    case "local_note":
+                        return [...prev, { kind: "note", text: e.text }];
+                    case "local_step":
+                        return [...prev, { kind: "step", step: e.step, thought: e.thought, action: e.action, result: e.result }];
                     default:
                         return prev;
                 }
@@ -134,14 +161,14 @@ export const ChatScreen = ({ ready, onSetup }: { ready: boolean; onSetup: () => 
                 <div className="mx-auto flex max-w-3xl flex-col gap-4">
                     {!ready && (
                         <Notice>
-                            Claude Code isn't set up yet.{" "}
+                            Claude isn't signed in, so tasks run on the local AI alone.{" "}
                             <button className="cursor-pointer font-semibold underline" onClick={onSetup}>
                                 Finish setup
                             </button>{" "}
-                            to start a task.
+                            to let Claude handle them.
                         </Notice>
                     )}
-                    {items.length === 0 && ready && (
+                    {items.length === 0 && (
                         <div className="flex flex-col items-center py-12 text-center animate-in fade-in slide-in-from-bottom-2 duration-500 sm:py-20">
                             <FeaturedIcon icon={MessageChatCircle} color="brand" theme="light" size="lg" />
                             <h2 className="mt-5 text-display-xs font-semibold text-primary">What should Relay do?</h2>
@@ -177,6 +204,21 @@ export const ChatScreen = ({ ready, onSetup }: { ready: boolean; onSetup: () => 
                                 </div>
                             );
                         if (it.kind === "tool") return <ToolItem key={i} item={it} />;
+                        if (it.kind === "fallback")
+                            return (
+                                <div key={i} className="flex items-center gap-2 pt-2 text-sm font-semibold text-brand-secondary animate-in fade-in duration-300">
+                                    <CpuChip01 className="size-4" />
+                                    Local AI (Claude unavailable)
+                                    <span className="font-normal text-tertiary">· {it.reason}</span>
+                                </div>
+                            );
+                        if (it.kind === "note")
+                            return (
+                                <div key={i} className="text-xs text-tertiary">
+                                    {it.text}
+                                </div>
+                            );
+                        if (it.kind === "step") return <LocalStep key={i} item={it} />;
                         if (it.kind === "done")
                             return (
                                 <div key={i} className={cx("text-xs", it.ok ? "text-quaternary" : "text-error-primary")}>
@@ -186,6 +228,14 @@ export const ChatScreen = ({ ready, onSetup }: { ready: boolean; onSetup: () => 
                         return (
                             <Notice key={i} tone="error">
                                 {it.text}
+                                {LOCAL_MODEL_MISSING.test(it.text) && (
+                                    <>
+                                        {" "}
+                                        <button className="cursor-pointer font-semibold underline" onClick={onLocalAi}>
+                                            Open Local AI
+                                        </button>
+                                    </>
+                                )}
                             </Notice>
                         );
                     })}
@@ -232,14 +282,13 @@ export const ChatScreen = ({ ready, onSetup }: { ready: boolean; onSetup: () => 
                             }
                         }}
                         className="max-h-48 min-h-11 flex-1 resize-none bg-transparent shadow-none ring-0 focus:ring-0"
-                        disabled={!ready}
                     />
                     {busy ? (
                         <Button color="secondary" iconLeading={StopCircle} onClick={() => api.chatStop()}>
                             Stop
                         </Button>
                     ) : (
-                        <Button iconLeading={Send01} onClick={send} isDisabled={!ready || !input.trim()}>
+                        <Button iconLeading={Send01} onClick={send} isDisabled={!input.trim()}>
                             Send
                         </Button>
                     )}
