@@ -4,7 +4,14 @@ Short entries so later sessions can pick up where earlier ones stopped. Newest f
 
 ## 2026-10-15 · Screen first and self-setup (D-079)
 - Owner: Relay answered "go to dice.com and search" with a Dice connector table and asked them to install a browser extension. They want it to act on screen end to end and set itself up. Added `open_url` (owner's browser, no extension); Claude is told to do "go to" on screen and never to ask for setup; the local operator opens the page a task names before its first step; `ui_task` starts downloading the runtime and model in the background when they are missing. 9 new tests.
-- The owner's reference video was blocked by the proxy and robots.txt; asked for the file. Rebased onto the rewritten history (dev 1a0bc83). Nothing ran on the PC.
+- The owner's reference video was blocked by the proxy and robots.txt; asked for the file. Moved onto the rewritten history. Nothing ran on the PC.
+
+## 2026-10-15 · 0.1.7: no popups, plain-words steps, Relay steps aside
+- Owner (own words, after 0.1.6): no popups, the app should just do what's needed; better messages in chat; white frame around the installer. They said yes to the plan in the thread.
+- Approvals: the default is now "risky" (old settings files with the old "ask" default switch once, `safety.defaults_version`). Claude Code tool calls also follow it: lookups and ordinary tools run; tool names that send, pay, delete, and shell commands that delete, wipe, shut down or push still ask. Questions go to an in-app card (relay-screen `AppPrompter` → the app's localhost listener, token in `approval.json`); injected input to Relay's window is dropped so automation can't answer. The native prompt is only a fallback when the app isn't running. After an answer, focus goes back to the window Relay was working in.
+- Chat shows each step in plain words (`relay-ui/src/lib/describe-tool.ts`); ToolSearch and status pings are hidden; raw calls open on click.
+- Relay minimizes itself when a run starts acting on the screen and comes back when it ends (`stage.rs`).
+- Relay Setup: Windows 11's 1 px DWM frame is turned off (`DWMWA_BORDER_COLOR` none).
 
 ## 2026-10-15 · Relay finds and focuses the program to control (D-078)
 - Owner: the app should know where the program is and act on it by itself. In their run Relay screenshotted its own window, kept clicking the Brave taskbar button and Claude used PowerShell to find Brave. New `list_windows` and `focus_window` tools (Relay's own window marked and never chosen); the local operator sees the open windows each step, focuses the program the task names before its first step and has a `focus_window` action. 6 new tests.

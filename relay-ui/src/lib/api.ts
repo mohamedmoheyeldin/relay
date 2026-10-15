@@ -184,6 +184,20 @@ export type ChatEvent =
     | { type: "local_note"; text: string }
     | { type: "local_step"; step: number; thought: string; action: string; result: string };
 
+/** An approval relay-screen asks for in Relay's window. */
+export interface Approval {
+    id: number;
+    title: string;
+    detail: string;
+    step: number | null;
+    total: number | null;
+    image: string | null;
+    timeout: number;
+    approve_label: string;
+    allow_batch: boolean;
+    batch_label: string;
+}
+
 export interface Check {
     name: string;
     ok: boolean;
@@ -254,6 +268,7 @@ export const api = {
     browsers: () => invoke<BrowserInfo[]>("browsers"),
     browserState: () => invoke<BrowserState>("browser_state"),
     browserOpen: (url?: string) => invoke<void>("browser_open", { url: url ?? null }),
+    approvalAnswer: (id: number, decision: string) => invoke<boolean>("approval_answer", { id, decision }),
     browserSetToken: (token: string) => invoke<void>("browser_set_token", { token }),
     playbooks: () => invoke<Playbook[]>("playbooks_list"),
     playbookDelete: (name: string) => invoke<void>("playbook_delete", { name }),
