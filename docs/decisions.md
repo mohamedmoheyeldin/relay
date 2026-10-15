@@ -1180,3 +1180,27 @@ whatever it needs by itself, and never stop to ask for setup.
   stopping the work and fixes the installer border. A reference video the
   owner sent could not be fetched from the cloud session; its review is still
   pending.
+
+## D-080 Approvals for risky steps only, asked in the app; Relay steps aside
+*2026-10-15 · accepted · owner ("not have any pop up and the app do what ever needed", then "yes" to the app thread's plan at 19:21) · Relay 0.1.7 · amends D-073, D-075*
+
+The app thread put the change to the owner in plain words: no separate approval
+windows, and ask only before steps that can't be undone. The owner answered
+"yes".
+
+- "risky" is the default approval mode. Settings files that still carry the
+  old "ask" default switch once (`safety.defaults_version`). Settings > Safety
+  still offers "Before every click or keystroke" and "Never ask".
+- Claude Code's own tool calls follow the same mode:
+  - lookups and ordinary tools run without asking;
+  - tool names that send, pay or delete ask;
+  - shell commands that delete, wipe, shut down or push ask.
+- Questions appear as a card in the Relay chat. relay-screen's `AppPrompter`
+  posts them to the app's localhost listener (token in `approval.json`).
+  Injected input to Relay's window is dropped, so automation can't answer.
+  The native prompt is only a fallback when the app isn't running. After an
+  answer, focus returns to the window Relay was working in.
+- Relay minimizes itself when a run starts acting on the screen and comes back
+  when it ends (`stage.rs`), alongside D-078's never-target-Relay rule.
+- Chat shows each step in plain words (`describe-tool.ts`).
+- Relay Setup turns off Windows 11's 1 px window frame.

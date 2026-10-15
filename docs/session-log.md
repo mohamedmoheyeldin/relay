@@ -4,7 +4,7 @@ Short entries so later sessions can pick up where earlier ones stopped. Newest f
 
 ## 2026-10-15 · Screen first and self-setup (D-079)
 - Owner: Relay answered "go to dice.com and search" with a Dice connector table and asked them to install a browser extension. They want it to act on screen end to end and set itself up. Added `open_url` (owner's browser, no extension); Claude is told to do "go to" on screen and never to ask for setup; the local operator opens the page a task names before its first step; `ui_task` starts downloading the runtime and model in the background when they are missing. 9 new tests.
-- The owner's reference video was blocked by the proxy and robots.txt; asked for the file. Moved onto the rewritten history. Nothing ran on the PC.
+- The owner's reference video was blocked by the proxy and robots.txt; asked for the file. Moved onto the rewritten history. Recorded the app thread's 0.1.7 approvals as D-080 after reading the owner's yes. Nothing ran on the PC.
 
 ## 2026-10-15 · 0.1.7: no popups, plain-words steps, Relay steps aside
 - Owner (own words, after 0.1.6): no popups, the app should just do what's needed; better messages in chat; white frame around the installer. They said yes to the plan in the thread.
