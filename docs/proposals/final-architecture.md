@@ -2,8 +2,8 @@
 
 > Status: adopted 2026-10-14 as D-032 to D-039. Written in response to the owner's revised
 > architecture brief (Rust always-on core, speed ladder, local model table,
-> cross-platform). Revised the same day after a closer look at how RefBox
-> gets smooth Windows/macOS control (section 2). Nothing here changes
+> cross-platform). Revised the same day after a closer look at what makes
+> Windows/macOS control smooth (section 2). Nothing here changes
 > `architecture.md` or `decisions.md`; section 10 lists the decisions the plan
 > thread should adopt as new D-entries.
 
@@ -17,7 +17,7 @@ screen does not match the playbook. This is D-001 unchanged.
 
 | Area | Recommendation |
 |---|---|
-| Core | A native **Rust daemon (`relay-core`) that is always running**, built in M2. It **wraps** the Python `relay-screen` from M1 instead of replacing it, and adds the always-on perception that makes RefBox feel smooth: a live frame stream, change events, UIA events, and the overlay. |
+| Core | A native **Rust daemon (`relay-core`) that is always running**, built in M2. It **wraps** the Python `relay-screen` from M1 instead of replacing it, and adds the always-on perception that makes control feel smooth: a live frame stream, change events, UIA events, and the overlay. |
 | Smoothness | Never wait blind: know when the screen changed from capture and UIA events instead of sleeping, keep models warm for the whole task, send Claude text (UIA/ARIA) instead of screenshots, and use the cheapest path that works. Section 2. |
 | Hands | Keep Python `relay-screen` (UIA, input, capture, OCR, safety, all verified on the owner's PC) as Relay's Windows hands through v1. Port to Rust only when macOS work starts (M4), behind the same tool contract. |
 | Face | Tauri 2 + React + Untitled UI (D-007), a client of the daemon over a local WebSocket. Closing the window never stops a running task. |
@@ -27,28 +27,28 @@ screen does not match the playbook. This is D-001 unchanged.
 | Speed ladder | Playbook replay first, then API/MCP -> shell/COM -> browser/Electron DOM via CDP -> accessibility tree -> OCR -> local vision -> Claude with a screenshot. Raw coordinates only as the output of a lower rung, never as a plan. |
 | Platforms | Windows only through v1. The contract and the daemon are written so macOS can follow in M4; Linux after that, Wayland-first. |
 
-## 2. How RefBox gets smooth Windows and macOS control
+## 2. What makes Windows and macOS control smooth
 
-Sources: RefBox's public site and Q&A, the owner's package inspection, and
-[research/refbox.md](../research/refbox.md) (names and manifests only; no
-RefBox code read or copied).
+Reference point: a dedicated hardware operator, an external box that captures
+the PC's display and acts as its keyboard and mouse, paired with a PC helper
+app. Design notes: [research/screen-lane-notes.md](../research/screen-lane-notes.md).
 
-### 2.1 What it actually does
+### 2.1 What a hardware operator does
 
-| Piece | How RefBox does it | Why it feels smooth |
+| Piece | How it is done | Why it feels smooth |
 |---|---|---|
 | Seeing | The box takes the PC's display over HDMI/USB-C (4K@30) and watches it continuously. The PC app also streams frames and reads the accessibility tree. | There is always a fresh frame. Nothing waits for a screenshot request, and the box sees when the screen stops changing. |
 | Acting | The box is a USB keyboard and mouse (HID). The PC app adds software input (nut.js: SendInput on Windows, CGEvent on macOS). | Hardware input is never blocked by UIPI or the lock screen, and needs no drivers or permissions. |
-| Finding things | The site's own routing table: script/API 10 ms (99%), keyboard shortcut 20 ms (95%), accessibility handle 50 ms (90%), GUI click 200 ms (70%). The PC app reads UIA (Windows) and AX (macOS) "using the system's accessibility interfaces". | Most steps never touch a vision model. |
+| Finding things | A routing table, cheapest first: script/API 10 ms (99%), keyboard shortcut 20 ms (95%), accessibility handle 50 ms (90%), GUI click 200 ms (70%). The PC app reads UIA (Windows) and AX (macOS). | Most steps never touch a vision model. |
 | Dormant trees | A logon task runs a screen-reader hook so Qt, Chromium and Electron apps build their accessibility trees. | UIA works in apps where it normally returns an empty window. |
-| Native helpers | Two small Rust programs: `desktopctl` (windows crate, UIA, local IPC) and a click-through overlay. | Accessibility and overlay work run in an always-on native process, not in Electron's JavaScript. |
+| Native helpers | Small native programs for UIA (local IPC) and a click-through overlay. | Accessibility and overlay work run in an always-on native process, not in Electron's JavaScript. |
 | Browser | An embedded Chromium driven over CDP and read as Playwright ARIA snapshots, with cookie sync from the user's browser. | A web page becomes a short text tree; no pixels. |
 | Office | An office-js add-in. | Word/Excel/PowerPoint driven through their API. |
-| Checking | Post-action observation after every desktop and browser action (release 0.7.35). | Misses are caught on the next step, not three steps later. |
+| Checking | Post-action observation after every desktop and browser action. | Misses are caught on the next step, not three steps later. |
 | Apps | Launch by AppUserModelID, know the foreground app. | No Start-menu clicking. |
-| Models | Qwen 8B Q4 plus three screen models, always resident on a dedicated 26 TOPS NPU. Cloud models get "a filtered text summary", "never a continuous feed of your screen". | No cold starts, no GPU contention, and cloud turns are short because they carry text, not images. |
+| Models | A small 8B LLM plus screen models, always resident on a dedicated NPU. Cloud models get a filtered text summary, never a continuous feed of the screen. | No cold starts, no GPU contention, and cloud turns are short because they carry text, not images. |
 | Safety | A physical key on a separate security chip; phone approvals. | Approval is one press, no window switching. |
-| macOS | Same design: AX for elements, CGEvent for input, accessibility permission. The Q&A says "some features vary by operating system". | |
+| macOS | Same design: AX for elements, CGEvent for input, accessibility permission. | |
 
 ### 2.2 What Relay copies, beats, or skips
 
@@ -58,8 +58,8 @@ RefBox code read or copied).
 - Verify after every action (D-018, done).
 - Playwright ARIA snapshots for web pages (D-021).
 - Office through an API instead of pixels (COM first, D-021).
-- **New: an always-on native process for perception.** RefBox puts UIA and the
-  overlay in Rust helpers. Relay's Rust core does the same for the parts that
+- **New: an always-on native process for perception.** UIA and the overlay
+  belong in a native helper. Relay's Rust core does the same for the parts that
   must run continuously (section 4.2).
 - **New: text to the cloud, not screenshots.** Claude gets the UIA/ARIA text of
   the relevant window first and a screenshot only when text is not enough.
@@ -74,11 +74,11 @@ RefBox code read or copied).
 - **UIA events instead of re-reading.** Subscribe to focus, window-opened and
   structure-changed events, so "wait for the Save dialog" returns the moment
   it exists.
-- **Accessibility in-process, not over a network hop.** RefBox's agent on the
-  box calls the PC over WebRTC/serial for every accessibility query. Relay's
+- **Accessibility in-process, not over a network hop.** An agent on an
+  external box calls the PC over WebRTC/serial for every accessibility query. Relay's
   tools run on the same machine as the agent's hands.
 - **A far bigger GPU.** An RTX 5080 runs 8B vision models at Q4/Q8 much faster
-  than a 26 TOPS NPU, and Claude replaces the 8B planner.
+  than a small NPU, and Claude replaces the 8B planner.
 - **The real browser.** Relay drives the owner's own Brave profile through an
   extension instead of an embedded browser with copied cookies (section 5).
 - **Admin windows.** A signed helper with `uiAccess="true"`, installed under
@@ -110,7 +110,7 @@ RefBox code read or copied).
 | Accessibility library | xa11y or Terminator | Python `uiautomation`, own UIA thread (D-013, D-026) | **Keep `uiautomation` on Windows.** It is built and verified. Evaluate xa11y for macOS/Linux in M4 (MIT, pre-1.0). Terminator is Windows-first with experimental macOS/Linux, so it buys nothing over what Relay already has. |
 | OCR | Windows.Media.Ocr / Vision | Windows.Media.Ocr (D-029) | Same. |
 | Capture/input crates | xcap/scap, enigo | mss + own SendInput (D-013) | **Keep on Windows.** Use xcap/enigo (or direct WGC/CGEvent) only in the M4 Rust hands. |
-| Browser | Playwright or own extension (RefBox syncs cookies) | Dedicated profile + remote debugging (D-016, open) | **Own extension in the owner's real Brave profile**, no cookie copying. See section 5. |
+| Browser | Playwright or own extension (or cookie sync) | Dedicated profile + remote debugging (D-016, open) | **Own extension in the owner's real Brave profile**, no cookie copying. See section 5. |
 | Platforms | Windows, macOS, Linux | Windows only (roadmap non-goal) | **Windows through v1**, macOS M4. Section 8. |
 | Idle unload | ~60 s | 60 s (D-006) | Same. |
 
@@ -162,8 +162,8 @@ RefBox code read or copied).
   UIA event watcher (focus, window opened, structure changed), and the
   click-through "Relay is driving" overlay. relay-screen asks the core for the
   latest frame and for "wait until settled / until this window appears"
-  instead of capturing and polling itself. This is the Rust part of RefBox's
-  design (`desktopctl`, overlay) done in Relay's own way.
+  instead of capturing and polling itself. This is the native-helper idea
+  (UIA helper, overlay) done in Relay's own way.
 - **relay-screen** keeps its tool contract (D-009) and safety layer. The kill
   switch and per-action approval stay *inside* relay-screen, next to SendInput,
   so no path can bypass them (D-012, D-019, D-025). The only change: it also
@@ -213,7 +213,7 @@ default profile (Brave follows Chromium, so we expect the same; verify on the
 owner's PC), and a separate profile loses the logins. So Relay ships its **own small MV3 extension** for Brave that uses
 the `chrome.debugger` API (CDP inside the browser) and talks to relay-core over
 native messaging. This works in the real profile with real logins and never
-copies cookies (RefBox's cookie sync is exactly what Relay should not do).
+copies cookies (cookie sync is exactly what Relay should not do).
 The extension is installed once by the owner (developer mode or a local CRX).
 Electron apps Relay launches itself can get `--remote-debugging-port`; for
 Electron apps already running, rung 5 is the fallback.
@@ -280,7 +280,7 @@ Claude.
   OS is underneath. relay-screen's test suite becomes the contract test for
   every hands implementation.
 
-## 9. Things software cannot match from RefBox's box
+## 9. Things software cannot match from a hardware box
 
 Elevated windows: the optional `uiAccess` helper from section 2.2. Physical
 approve key: replaced by the approval prompt that synthetic input
@@ -329,8 +329,7 @@ Proposed as new entries; none rewrites an old one.
 
 ## Sources
 
-- RefBox site and Q&A (routing table, HDMI/HID, models, "filtered text summary", approval chip): https://refbox.ai/ , https://refbox.ai/qa/
-- RefBox package findings: [research/refbox.md](../research/refbox.md) and the owner's brief.
+- Screen-lane design notes: [research/screen-lane-notes.md](../research/screen-lane-notes.md) and the owner's brief.
 
 - xa11y (MIT, Rust + Python, Windows UIA / macOS AX / Linux AT-SPI, pre-1.0): https://lib.rs/crates/xa11y , https://pypi.org/project/xa11y/
 - Terminator by Mediar AI (MIT, Windows primary, macOS/Linux experimental): https://lib.rs/crates/terminator-rs
