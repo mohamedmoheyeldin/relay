@@ -8,7 +8,7 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use relay_core::download::Cancel;
 use relay_core::settings::Settings;
-use relay_core::{chat, claude, mcp, settings, system, updates};
+use relay_core::{browser, chat, claude, mcp, settings, system, updates};
 
 pub struct AppState {
     settings: Mutex<Settings>,
@@ -46,7 +46,7 @@ impl AppState {
 
 /// The bundled Python that runs relay-screen (`<install dir>\python\pythonw.exe`).
 pub fn python_path(app: &AppHandle) -> Option<PathBuf> {
-    let dir = app.path().resource_dir().ok()?.join("python");
+    let dir = relay_core::paths::plain(app.path().resource_dir().ok()?).join("python");
     let exe = if cfg!(windows) {
         "pythonw.exe"
     } else {
@@ -57,7 +57,9 @@ pub fn python_path(app: &AppHandle) -> Option<PathBuf> {
 
 /// This executable, which doubles as the MCP secrets launcher.
 pub fn launcher_path() -> PathBuf {
-    std::env::current_exe().unwrap_or_else(|_| PathBuf::from("relay"))
+    std::env::current_exe()
+        .map(relay_core::paths::plain)
+        .unwrap_or_else(|_| PathBuf::from("relay"))
 }
 
 /// Make sure Claude Code starts relay-screen the way the current settings say.
@@ -88,6 +90,39 @@ pub async fn ensure_relay_screen(app: &AppHandle) -> anyhow::Result<bool> {
     Ok(true)
 }
 
+/// Register, update or remove relay-browser to match Settings > Browser.
+/// Left alone while the owner has it paused in Connections.
+pub async fn ensure_relay_browser(app: &AppHandle) -> anyhow::Result<bool> {
+    let settings = app.state::<AppState>().settings();
+    if claude::find().is_none()
+        || settings
+            .connections
+            .paused
+            .iter()
+            .any(|p| p.name == mcp::RELAY_BROWSER)
+    {
+        return Ok(false);
+    }
+    let lane = browser::state(&settings);
+    let have = mcp::user_config(mcp::RELAY_BROWSER).ok();
+    let want = match (&lane.browser, browser::npx()) {
+        (Some(b), Some(npx)) if lane.enabled => {
+            Some(browser::spec(&npx, std::path::Path::new(&b.path), &settings).config_json(None))
+        }
+        _ => None,
+    };
+    if have == want {
+        return Ok(want.is_some());
+    }
+    if have.is_some() {
+        mcp::remove(mcp::RELAY_BROWSER, &[], true).await?;
+    }
+    if let Some(want) = &want {
+        mcp::add_json(mcp::RELAY_BROWSER, want).await?;
+    }
+    Ok(want.is_some())
+}
+
 pub fn on_start(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         let s = app.state::<AppState>().settings();
@@ -95,6 +130,9 @@ pub fn on_start(app: AppHandle) {
         settings::prune_runs(&s.privacy);
         if let Err(err) = ensure_relay_screen(&app).await {
             eprintln!("relay: could not register relay-screen: {err:#}");
+        }
+        if let Err(err) = ensure_relay_browser(&app).await {
+            eprintln!("relay: could not register relay-browser: {err:#}");
         }
         if s.updates.check_on_start {
             let version = app.package_info().version.to_string();

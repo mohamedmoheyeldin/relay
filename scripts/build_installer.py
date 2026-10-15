@@ -78,6 +78,35 @@ def fetch_python() -> Path:
     return pkg
 
 
+def pip_target(site: Path) -> list[str]:
+    return [
+        "--target",
+        str(site),
+        "--python-platform",
+        "x86_64-pc-windows-msvc",
+        "--python-version",
+        "3.12",
+        "--no-compile",
+    ]
+
+
+def install_relay_screen() -> None:
+    """(Re)install relay-screen itself into the bundle. Its version rarely changes
+    between builds, so --reinstall makes sure the current source is what ships."""
+    site = PYTHON_DIR / "Lib" / "site-packages"
+    run(
+        [
+            "uv",
+            "pip",
+            "install",
+            *pip_target(site),
+            "--no-deps",
+            "--reinstall",
+            str(ROOT / "relay-screen"),
+        ]
+    )
+
+
 def bundle_python() -> None:
     pkg = fetch_python()
     if PYTHON_DIR.exists():
@@ -113,17 +142,8 @@ def bundle_python() -> None:
             str(requirements),
         ]
     )
-    target = [
-        "--target",
-        str(site),
-        "--python-platform",
-        "x86_64-pc-windows-msvc",
-        "--python-version",
-        "3.12",
-        "--no-compile",
-    ]
-    run(["uv", "pip", "install", *target, "--require-hashes", "-r", str(requirements)])
-    run(["uv", "pip", "install", *target, "--no-deps", str(ROOT / "relay-screen")])
+    run(["uv", "pip", "install", *pip_target(site), "--require-hashes", "-r", str(requirements)])
+    install_relay_screen()
     for cache in PYTHON_DIR.rglob("__pycache__"):
         shutil.rmtree(cache, ignore_errors=True)
     (PYTHON_DIR / ".gitkeep").touch()
@@ -165,10 +185,14 @@ def main() -> None:
     )
     parser.add_argument("--bundle", action="store_true", help="only bundle Python and relay-screen")
     parser.add_argument(
-        "--skip-bundle", action="store_true", help="reuse relay-ui/resources/python as it is"
+        "--skip-bundle",
+        action="store_true",
+        help="reuse relay-ui/resources/python, refreshing only relay-screen itself",
     )
     args = parser.parse_args()
-    if not args.skip_bundle:
+    if args.skip_bundle:
+        install_relay_screen()
+    else:
         bundle_python()
     if not args.bundle:
         build_installer()

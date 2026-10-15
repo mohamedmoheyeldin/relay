@@ -2,6 +2,15 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
+## 2026-10-15 · App round 2 from the owner's first install (app thread)
+- Chat tool calls all failed with "Permission prompt tool returned an invalid result": relay-screen's `approve` returned FastMCP `structuredContent`; it now returns one bare text block (test asserts it). Browser-lane tools that only look (snapshot, screenshot, console, network, wait) are allowed without a prompt.
+- Self-test hung on "asking Claude": the check now times out after 90 s, child processes are killed on drop, and only one check runs at a time. `claude -p` itself answered in about 3 s on the owner's PC.
+- `\\?\` is stripped from the bundle and launcher paths (`paths::plain`), so relay-screen re-registers with `C:\relay\python\pythonw.exe`.
+- Setup is one page of checks that run on their own; sign-in runs `claude auth login --claudeai` out of sight, opens the page, accepts a pasted code and polls `claude auth status` (xterm removed).
+- Browser lane: `relay-browser` = pinned `@playwright/mcp@0.0.83` with `--executable-path` of the chosen Chromium browser (Brave Origin auto-picked) and Relay's own profile in `%LOCALAPPDATA%\Relay\browser-profile`. Settings > Browser shows it; decision sent to the plan thread.
+- Connections: Sign in/out for OAuth servers (`claude mcp login/logout`), plugin servers name their plugin and can turn it off, and a plugins list toggles `claude plugin enable/disable`.
+- Design: app-styled scrollbars, container-query layouts down to 520 px wide, page and row motion, skeletons, fixed the close dialog.
+
 ## 2026-10-14 · App and installer (app thread)
 - PR #46 merged into `dev` and #47 into `main`: the Tauri app and Relay-Setup.exe (about 26 MB). Recorded as D-053 (relay-core is an in-process library for now), D-054 (embedded CPython replaces PyInstaller), D-055 (runtime and models download during setup), D-056 (Linux cross-build, MSVC on Windows; check.py runs cargo and tsc when present), D-057 (unsigned; updates download the new installer into Downloads), D-058 (Local AI drives relay-screen's CLI, `local_ai.models_dir`) and D-059 (llama.cpp: newest release with a Windows CUDA build; b11624 / CUDA 13.4 on the owner's PC).
 - Still to wire into relay-screen in M1-10/11: `local_ai.grounding`/`describe`, `local_ai.idle_unload_secs`, `safety.always_ask`, `phone_approvals`.

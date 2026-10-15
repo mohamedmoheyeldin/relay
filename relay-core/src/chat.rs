@@ -18,7 +18,8 @@ use crate::{claude, mcp, paths, proc};
 pub const SYSTEM_PROMPT: &str =
     "You are running inside Relay, a desktop operator on the owner's Windows PC. \
 Use the relay-screen tools to see and act on the screen, preferring UI Automation and OCR tools \
-over raw clicks, and connectors for services. Keep replies short and say what you did.";
+over raw clicks. For websites, prefer the relay-browser tools (the owner's browser, driven through \
+its page structure) and connectors for services. Keep replies short and say what you did.";
 
 #[derive(Debug, Clone, Default)]
 pub struct TurnOptions {

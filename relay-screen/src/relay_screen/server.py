@@ -34,6 +34,25 @@ from relay_screen.uia import UiaService
 
 SERVER_NAME = "relay-screen"
 RELAY_TOOL_PREFIX = f"mcp__{SERVER_NAME}__"
+# Relay's browser lane (Playwright MCP). Tools that only look are allowed without asking.
+BROWSER_TOOL_PREFIX = "mcp__relay-browser__"
+BROWSER_READ_ONLY = frozenset(
+    {
+        "browser_snapshot",
+        "browser_take_screenshot",
+        "browser_console_messages",
+        "browser_network_requests",
+        "browser_wait_for",
+    }
+)
+
+
+def _looks_only(tool_name: str) -> bool:
+    return (
+        tool_name.startswith(BROWSER_TOOL_PREFIX)
+        and tool_name.removeprefix(BROWSER_TOOL_PREFIX) in BROWSER_READ_ONLY
+    )
+
 
 ScrollDirection = Literal["up", "down", "left", "right"]
 
@@ -465,22 +484,38 @@ def build_server(services: Services | None = None) -> FastMCP:
         return CallToolResult(content=[TextContent(type="text", text="Relay is armed again.")])
 
     @mcp.tool()
-    async def approve(tool_name: str, input: dict[str, Any], tool_use_id: str | None = None) -> str:
+    async def approve(
+        tool_name: str, input: dict[str, Any], tool_use_id: str | None = None
+    ) -> CallToolResult:
         """Permission prompt for headless runs (claude -p --permission-prompt-tool).
 
         Relay's own tools are allowed here because Relay asks the owner before each act
-        itself. Any other tool is shown to the owner in Relay's prompt.
+        itself, and so are browser-lane tools that only look at the page. Any other tool
+        is shown to the owner in Relay's prompt.
+
+        Claude Code wants exactly one text block back. A `str` return would also carry
+        `structuredContent`, which Claude Code rejects as "an invalid result", so the
+        answer goes out as a bare CallToolResult.
         """
+
+        def answer(decision: dict[str, Any]) -> CallToolResult:
+            return CallToolResult(content=[TextContent(type="text", text=json.dumps(decision))])
+
         s = svc()
-        allow = json.dumps({"behavior": "allow", "updatedInput": input})
-        if tool_name.startswith(RELAY_TOOL_PREFIX) or s.gate is None or s.gate.mode == "off":
-            return allow
+        allow = {"behavior": "allow", "updatedInput": input}
+        if (
+            tool_name.startswith(RELAY_TOOL_PREFIX)
+            or _looks_only(tool_name)
+            or s.gate is None
+            or s.gate.mode == "off"
+        ):
+            return answer(allow)
         detail = describe(tool_name, input)
         title = f"Claude wants to use {tool_name}"
         ok = await anyio.to_thread.run_sync(s.gate.confirm, title, detail, "Allow")
         if ok:
-            return allow
-        return json.dumps({"behavior": "deny", "message": "The owner denied this tool call."})
+            return answer(allow)
+        return answer({"behavior": "deny", "message": "The owner denied this tool call."})
 
     return mcp
 

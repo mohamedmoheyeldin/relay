@@ -1,173 +1,139 @@
 // Claude Code install, sign-in and check (D-045). Used by the wizard and Settings > Claude.
-import { useCallback, useEffect, useState } from "react";
-import { CheckCircle, Download01, RefreshCw01, Terminal as TerminalIcon } from "@untitledui/icons";
-import { Badge } from "@/components/base/badges/badges";
+import { useEffect, useRef, useState } from "react";
+import { Download01, LogIn01, RefreshCw01 } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
-import { Terminal } from "@/components/relay/terminal";
-import { Card, JobProgress, KeyValue, LogLines, Notice } from "@/components/relay/ui";
-import { type ClaudeState, api, errorText } from "@/lib/api";
+import { CheckRow, type CheckStatus, JobProgress, LogLines, Notice } from "@/components/relay/ui";
+import { api, errorText } from "@/lib/api";
+import { useClaude } from "@/lib/claude";
 import { clearJob, useJobs, waitForJob } from "@/lib/jobs";
+import { SignIn } from "./sign-in";
 
-export function useClaudeState() {
-    const [state, setState] = useState<ClaudeState | null>(null);
-    const refresh = useCallback(async () => {
-        setState(await api.claudeState());
-    }, []);
-    useEffect(() => {
-        refresh();
-    }, [refresh]);
-    return { state, refresh };
-}
-
-export const ClaudeSetup = ({ onReady }: { onReady?: (ready: boolean) => void }) => {
-    const { state, refresh } = useClaudeState();
+/**
+ * The three Claude checks as checklist rows: installed, signed in, answers.
+ * They run on their own; a button only shows where something needs the owner.
+ * With `autoSignIn`, the sign-in starts by itself when it is the next thing to do.
+ */
+export const ClaudeChecks = ({ autoSignIn = false }: { autoSignIn?: boolean }) => {
+    const { state, loading, check, signedIn, refresh, runCheck } = useClaude({ autoCheck: true });
     const jobs = useJobs();
     const [signingIn, setSigningIn] = useState(false);
-    const [verify, setVerify] = useState<{ ok: boolean; text: string } | null>(null);
-    const [verifying, setVerifying] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const autoStarted = useRef(false);
 
-    const ready = !!state?.installed && !!state.auth.loggedIn;
-    useEffect(() => onReady?.(ready && verify?.ok !== false), [ready, verify, onReady]);
+    useEffect(() => {
+        if (autoSignIn && !autoStarted.current && state?.installed && !state.auth.loggedIn) {
+            autoStarted.current = true;
+            setSigningIn(true);
+        }
+    }, [autoSignIn, state]);
 
-    const install = async () => {
+    const runJob = async (job: "claude-install" | "claude-update", start: () => Promise<void>) => {
         setError(null);
-        clearJob("claude-install");
+        clearJob(job);
         try {
-            await api.claudeInstall();
-            await waitForJob("claude-install");
+            await start();
+            await waitForJob(job);
         } catch (e) {
             setError(errorText(e));
         }
-        refresh();
+        await refresh();
     };
 
-    const update = async () => {
-        setError(null);
-        clearJob("claude-update");
-        try {
-            await api.claudeUpdate();
-            await waitForJob("claude-update");
-        } catch (e) {
-            setError(errorText(e));
-        }
-        refresh();
-    };
-
-    const runVerify = async () => {
-        setVerifying(true);
-        setVerify(null);
-        try {
-            const text = await api.claudeVerify();
-            setVerify({ ok: true, text });
-        } catch (e) {
-            setVerify({ ok: false, text: errorText(e) });
-        }
-        setVerifying(false);
-    };
-
-    if (!state) return <Card>Checking for Claude Code…</Card>;
     const installJob = jobs["claude-install"];
     const updateJob = jobs["claude-update"];
+    const installing = installJob?.state === "running";
+    const updating = updateJob?.state === "running";
+
+    const installed: CheckStatus = !state ? "running" : installing ? "running" : state.installed ? "ok" : "error";
+    const auth: CheckStatus = !state?.installed ? "waiting" : signingIn ? "running" : state.auth.loggedIn ? "ok" : "warn";
+    const answers: CheckStatus = !signedIn
+        ? "waiting"
+        : check.status === "running" || check.status === "idle"
+          ? "running"
+          : check.status === "ok"
+            ? "ok"
+            : "error";
 
     return (
-        <div className="flex flex-col gap-4">
-            <Card className="flex flex-col gap-3">
-                <div className="flex items-center justify-between">
-                    <span className="text-md font-semibold text-primary">Claude Code</span>
-                    {!state.installed ? (
-                        <Badge color="warning">Not installed</Badge>
-                    ) : state.auth.loggedIn ? (
-                        <Badge color="success">Signed in</Badge>
-                    ) : (
-                        <Badge color="warning">Not signed in</Badge>
-                    )}
-                </div>
-                {state.installed && (
-                    <>
-                        <KeyValue label="Version" value={state.version ?? "unknown"} />
-                        {state.auth.loggedIn && (
-                            <>
-                                <KeyValue label="Account" value={state.auth.email ?? "signed in"} />
-                                {state.auth.subscriptionType && <KeyValue label="Plan" value={state.auth.subscriptionType} />}
-                            </>
-                        )}
-                    </>
-                )}
-                {!state.installed && (
-                    <p className="text-sm text-tertiary">
-                        Relay runs Anthropic's official Claude Code installer for you. Nothing else is needed, and Relay never sees your
-                        Claude password or token.
-                    </p>
-                )}
-                <div className="flex flex-wrap gap-3">
-                    {!state.installed && (
-                        <Button iconLeading={Download01} onClick={install} isLoading={installJob?.state === "running"} showTextWhileLoading>
+        <>
+            <CheckRow
+                status={installed}
+                title="Claude Code installed"
+                detail={
+                    !state
+                        ? "Looking for Claude Code…"
+                        : installing
+                          ? "Installing with Anthropic's official installer…"
+                          : state.installed
+                            ? `Version ${state.version ?? "unknown"}`
+                            : "Not found on this PC. Relay installs it with Anthropic's official installer."
+                }
+                action={
+                    state &&
+                    (!state.installed ? (
+                        <Button size="sm" iconLeading={Download01} isLoading={installing} showTextWhileLoading onClick={() => runJob("claude-install", api.claudeInstall)}>
                             Install Claude Code
                         </Button>
-                    )}
-                    {state.installed && (
-                        <Button
-                            color={state.auth.loggedIn ? "secondary" : "primary"}
-                            iconLeading={TerminalIcon}
-                            onClick={() => setSigningIn(true)}
-                            isDisabled={signingIn}
-                        >
-                            {state.auth.loggedIn ? "Sign in again" : "Sign in"}
-                        </Button>
-                    )}
-                    {state.installed && (
-                        <Button color="secondary" iconLeading={RefreshCw01} onClick={update} isLoading={updateJob?.state === "running"} showTextWhileLoading>
+                    ) : (
+                        <Button size="sm" color="secondary" iconLeading={RefreshCw01} isLoading={updating} showTextWhileLoading onClick={() => runJob("claude-update", api.claudeUpdate)}>
                             Update
                         </Button>
-                    )}
-                    {state.auth.loggedIn && (
-                        <Button color="secondary" iconLeading={CheckCircle} onClick={runVerify} isLoading={verifying} showTextWhileLoading>
-                            Check it works
-                        </Button>
-                    )}
-                </div>
-                <JobProgress job={installJob} />
-                {installJob && <LogLines lines={installJob.lines} />}
-                {updateJob && <LogLines lines={updateJob.lines} />}
-                {error && <Notice tone="error">{error}</Notice>}
-                {verify && (
-                    <Notice tone={verify.ok ? "success" : "error"}>
-                        {verify.ok ? `Claude answered: ${verify.text || "OK"}` : verify.text}
-                    </Notice>
-                )}
-            </Card>
-            {signingIn && (
-                <Card className="flex flex-col gap-3">
-                    <div className="flex items-center justify-between">
-                        <span className="text-sm font-semibold text-secondary">Sign in to Claude</span>
-                        <Button
-                            size="sm"
-                            color="secondary"
-                            onClick={() => {
-                                setSigningIn(false);
-                                refresh();
-                            }}
-                        >
-                            Done
-                        </Button>
+                    ))
+                }
+            >
+                {(installJob?.state === "running" || installJob?.state === "error") && (
+                    <div className="flex flex-col gap-2">
+                        <JobProgress job={installJob} />
+                        <LogLines lines={installJob.lines} />
                     </div>
-                    <p className="text-sm text-tertiary">
-                        Claude Code opens your browser to sign in with your Claude account. If it asks for a code, paste it here and press Enter.
-                    </p>
-                    <Terminal
-                        kind="login"
-                        onExit={() => {
-                            setSigningIn(false);
-                            refresh();
-                        }}
-                        onError={(m) => {
-                            setError(m);
-                            setSigningIn(false);
-                        }}
-                    />
-                </Card>
-            )}
-        </div>
+                )}
+                {updateJob && updateJob.state !== "done" && <LogLines lines={updateJob.lines} />}
+                {error && <Notice tone="error">{error}</Notice>}
+            </CheckRow>
+            <CheckRow
+                status={auth}
+                title="Signed in to Claude"
+                detail={
+                    !state?.installed
+                        ? "After Claude Code is installed."
+                        : state.auth.loggedIn
+                          ? [state.auth.email, state.auth.subscriptionType && `${state.auth.subscriptionType} plan`].filter(Boolean).join(" · ") || "Signed in"
+                          : signingIn
+                            ? "Waiting for you in your browser…"
+                            : "Use your Claude subscription. Relay never sees your password or token."
+                }
+                action={
+                    state?.installed &&
+                    !signingIn && (
+                        <Button size="sm" color={state.auth.loggedIn ? "secondary" : "primary"} iconLeading={LogIn01} onClick={() => setSigningIn(true)}>
+                            {state.auth.loggedIn ? "Switch account" : "Sign in"}
+                        </Button>
+                    )
+                }
+            >
+                {signingIn && <SignIn onDone={() => setSigningIn(false)} onCancel={() => setSigningIn(false)} />}
+            </CheckRow>
+            <CheckRow
+                status={answers}
+                title="Claude answers"
+                detail={
+                    !signedIn
+                        ? "After you sign in."
+                        : check.status === "ok"
+                          ? `Claude replied "${check.text}".`
+                          : check.status === "error"
+                            ? check.text
+                            : "Sending Claude a one-word test message…"
+                }
+                action={
+                    signedIn &&
+                    (check.status === "ok" || check.status === "error") && (
+                        <Button size="sm" color="secondary" iconLeading={RefreshCw01} onClick={runCheck} isDisabled={loading}>
+                            Check again
+                        </Button>
+                    )
+                }
+            />
+        </>
     );
 };
