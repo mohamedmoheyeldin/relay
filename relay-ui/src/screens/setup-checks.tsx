@@ -1,6 +1,6 @@
 // Checklist rows the wizard runs on its own: GPU and the suggested local model,
 // the browser lane, and the rest of the self-test.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Download01, Globe02, RefreshCw01 } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
 import { Select } from "@/components/base/select/select";
@@ -11,11 +11,13 @@ import { bytes, gb } from "@/lib/format";
 import { useJobs } from "@/lib/jobs";
 import { downloadRecommended, downloadable, isInstalled, modelJob, runtimeJob, useLocalAi } from "./local-ai";
 
-export const LocalAiChecks = () => {
+/** `autoDownload` starts the suggested download on its own, once (the wizard). */
+export const LocalAiChecks = ({ autoDownload = false }: { autoDownload?: boolean }) => {
     const { state, refresh, error } = useLocalAi();
     const jobs = useJobs();
     const [busy, setBusy] = useState(false);
     const [failed, setFailed] = useState<string | null>(null);
+    const started = useRef(false);
 
     if (error) return <CheckRow status="warn" title="Your GPU" detail={error} />;
     const gpu: CheckStatus = !state ? "running" : state.gpu ? "ok" : "warn";
@@ -48,6 +50,13 @@ export const LocalAiChecks = () => {
         setBusy(false);
     };
     const running = [runtimeJob, ...picks.map((p) => modelJob(p.model_id))].filter((id) => jobs[id]?.state === "running");
+    // The local model is what runs tasks when Claude can't, so setup gets it without a click.
+    const auto = autoDownload && !!state && !state.error && !ready && available.length > 0 && running.length === 0;
+    useEffect(() => {
+        if (!auto || started.current) return;
+        started.current = true;
+        download();
+    }, [auto]);
 
     return (
         <>

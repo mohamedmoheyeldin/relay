@@ -19,6 +19,8 @@ export interface Settings {
     local_ai: {
         grounding: ActiveModel | null;
         describe: ActiveModel | null;
+        /** The local operator for tasks Claude can't run (D-067); null picks one. */
+        agent: { model_id: string } | null;
         idle_unload_secs: number;
         models_dir: string | null;
     };
@@ -171,7 +173,10 @@ export type ChatEvent =
     | { type: "tool_use"; id: string; name: string; input: string }
     | { type: "tool_result"; tool_use_id: string; is_error: boolean; text: string; image: string | null }
     | { type: "done"; is_error: boolean; result: string; cost_usd: number | null; duration_ms: number | null }
-    | { type: "error"; message: string };
+    | { type: "error"; message: string }
+    | { type: "fallback"; reason: string }
+    | { type: "local_note"; text: string }
+    | { type: "local_step"; step: number; thought: string; action: string; result: string };
 
 export interface Check {
     name: string;
