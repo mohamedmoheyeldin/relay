@@ -92,6 +92,24 @@ pub fn spec(npx: &Npx, browser: &Path, settings: &Settings) -> ServerSpec {
     }
 }
 
+/// Brave Origin is a paid build: every new profile, Relay's included, shows a
+/// "restore your purchase" page and loads nothing else until the owner enters their
+/// purchase ID there once. Brave records that in the profile's `Local State`.
+pub fn needs_origin_purchase(browser: &BrowserInfo, profile: &Path) -> bool {
+    if !browser.path.to_lowercase().contains("brave-origin") {
+        return false;
+    }
+    let validated = std::fs::read_to_string(profile.join("Local State"))
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .and_then(|v| v["brave"]["origin"]["purchase_validated"].as_bool());
+    validated != Some(true)
+}
+
+pub const ORIGIN_PURCHASE: &str = "Brave Origin asks for your purchase ID once in Relay's own \
+browser profile, and opens no pages until then. Click \"Open to sign in\", choose \
+\"Restore Brave Origin purchase\" and enter your purchase ID.";
+
 /// What Settings > Browser shows.
 #[derive(Debug, Clone, Serialize)]
 pub struct LaneState {
@@ -117,6 +135,11 @@ pub fn state(settings: &Settings) -> LaneState {
                 settings.browser.preferred
             )
         })
+    } else if browser
+        .as_ref()
+        .is_some_and(|b| needs_origin_purchase(b, &profile_dir()))
+    {
+        Some(ORIGIN_PURCHASE.into())
     } else if !node {
         Some(
             "The browser lane needs Node.js. Install it from nodejs.org, then reopen Relay.".into(),
@@ -158,6 +181,36 @@ mod tests {
         assert!(pick("auto", &found[..1]).is_none());
         assert!(pick("Firefox", &found).is_none());
         assert_eq!(pick("Google Chrome", &found).unwrap().name, "Google Chrome");
+    }
+
+    #[test]
+    fn brave_origin_needs_its_purchase_in_relays_profile() {
+        let dir = std::env::temp_dir().join(format!("relay-origin-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let origin = BrowserInfo {
+            name: "Brave Origin".into(),
+            path: "C:/Program Files/BraveSoftware/Brave-Origin/Application/brave.exe".into(),
+            chromium: true,
+        };
+        assert!(needs_origin_purchase(&origin, &dir)); // no Local State yet
+        let state = dir.join("Local State");
+        std::fs::write(
+            &state,
+            r#"{"brave":{"origin":{"purchase_validated":false}}}"#,
+        )
+        .unwrap();
+        assert!(needs_origin_purchase(&origin, &dir));
+        std::fs::write(
+            &state,
+            r#"{"brave":{"origin":{"purchase_validated":true}}}"#,
+        )
+        .unwrap();
+        assert!(!needs_origin_purchase(&origin, &dir));
+        assert!(!needs_origin_purchase(
+            &b("Google Chrome", true),
+            Path::new("nowhere")
+        ));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
