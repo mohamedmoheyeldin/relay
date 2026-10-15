@@ -976,3 +976,44 @@ Decision:
 
 This replaces "the local model never thinks about what to do next" (D-001)
 for UI tasks.
+
+## D-070 Relay's pty answers ConPTY's cursor query
+*2026-10-15 · accepted · app thread (Relay 0.1.4, #73) · fixes the D-062 sign-in*
+
+portable-pty starts ConPTY with `PSEUDOCONSOLE_INHERIT_CURSOR`. ConPTY then
+sends `ESC[6n` (where is the cursor?) and holds back all output until it gets
+an answer. Relay never answered, so the hidden `claude auth login` printed
+nothing and the sign-in page never opened.
+
+Decision: `pty.rs` answers `ESC[6n` with `ESC[1;1R`. Checked on the owner's
+PC: before the fix `claude --version` printed only `ESC[6n`, and after it,
+the version.
+
+## D-071 Expired Claude sign-in and the chat fallback to the local operator
+*2026-10-15 · accepted · app thread (Relay 0.1.4, #73) · app side of D-067 and D-069*
+
+- An expired login (`claude auth status` says logged in, but turns fail to
+  authenticate) shows "Sign in again" in chat and on the Claude page.
+- Chat sends the same message to `relay-screen agent --json` (D-067),
+  hidden and with the same environment as relay-screen, when:
+  - `claude` is not installed; or
+  - a turn ends with an auth or network error before any tool ran.
+
+  The steps show under "Local AI (Claude unavailable)".
+- Stop kills the local run and never triggers the fallback.
+- Chat input stays enabled while Claude is signed out.
+- With Claude available, the app's `claude -p` system prompt tells Claude to
+  give desktop UI tasks to `ui_task` (D-069) as one plain-words goal naming
+  the app, and to use the direct tools only for recovery or fine control.
+
+## D-072 Local operator model picker; setup downloads the suggested model
+*2026-10-15 · accepted · app thread (Relay 0.1.4, #73) · extends D-048, D-067*
+
+- Settings > Local AI has a "Local operator model" picker. It writes
+  `local_ai.agent = {model_id}`, and "Pick for me" writes null, which uses
+  the D-067 order.
+- The setup wizard starts downloading the suggested model on its own
+  (Qwen3-VL-8B on the owner's GPU), so the fallback can work once setup
+  finishes.
+- No benchmark button in the app yet. `relay-screen agent-bench` opens
+  windows, so it runs only when the owner asks (D-068).
