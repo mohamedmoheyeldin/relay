@@ -334,6 +334,36 @@ const CustomModels = ({ state, onChange }: { state: LocalAiState; onChange: () =
     );
 };
 
+/** Which downloaded model runs tasks on its own when Claude can't (D-067). */
+const OperatorPicker = ({ state, settings, save }: { state: LocalAiState; settings: Settings; save: (s: Settings) => Promise<void> }) => {
+    const options = [
+        ...state.models.filter((m) => m.installed?.ready).map((m) => ({ id: m.id, label: m.name })),
+        ...state.custom.filter((c) => c.model.ready).map((c) => ({ id: c.model.id, label: c.model.repo })),
+    ];
+    const current = settings.local_ai.agent?.model_id;
+    const selected = current && options.some((o) => o.id === current) ? current : "auto";
+    return (
+        <Card className="flex flex-col gap-3">
+            <Select
+                label="Local operator model"
+                size="sm"
+                selectedKey={selected}
+                onSelectionChange={(k) =>
+                    save({ ...settings, local_ai: { ...settings.local_ai, agent: k === "auto" ? null : { model_id: String(k) } } })
+                }
+                items={[{ id: "auto", label: "Pick for me" }, ...options]}
+            >
+                {(item) => <Select.Item id={item.id} label={item.label} />}
+            </Select>
+            <p className="text-sm text-tertiary">
+                When Claude can't run (signed out or offline), this model does the task on its own: it looks at the screen, clicks and types, and Relay
+                still asks you before each action. "Pick for me" uses the checking model first, then the finding model.
+            </p>
+            {options.length === 0 && <Notice tone="warning">No model is downloaded yet. Download Qwen3-VL-8B above so Relay can work without Claude.</Notice>}
+        </Card>
+    );
+};
+
 export const LocalAiPage = ({ settings, save }: { settings: Settings; save: (s: Settings) => Promise<void> }) => {
     const { state, refresh, error } = useLocalAi();
     const jobs = useJobs();
@@ -358,6 +388,9 @@ export const LocalAiPage = ({ settings, save }: { settings: Settings; save: (s: 
                 {state.models.map((m) => (
                     <ModelCard key={m.id} model={m} state={state} onChange={refresh} />
                 ))}
+            </Section>
+            <Section title="Local operator" description="Runs tasks with the local model alone when Claude isn't available.">
+                <OperatorPicker state={state} settings={settings} save={save} />
             </Section>
             <Section title="Custom models" description="Add any GGUF vision model from Hugging Face.">
                 <CustomModels state={state} onChange={refresh} />
