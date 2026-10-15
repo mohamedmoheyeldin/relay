@@ -30,6 +30,17 @@ class ApprovalDeniedError(ActionError):
     """The owner said no, or did not answer in time."""
 
 
+class PromptUnavailableError(ActionError):
+    """Relay could not show its approval prompt, so nobody was asked."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(
+            f"Relay could not show its approval prompt ({reason}), so this was not run. "
+            "The owner was not asked and did not refuse. Tell them Relay's approval "
+            "prompt is broken; Settings > Diagnostics shows the details."
+        )
+
+
 @dataclass
 class PromptRequest:
     title: str
@@ -40,6 +51,7 @@ class PromptRequest:
     timeout: float = PROMPT_TIMEOUT
     approve_label: str = "Approve"
     allow_batch: bool = False
+    batch_label: str = "Approve rest of batch"
 
 
 class Prompter(Protocol):
@@ -156,15 +168,30 @@ class ApprovalGate:
 
     def confirm(self, title: str, detail: str, approve_label: str = "Approve") -> bool:
         """Ask the owner a yes/no question in the same prompt (used by rearm and approve)."""
+        return self.ask(title, detail, approve_label) in ("approve", "approve_batch")
+
+    def ask(
+        self, title: str, detail: str, approve_label: str = "Approve", always_label: str = ""
+    ) -> Decision:
+        """Ask the owner; with `always_label`, a third button answers "approve_batch"."""
         request = PromptRequest(
-            title=title, detail=detail, timeout=self.timeout, approve_label=approve_label
+            title=title,
+            detail=detail,
+            timeout=self.timeout,
+            approve_label=approve_label,
+            allow_batch=bool(always_label),
+            batch_label=always_label or "Approve rest of batch",
         )
         with self._lock:
-            return self.prompter.ask(request) in ("approve", "approve_batch")
+            return self.prompter.ask(request)
 
 
 class SubprocessPrompter:
-    """Shows the native prompt (safety/prompt.py) in a child process and waits."""
+    """Shows the native prompt (safety/prompt.py) in a child process and waits.
+
+    Raises PromptUnavailableError when the prompt could not be shown, so a broken
+    prompt is never reported to Claude as the owner saying no.
+    """
 
     def ask(self, request: PromptRequest) -> Decision:
         from ctypes import wintypes
@@ -182,6 +209,7 @@ class SubprocessPrompter:
             "timeout": request.timeout,
             "approve_label": request.approve_label,
             "allow_batch": request.allow_batch,
+            "batch_label": request.batch_label,
             "restore_hwnd": user32.GetForegroundWindow() or 0,
         }
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -196,9 +224,19 @@ class SubprocessPrompter:
                 creationflags=flags,
                 check=False,
             )
-            decision = json.loads(done.stdout or "{}").get("decision")
-        except (subprocess.TimeoutExpired, ValueError, OSError):
+        except subprocess.TimeoutExpired:
             return "timeout"
+        except OSError as exc:
+            raise PromptUnavailableError(f"could not start it: {exc}") from exc
+        try:
+            answer = json.loads(done.stdout or "{}")
+        except ValueError:
+            answer = {}
+        decision = answer.get("decision")
         if decision in ("approve", "approve_batch", "deny", "timeout"):
             return decision
-        return "deny"
+        lines = [line for line in (done.stderr or "").splitlines() if line.strip()]
+        reason = answer.get("error") or (
+            lines[-1].strip() if lines else f"exit code {done.returncode}"
+        )
+        raise PromptUnavailableError(str(reason))
