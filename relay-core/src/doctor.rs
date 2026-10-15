@@ -124,6 +124,13 @@ pub async fn run(settings: &Settings, python: Option<&Path>, app_version: &str) 
         }
         Err(e) => checks.push(check("Local AI runtime", false, e.clone())),
     }
+    let lane = crate::browser::state(settings);
+    checks.push(match (&lane.browser, &lane.problem) {
+        _ if !lane.enabled => check("Browser lane", true, "turned off in Settings > Browser"),
+        (Some(b), None) => check("Browser lane", true, b.name.clone()),
+        (_, Some(problem)) => check("Browser lane", false, problem.clone()),
+        (None, None) => check("Browser lane", false, "no browser found"),
+    });
     checks.push(check(
         "Settings file",
         true,

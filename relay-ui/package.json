@@ -1,7 +1,7 @@
 {
   "name": "relay-ui",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -18,8 +18,6 @@
     "@tauri-apps/plugin-dialog": "^2.8.3",
     "@tauri-apps/plugin-opener": "^2",
     "@untitledui/icons": "^0.0.23",
-    "@xterm/addon-fit": "^0.11.0",
-    "@xterm/xterm": "^6.0.0",
     "react": "^19.1.0",
     "react-aria": "^3.53.1",
     "react-aria-components": "^1.22.1",

@@ -8,7 +8,9 @@ use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_opener::OpenerExt;
 
 use relay_core::settings::{ActiveModel, Settings};
-use relay_core::{catalog, chat, claude, doctor, gpu, local_ai, mcp, paths, system, updates};
+use relay_core::{
+    browser, catalog, chat, claude, doctor, gpu, local_ai, mcp, paths, system, updates,
+};
 
 use crate::jobs;
 use crate::state::{self, AppState};
@@ -54,6 +56,12 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
         mcp_remove,
         mcp_pause,
         mcp_resume,
+        mcp_login,
+        mcp_logout,
+        plugins_list,
+        plugin_set_enabled,
+        browser_state,
+        browser_open,
         chat_send,
         chat_stop,
         chat_new,
@@ -123,6 +131,11 @@ async fn save_settings(app: AppHandle, settings: Settings) -> Res<Settings> {
     }
     if before.safety != saved.safety || before.privacy != saved.privacy {
         state::ensure_relay_screen(&app).await.map_err(anyhow_err)?;
+    }
+    if before.browser != saved.browser || before.privacy != saved.privacy {
+        state::ensure_relay_browser(&app)
+            .await
+            .map_err(anyhow_err)?;
     }
     Ok(saved)
 }
@@ -214,15 +227,21 @@ fn claude_update(app: AppHandle) -> Res<()> {
 
 #[tauri::command]
 async fn claude_verify(app: AppHandle) -> Res<String> {
+    // One check at a time: the wizard and Settings can both ask, and two runs
+    // would race on re-registering relay-screen in Claude Code's config.
+    static ONE_AT_A_TIME: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _guard = ONE_AT_A_TIME.lock().await;
     // Registration needs Claude Code, so retry it here after a fresh install.
     let _ = state::ensure_relay_screen(&app).await;
+    let _ = state::ensure_relay_browser(&app).await;
     claude::verify().await.map_err(anyhow_err)
 }
 
 #[tauri::command]
-fn pty_start(app: AppHandle, kind: String, cols: u16, rows: u16) -> Res<()> {
+fn pty_start(app: AppHandle, kind: String, cols: u16, rows: u16) -> Res<u64> {
     let args: &[&str] = match kind.as_str() {
-        "login" => &["auth", "login"],
+        "login" => &["auth", "login", "--claudeai"],
+        "login-console" => &["auth", "login", "--console"],
         _ => return Err("unknown terminal".into()),
     };
     let st = app.state::<AppState>();
@@ -230,8 +249,10 @@ fn pty_start(app: AppHandle, kind: String, cols: u16, rows: u16) -> Res<()> {
     if let Some(mut old) = slot.take() {
         old.kill();
     }
-    *slot = Some(crate::pty::start(&app, args, cols, rows).map_err(anyhow_err)?);
-    Ok(())
+    let session = crate::pty::start(&app, args, cols, rows).map_err(anyhow_err)?;
+    let id = session.id;
+    *slot = Some(session);
+    Ok(id)
 }
 
 #[tauri::command]
@@ -250,10 +271,14 @@ fn pty_resize(state: State<'_, AppState>, cols: u16, rows: u16) -> Res<()> {
     Ok(())
 }
 
+/// Close the terminal `id` (a newer one started since is left alone).
 #[tauri::command]
-fn pty_kill(state: State<'_, AppState>) {
-    if let Some(mut s) = state.pty.lock().expect("pty lock").take() {
-        s.kill();
+fn pty_kill(state: State<'_, AppState>, id: u64) {
+    let mut slot = state.pty.lock().expect("pty lock");
+    if slot.as_ref().is_some_and(|s| s.id == id) {
+        if let Some(mut s) = slot.take() {
+            s.kill();
+        }
     }
 }
 
@@ -548,12 +573,48 @@ async fn mcp_resume(app: AppHandle, name: String) -> Res<()> {
         .map_err(anyhow_err)?;
     if name == mcp::RELAY_SCREEN {
         state::ensure_relay_screen(&app).await.map_err(anyhow_err)?;
+    } else if name == mcp::RELAY_BROWSER {
+        state::ensure_relay_browser(&app)
+            .await
+            .map_err(anyhow_err)?;
     } else {
         mcp::add_json(&name, &paused.config)
             .await
             .map_err(anyhow_err)?;
     }
     Ok(())
+}
+
+/// Sign in to a server that uses OAuth (HTTP servers, claude.ai connectors).
+/// Claude Code opens the browser and keeps the token; the job ends when it's done.
+#[tauri::command]
+fn mcp_login(app: AppHandle, name: String) -> Res<()> {
+    jobs::spawn(
+        &app,
+        &format!("mcp-login:{name}"),
+        move |r, cancel| async move {
+            let login = mcp::login(&name, move |l| r.line(l));
+            relay_core::download::until_cancelled(login, &cancel).await
+        },
+    )
+}
+
+#[tauri::command]
+async fn mcp_logout(name: String) -> Res<()> {
+    mcp::logout(&name).await.map_err(anyhow_err)
+}
+
+#[tauri::command]
+async fn plugins_list() -> Res<Vec<mcp::Plugin>> {
+    mcp::plugins().await.map_err(anyhow_err)
+}
+
+/// Turn a Claude Code plugin (and every server it brings) on or off.
+#[tauri::command]
+async fn plugin_set_enabled(id: String, enabled: bool) -> Res<()> {
+    mcp::set_plugin_enabled(&id, enabled)
+        .await
+        .map_err(anyhow_err)
 }
 
 // ---------------------------------------------------------------- chat
@@ -633,6 +694,38 @@ fn chat_new(state: State<'_, AppState>) {
 #[tauri::command]
 fn browsers() -> Vec<system::BrowserInfo> {
     system::browsers()
+}
+
+#[derive(Serialize)]
+struct BrowserState {
+    #[serde(flatten)]
+    lane: browser::LaneState,
+    /// relay-browser is in Claude Code's config right now.
+    registered: bool,
+}
+
+#[tauri::command]
+async fn browser_state(app: AppHandle) -> BrowserState {
+    let registered = state::ensure_relay_browser(&app).await.unwrap_or(false);
+    BrowserState {
+        lane: browser::state(&app.state::<AppState>().settings()),
+        registered,
+    }
+}
+
+/// Open the lane's browser on Relay's own profile so the owner can sign in to
+/// sites there. Only ever runs when the owner presses the button.
+#[tauri::command]
+fn browser_open(app: AppHandle) -> Res<()> {
+    let lane = browser::state(&app.state::<AppState>().settings());
+    let b = lane.browser.ok_or("No Chromium-based browser was found.")?;
+    std::fs::create_dir_all(&lane.profile_dir).map_err(err)?;
+    std::process::Command::new(&b.path)
+        .arg(format!("--user-data-dir={}", lane.profile_dir.display()))
+        .arg("--no-first-run")
+        .spawn()
+        .map_err(err)?;
+    Ok(())
 }
 
 #[derive(Serialize)]
