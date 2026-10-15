@@ -256,3 +256,16 @@ def test_cli_reports_unavailable_without_a_model(
     assert cli.main(["open", "notepad", "--json"]) == 2
     event = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
     assert event["event"] == "unavailable" and "No local model" in event["message"]
+
+
+def test_operator_needs_a_downloaded_model(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    from relay_screen.agent.operator import LocalOperator
+
+    monkeypatch.setenv("RELAY_HOME", str(tmp_path))
+    monkeypatch.delenv("APPDATA", raising=False)
+    operator = LocalOperator(connect=lambda url: Script())
+    try:
+        with pytest.raises(RuntimeUnavailable, match="No local model"):
+            operator.run("open notepad", FakeHands(), 5)
+    finally:
+        operator.supervisor.stop_all()

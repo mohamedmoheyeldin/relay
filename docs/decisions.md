@@ -944,3 +944,35 @@ Decision:
 - The task set grows into M1-11: the model comparison there reports this
   rate per model, and the default local operator model is the one that meets
   the target, or the best one if none does yet.
+
+## D-069 The local AI owns UI automation; Claude handles everything else
+*2026-10-15 · accepted · owner request · amends D-001, D-008, D-036; builds on D-067, D-068*
+
+The owner: Relay is Violoop (violoop.ai) done in software. Instead of an
+external box with its own AI driving the mouse and keyboard, the local AI and
+the input control run on the PC, and Relay should beat Violoop because it has
+full access to the PC's hardware and software. The local AI's main job is to
+make UI automation work well; anything else is for the cloud AI, Claude.
+
+Decision:
+- The local operator (D-067) is Relay's UI automation engine whether or not
+  Claude is available. It is no longer only a fallback.
+- With Claude available, Claude decides what to do and hands whole UI tasks
+  to the local operator through a new relay-screen tool, `ui_task(task,
+  max_steps)`. It returns the outcome and every step. On failure Claude looks
+  at the screen and finishes with the direct tools (screenshot, clicks,
+  UIA, OCR), which stay available for fine control.
+- Without Claude, the app runs `relay-screen agent` for the whole request
+  (D-067).
+- Claude keeps everything that isn't UI work: deciding, writing, connectors,
+  code and recovering when the operator can't finish.
+- `ui_task` keeps the model loaded across tasks in the MCP server and unloads
+  it after the idle time (D-042). It runs one task at a time. If no local
+  model is downloaded it says so and Claude uses the direct tools.
+- Safety is the same as everywhere: every action goes through the kill
+  switch, the approval gate and the audit log.
+- Success is measured, not claimed: 95% on the benchmark (D-068), per model
+  in M1-11.
+
+This replaces "the local model never thinks about what to do next" (D-001)
+for UI tasks.

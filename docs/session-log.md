@@ -2,6 +2,10 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
+## 2026-10-15 · The local AI owns UI automation (D-069)
+- Owner: Relay is Violoop in software and should beat it; the local AI's job is UI automation, everything else goes to Claude. Recorded as D-069 and rewrote architecture §1. New relay-screen tool `ui_task` lets Claude hand a whole UI task to the local operator (model kept loaded in the MCP server, unloaded when idle, one task at a time). 3 new tests.
+- App side (via the coordinator): Claude's instructions in the app should tell it to use `ui_task` for UI work.
+
 ## 2026-10-15 · Local operator: UIA tools and a 95% benchmark (D-068)
 - Owner: the local AI should fully automate the UI with other tools too, at 95% or better. The local operator now gets the window's UI Automation element list each step and can `invoke`/`set_value` by element id. `relay-screen agent-bench` runs 9 fixed desktop and browser tasks with the local model only and checks each from outside the agent (window title, UIA text, file contents); results go to `%LOCALAPPDATA%\Relay\bench`. Recorded as D-068: 95% is a measured target, folded into M1-11.
 - Not run yet: it opens windows, so it waits for the owner to ask. 7 new tests.
