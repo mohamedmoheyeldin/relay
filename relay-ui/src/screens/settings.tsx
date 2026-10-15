@@ -30,7 +30,7 @@ import { cx } from "@/utils/cx";
 import { ClaudeChecks } from "./claude-setup";
 import { useTheme } from "@/providers/theme-provider";
 import { ConnectionsPage } from "./connections";
-import { useBrowserLane } from "./setup-checks";
+import { OwnBrowserSetup, useBrowserLane } from "./setup-checks";
 import { LocalAiPage } from "./local-ai";
 
 type Save = (s: Settings) => Promise<void>;
@@ -181,48 +181,62 @@ const BrowserPage = ({ settings, save }: PageProps) => {
                     </Card>
                 ) : (
                     browser.lane_enabled && (
-                        <Card className="flex flex-col gap-3">
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                                <span className="flex items-center gap-2 text-md font-semibold text-primary">
-                                    <Globe01 className="size-5 text-fg-quaternary" />
-                                    {state.browser?.name ?? "No browser"}
-                                </span>
-                                {state.problem ? (
-                                    <Badge size="sm" color="warning">
-                                        Needs attention
-                                    </Badge>
-                                ) : state.registered ? (
-                                    <Badge size="sm" color="success">
-                                        Ready
-                                    </Badge>
+                        <>
+                            <Toggle
+                                label={`Use the ${state.browser?.name ?? "browser"} I already have open`}
+                                hint="Claude works in a tab group of your own browser, with your sign-ins, through the Playwright Extension. Off: Relay starts the browser on its own separate profile."
+                                isSelected={browser.use_own}
+                                onChange={(v) => change({ ...browser, use_own: v })}
+                            />
+                            <Card className="flex flex-col gap-3">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <span className="flex items-center gap-2 text-md font-semibold text-primary">
+                                        <Globe01 className="size-5 text-fg-quaternary" />
+                                        {state.browser?.name ?? "No browser"}
+                                    </span>
+                                    {state.problem ? (
+                                        <Badge size="sm" color="warning">
+                                            Needs attention
+                                        </Badge>
+                                    ) : state.registered ? (
+                                        <Badge size="sm" color="success">
+                                            Ready
+                                        </Badge>
+                                    ) : (
+                                        <Badge size="sm" color="gray">
+                                            Waiting for Claude Code
+                                        </Badge>
+                                    )}
+                                </div>
+                                {state.problem && !(state.use_own && state.node && state.browser) && <Notice>{state.problem}</Notice>}
+                                {state.browser && <KeyValue label="Program" value={state.browser.path} />}
+                                <KeyValue label="Node.js" value={state.node ? "Found" : "Not found"} />
+                                {state.use_own ? (
+                                    state.browser && <OwnBrowserSetup state={state} refresh={refresh} />
                                 ) : (
-                                    <Badge size="sm" color="gray">
-                                        Waiting for Claude Code
-                                    </Badge>
+                                    <>
+                                        <KeyValue label="Relay's profile" value={state.profile_dir} />
+                                        <div className="flex flex-wrap gap-2">
+                                            <Button
+                                                size="sm"
+                                                iconLeading={Globe01}
+                                                isDisabled={!state.browser}
+                                                onClick={() => api.browserOpen().catch((e) => setError(errorText(e)))}
+                                            >
+                                                Open to sign in to sites
+                                            </Button>
+                                            <Button size="sm" color="secondary" iconLeading={Folder} onClick={() => api.openPath(state.profile_dir)}>
+                                                Open profile folder
+                                            </Button>
+                                        </div>
+                                        <p className="text-xs text-tertiary">
+                                            Relay keeps its own profile of your browser here. Sign in to the sites you want Claude to use there once; they
+                                            stay signed in. Close that window before you ask Claude to browse.
+                                        </p>
+                                    </>
                                 )}
-                            </div>
-                            {state.problem && <Notice>{state.problem}</Notice>}
-                            {state.browser && <KeyValue label="Program" value={state.browser.path} />}
-                            <KeyValue label="Relay's profile" value={state.profile_dir} />
-                            <KeyValue label="Node.js" value={state.node ? "Found" : "Not found"} />
-                            <div className="flex flex-wrap gap-2">
-                                <Button
-                                    size="sm"
-                                    iconLeading={Globe01}
-                                    isDisabled={!state.browser}
-                                    onClick={() => api.browserOpen().catch((e) => setError(errorText(e)))}
-                                >
-                                    Open to sign in to sites
-                                </Button>
-                                <Button size="sm" color="secondary" iconLeading={Folder} onClick={() => api.openPath(state.profile_dir)}>
-                                    Open profile folder
-                                </Button>
-                            </div>
-                            <p className="text-xs text-tertiary">
-                                Chromium browsers don't let other apps control your everyday profile, so Relay keeps its own profile of your browser. Sign
-                                in to the sites you want Claude to use there once; they stay signed in. Close that window before you ask Claude to browse.
-                            </p>
-                        </Card>
+                            </Card>
+                        </>
                     )
                 )}
                 {error && <Notice tone="error">{error}</Notice>}

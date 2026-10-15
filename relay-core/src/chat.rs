@@ -39,6 +39,8 @@ pub fn args(opts: &TurnOptions) -> Vec<String> {
         "--output-format",
         "stream-json",
         "--verbose",
+        // Text arrives as it is written, so the chat shows it right away.
+        "--include-partial-messages",
         "--permission-prompt-tool",
     ]
     .iter()
@@ -74,6 +76,10 @@ pub enum ChatEvent {
         mcp_servers: Vec<String>,
     },
     Text {
+        text: String,
+    },
+    /// Part of the text Claude is writing now; the full `Text` follows.
+    TextDelta {
         text: String,
     },
     ToolUse {
@@ -180,6 +186,16 @@ pub fn parse_line(line: &str) -> Vec<ChatEvent> {
                 }
             })
             .collect(),
+        // Subagents stream too; only Claude's own reply goes to the chat.
+        Some("stream_event") if v["parent_tool_use_id"].is_null() => {
+            let e = &v["event"];
+            match (e["type"].as_str(), e["delta"]["type"].as_str()) {
+                (Some("content_block_delta"), Some("text_delta")) => vec![ChatEvent::TextDelta {
+                    text: s(&e["delta"], "text"),
+                }],
+                _ => vec![],
+            }
+        }
         Some("result") => vec![ChatEvent::Done {
             is_error: v.get("is_error").and_then(Value::as_bool).unwrap_or(false),
             result: s(&v, "result"),
@@ -322,6 +338,20 @@ mod tests {
         assert_eq!(a[i + 1], "abc");
         assert!(a.contains(&"--model".to_string()));
         assert!(!a.contains(&"--effort".to_string()));
+    }
+
+    #[test]
+    fn streams_text_deltas() {
+        let delta = r#"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Open"}},"session_id":"s1"}"#;
+        assert_eq!(
+            parse_line(delta),
+            vec![ChatEvent::TextDelta {
+                text: "Open".into()
+            }]
+        );
+        let start = r#"{"type":"stream_event","event":{"type":"message_start","message":{}}}"#;
+        assert!(parse_line(start).is_empty());
+        assert!(args(&TurnOptions::default()).contains(&"--include-partial-messages".to_string()));
     }
 
     #[test]
