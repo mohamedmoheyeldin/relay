@@ -26,7 +26,7 @@ from relay_screen.apps import AppCatalog
 from relay_screen.capture import Grabber
 from relay_screen.input.driver import InputDriver
 from relay_screen.ocr import OcrService
-from relay_screen.safety.approval import ActRequest, ApprovalGate, describe
+from relay_screen.safety.approval import ActRequest, ApprovalGate, PromptUnavailableError, describe
 from relay_screen.safety.audit import AuditLog
 from relay_screen.safety.killswitch import GuardedBackend, KillSwitch
 from relay_screen.state import ScreenState
@@ -34,10 +34,14 @@ from relay_screen.uia import UiaService
 
 SERVER_NAME = "relay-screen"
 RELAY_TOOL_PREFIX = f"mcp__{SERVER_NAME}__"
-# Relay's browser lane (Playwright MCP). Tools that only look are allowed without asking.
+# Relay's browser lane (Playwright MCP). Tools that only look, or only open a page, are
+# allowed without asking: going to an address changes nothing on its own, and the owner
+# usually typed it. Clicking, typing and uploading still ask.
 BROWSER_TOOL_PREFIX = "mcp__relay-browser__"
-BROWSER_READ_ONLY = frozenset(
+BROWSER_NO_PROMPT = frozenset(
     {
+        "browser_navigate",
+        "browser_navigate_back",
         "browser_snapshot",
         "browser_take_screenshot",
         "browser_console_messages",
@@ -47,10 +51,10 @@ BROWSER_READ_ONLY = frozenset(
 )
 
 
-def _looks_only(tool_name: str) -> bool:
+def _browser_no_prompt(tool_name: str) -> bool:
     return (
         tool_name.startswith(BROWSER_TOOL_PREFIX)
-        and tool_name.removeprefix(BROWSER_TOOL_PREFIX) in BROWSER_READ_ONLY
+        and tool_name.removeprefix(BROWSER_TOOL_PREFIX) in BROWSER_NO_PROMPT
     )
 
 
@@ -186,6 +190,8 @@ def build_server(services: Services | None = None) -> FastMCP:
         ),
     )
     holder: dict[str, Services] = {}
+    # Browser tools the owner allowed for the rest of this request (one claude -p run).
+    trusted_browser: list[str] = []
     if services is not None:
         holder["s"] = services
 
@@ -490,8 +496,9 @@ def build_server(services: Services | None = None) -> FastMCP:
         """Permission prompt for headless runs (claude -p --permission-prompt-tool).
 
         Relay's own tools are allowed here because Relay asks the owner before each act
-        itself, and so are browser-lane tools that only look at the page. Any other tool
-        is shown to the owner in Relay's prompt.
+        itself, and so are browser-lane tools that only look at or open a page. Any other
+        tool is shown to the owner in Relay's prompt; for browser tools the prompt also
+        offers to allow the browser for the rest of this request.
 
         Claude Code wants exactly one text block back. A `str` return would also carry
         `structuredContent`, which Claude Code rejects as "an invalid result", so the
@@ -505,16 +512,28 @@ def build_server(services: Services | None = None) -> FastMCP:
         allow = {"behavior": "allow", "updatedInput": input}
         if (
             tool_name.startswith(RELAY_TOOL_PREFIX)
-            or _looks_only(tool_name)
+            or _browser_no_prompt(tool_name)
             or s.gate is None
             or s.gate.mode == "off"
         ):
             return answer(allow)
+        browser = tool_name.startswith(BROWSER_TOOL_PREFIX)
+        if browser and trusted_browser:
+            return answer(allow)
         detail = describe(tool_name, input)
         title = f"Claude wants to use {tool_name}"
-        ok = await anyio.to_thread.run_sync(s.gate.confirm, title, detail, "Allow")
-        if ok:
+        always = "Allow the browser for this request" if browser else ""
+        try:
+            decision = await anyio.to_thread.run_sync(s.gate.ask, title, detail, "Allow", always)
+        except PromptUnavailableError as exc:
+            return answer({"behavior": "deny", "message": str(exc)})
+        if decision == "approve_batch" and browser:
+            trusted_browser.append(tool_name)
+        if decision in ("approve", "approve_batch"):
             return answer(allow)
+        if decision == "timeout":
+            message = "The owner did not answer Relay's prompt in time. Ask them in chat."
+            return answer({"behavior": "deny", "message": message})
         return answer({"behavior": "deny", "message": "The owner denied this tool call."})
 
     return mcp

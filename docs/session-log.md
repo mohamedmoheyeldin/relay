@@ -2,6 +2,11 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
+## 2026-10-15 · Approval prompt without tkinter, 0.1.2 (app thread)
+- Owner's Dice task: every relay-browser call was refused with no prompt shown. The bundled CPython (NuGet package) has no tkinter, so `safety/prompt.py` crashed on import and the gate read that as "deny". The prompt is now plain Win32 through ctypes (same hooks, buttons, preview, timeout, focus restore). `prompt --check` builds it off screen; the self-test runs it as "Approval prompt" (passed on the owner's PC with the bundled Python, no window).
+- A prompt that can't open now raises `PromptUnavailableError`, and Claude is told the owner was not asked, instead of "The owner denied this tool call."
+- `browser_navigate` and `browser_navigate_back` need no prompt; other browser tools ask, with a third button "Allow the browser for this request" (lasts one `claude -p` run).
+
 ## 2026-10-15 · Per-machine install (app thread)
 - Owner asked for `C:\Program Files\Relay`: the installer is now per machine with one admin prompt and removes the per-user 0.1.0 copy and its HKCU keys first. Merged in #56 (`dev`) and #57 (`main`); recorded as D-063.
 
