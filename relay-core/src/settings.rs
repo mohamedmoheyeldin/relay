@@ -117,14 +117,18 @@ pub struct Connections {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct Browser {
-    /// "auto" picks the system default; otherwise a browser name from discovery.
+    /// "auto" picks the first Chromium-based browser found; otherwise a browser
+    /// name from discovery.
     pub preferred: String,
+    /// Give Claude the relay-browser server (Playwright over the chosen browser).
+    pub lane_enabled: bool,
 }
 
 impl Default for Browser {
     fn default() -> Self {
         Self {
             preferred: "auto".into(),
+            lane_enabled: true,
         }
     }
 }

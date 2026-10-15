@@ -135,11 +135,14 @@ pub async fn update(on_line: impl Fn(String) + Send + Sync + 'static) -> Result<
 }
 
 /// Check that a headless run works: a trivial `claude -p` (D-045).
+/// How long the one-word test may take before Relay gives up on it.
+const VERIFY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(90);
+
 pub async fn verify() -> Result<String> {
     let claude = require()?;
     let workdir = crate::paths::work_dir();
     std::fs::create_dir_all(&workdir)?;
-    let out = proc::command(&claude)
+    let run = proc::command(&claude)
         .current_dir(&workdir)
         .args([
             "-p",
@@ -148,8 +151,14 @@ pub async fn verify() -> Result<String> {
             "json",
             "--strict-mcp-config",
         ])
-        .output()
-        .await?;
+        .output();
+    let out = match tokio::time::timeout(VERIFY_TIMEOUT, run).await {
+        Ok(out) => out?,
+        Err(_) => bail!(
+            "Claude did not answer within {} seconds. Check your internet connection and try again.",
+            VERIFY_TIMEOUT.as_secs()
+        ),
+    };
     let text = String::from_utf8_lossy(&out.stdout);
     let value: serde_json::Value = serde_json::from_str(text.trim()).with_context(|| {
         format!(

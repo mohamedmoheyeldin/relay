@@ -56,14 +56,14 @@ export const GpuCard = ({ state }: { state: LocalAiState }) => (
     </Card>
 );
 
-const runtimeJob = "runtime";
-const modelJob = (id: string) => `model:${id}`;
+export const runtimeJob = "runtime";
+export const modelJob = (id: string) => `model:${id}`;
 
 /** The recommended models relay-screen has a download source for. */
-const downloadable = (state: LocalAiState) =>
+export const downloadable = (state: LocalAiState) =>
     state.recommendation.picks.filter((p) => state.models.find((m) => m.id === p.model_id)?.source);
 
-const isInstalled = (state: LocalAiState, id: string) => !!state.models.find((m) => m.id === id)?.installed?.ready;
+export const isInstalled = (state: LocalAiState, id: string) => !!state.models.find((m) => m.id === id)?.installed?.ready;
 
 /** Downloads the runtime (if needed) and every recommended model that has a source, in parallel. */
 export async function downloadRecommended(state: LocalAiState) {
