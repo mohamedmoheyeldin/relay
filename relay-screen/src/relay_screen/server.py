@@ -546,6 +546,10 @@ def main() -> None:
 
     if len(sys.argv) > 1 and sys.argv[1] in cli.COMMANDS:
         sys.exit(cli.main(sys.argv[1:]))
+    if len(sys.argv) > 1 and sys.argv[1] == "agent":
+        from relay_screen.agent import cli as agent_cli
+
+        sys.exit(agent_cli.main(sys.argv[2:]))
     # DPI awareness must be set before anything captures the screen or reads geometry.
     from relay_screen.dpi import set_dpi_awareness
 
