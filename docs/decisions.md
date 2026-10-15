@@ -1077,3 +1077,37 @@ text as it streams.
 Not changed: connector lookups (search_, get_ and list_ tools) still go
 through the approval prompt. Skipping them would loosen the gate, so it waits
 for the owner's word, like the "risky" default in D-073.
+
+## D-076 Claude-desktop-style look for the app
+*2026-10-15 · accepted · owner request · app thread (Relay 0.1.6, #85/#86)*
+
+The owner found the app ugly and asked for a clean, modern look like the
+Claude desktop app.
+
+Decision:
+- **Colors:** warm neutrals with a terracotta accent (#D97757 / #B95A38).
+- **Type:** Inter for the UI, Source Serif 4 for Claude's replies.
+- **Layout:**
+  - a collapsible sidebar with New chat;
+  - a centered chat column with a rounded composer;
+  - compact activity rows.
+- Settings and the wizard follow the same style.
+- No Anthropic logos or assets. Icons come only from @untitledui/icons.
+
+## D-077 Relay Setup: a small bootstrapper around the NSIS installer
+*2026-10-15 · accepted · app thread (Relay 0.1.6, #85/#86) · amends D-055, D-057, D-063*
+
+- `dist/Relay-Setup.exe` is a small Tauri app (`relay-setup/`) in the same
+  style. It runs without elevation.
+- It reads `Uninstall\Relay` under HKLM and HKCU, then offers:
+  - Install, when Relay isn't installed;
+  - Update;
+  - Repair or Uninstall;
+  - Uninstall only, when a newer Relay is already installed.
+- The stock NSIS installer is embedded as its payload and runs with `/S`
+  behind one UAC prompt (`ShellExecuteExW` with `runas`).
+- Uninstall relaunches Setup with `--uninstall-elevated`, which runs the
+  uninstaller with `/S _?=<dir>`.
+- WebView2Loader.dll is embedded, so Setup is one file.
+- The raw NSIS installer also ships as `Relay-Setup-nsis-<ver>.exe`. The
+  updater ignores it.
