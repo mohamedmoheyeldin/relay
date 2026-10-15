@@ -16,6 +16,25 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 /// Shared flag the UI sets to stop a download; the .part file is kept for resuming.
 pub type Cancel = Arc<AtomicBool>;
 
+/// Run `work` until it ends or `cancel` is set. On cancel the future is dropped,
+/// which stops any child process it started (they are spawned with kill_on_drop).
+pub async fn until_cancelled<T>(
+    work: impl std::future::Future<Output = anyhow::Result<T>>,
+    cancel: &Cancel,
+) -> anyhow::Result<T> {
+    tokio::pin!(work);
+    loop {
+        tokio::select! {
+            out = &mut work => return out,
+            _ = tokio::time::sleep(std::time::Duration::from_millis(300)) => {
+                if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                    anyhow::bail!("Cancelled.");
+                }
+            }
+        }
+    }
+}
+
 pub fn part_path(dest: &Path) -> PathBuf {
     let mut name = dest.file_name().unwrap_or_default().to_os_string();
     name.push(".part");

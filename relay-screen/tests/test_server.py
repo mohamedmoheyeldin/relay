@@ -210,6 +210,9 @@ async def test_approve_tool_contract(owner_displays):
     denied = json.loads(text(await call(server, "approve", bash)))
     assert denied == {"behavior": "deny", "message": "The owner denied this tool call."}
     assert prompter.titles == ["Claude wants to use Bash"] * 2
+    look = {"tool_name": "mcp__relay-browser__browser_snapshot", "input": {}}
+    assert json.loads(text(await call(server, "approve", look)))["behavior"] == "allow"
+    assert prompter.titles == ["Claude wants to use Bash"] * 2  # looking needs no prompt
 
 
 async def test_kill_switch_rearm_and_status(owner_displays):

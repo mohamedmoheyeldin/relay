@@ -17,8 +17,8 @@
         "title": "Relay",
         "width": 1100,
         "height": 760,
-        "minWidth": 820,
-        "minHeight": 560,
+        "minWidth": 520,
+        "minHeight": 480,
         "visible": false,
         "center": true
       }

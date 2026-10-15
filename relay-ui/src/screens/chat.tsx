@@ -1,10 +1,11 @@
 // The chat window: one conversation with Claude, with Relay's activity shown inline.
 import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { CheckCircle, Plus, Send01, StopCircle, Tool01, XCircle } from "@untitledui/icons";
+import { CheckCircle, MessageChatCircle, Plus, Send01, StopCircle, Tool01, XCircle } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
 import { TextAreaBase } from "@/components/base/textarea/textarea";
-import { Notice } from "@/components/relay/ui";
+import { FeaturedIcon } from "@/components/foundations/featured-icon/featured-icon";
+import { Notice, Spinner } from "@/components/relay/ui";
 import { type ChatEvent, api, errorText } from "@/lib/api";
 import { cx } from "@/utils/cx";
 
@@ -15,6 +16,8 @@ type Item =
     | { kind: "done"; ok: boolean; text: string; seconds: number | null }
     | { kind: "error"; text: string };
 
+const SUGGESTIONS = ["Summarise my unread email", "Open Notepad and write a shopping list", "Find a cheap flight to Cairo next month"];
+
 const toolLabel = (name: string) => {
     const short = name.replace(/^mcp__/, "").replace(/__/g, " · ");
     return short.replace(/_/g, " ");
@@ -23,7 +26,7 @@ const toolLabel = (name: string) => {
 const ToolItem = ({ item }: { item: Extract<Item, { kind: "tool" }> }) => {
     const [open, setOpen] = useState(false);
     return (
-        <div className="rounded-lg bg-secondary px-3 py-2 text-sm">
+        <div className="rounded-lg bg-secondary px-3 py-2 text-sm animate-in fade-in duration-200">
             <button className="flex w-full cursor-pointer items-center gap-2 text-left" onClick={() => setOpen(!open)}>
                 {item.result ? (
                     item.result.ok ? (
@@ -106,13 +109,13 @@ export const ChatScreen = ({ ready, onSetup }: { ready: boolean; onSetup: () => 
 
     return (
         <div className="flex h-full min-h-0 flex-col">
-            <div className="flex items-center justify-between border-b border-secondary px-6 py-3">
+            <div className="flex items-center justify-between gap-3 border-b border-secondary px-4 py-3 sm:px-6">
                 <span className="text-md font-semibold text-primary">Chat</span>
                 <Button size="sm" color="secondary" iconLeading={Plus} onClick={newChat} isDisabled={busy}>
                     New chat
                 </Button>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6">
                 <div className="mx-auto flex max-w-3xl flex-col gap-4">
                     {!ready && (
                         <Notice>
@@ -124,19 +127,39 @@ export const ChatScreen = ({ ready, onSetup }: { ready: boolean; onSetup: () => 
                         </Notice>
                     )}
                     {items.length === 0 && ready && (
-                        <div className="py-16 text-center">
-                            <h2 className="text-display-xs font-semibold text-primary">What should Relay do?</h2>
-                            <p className="mt-2 text-md text-tertiary">Ask for a task on this PC, like "fill in the form in Brave with my details" or "summarise my unread email".</p>
+                        <div className="flex flex-col items-center py-12 text-center animate-in fade-in slide-in-from-bottom-2 duration-500 sm:py-20">
+                            <FeaturedIcon icon={MessageChatCircle} color="brand" theme="light" size="lg" />
+                            <h2 className="mt-5 text-display-xs font-semibold text-primary">What should Relay do?</h2>
+                            <p className="mt-2 max-w-md text-md text-tertiary">Ask for a task on this PC. Relay asks before it clicks or types.</p>
+                            <div className="mt-6 flex max-w-xl flex-wrap justify-center gap-2">
+                                {SUGGESTIONS.map((t) => (
+                                    <button
+                                        key={t}
+                                        onClick={() => setInput(t)}
+                                        className="cursor-pointer rounded-full bg-primary px-3.5 py-2 text-sm font-medium text-secondary shadow-xs ring-1 ring-primary transition duration-150 ring-inset hover:bg-primary_hover hover:text-secondary_hover"
+                                    >
+                                        {t}
+                                    </button>
+                                ))}
+                            </div>
                         </div>
                     )}
                     {items.map((it, i) => {
                         if (it.kind === "user")
                             return (
-                                <div key={i} className="ml-auto max-w-[80%] rounded-2xl rounded-tr-sm bg-brand-solid px-4 py-2.5 text-md whitespace-pre-wrap text-white">
+                                <div
+                                    key={i}
+                                    className="ml-auto max-w-[85%] rounded-2xl rounded-tr-sm bg-brand-solid px-4 py-2.5 text-md break-words whitespace-pre-wrap text-white animate-in fade-in slide-in-from-bottom-1 duration-200"
+                                >
                                     {it.text}
                                 </div>
                             );
-                        if (it.kind === "assistant") return <div key={i} className="max-w-[90%] text-md whitespace-pre-wrap text-primary">{it.text}</div>;
+                        if (it.kind === "assistant")
+                            return (
+                                <div key={i} className="max-w-[92%] text-md break-words whitespace-pre-wrap text-primary animate-in fade-in duration-300">
+                                    {it.text}
+                                </div>
+                            );
                         if (it.kind === "tool") return <ToolItem key={i} item={it} />;
                         if (it.kind === "done")
                             return (
@@ -150,12 +173,17 @@ export const ChatScreen = ({ ready, onSetup }: { ready: boolean; onSetup: () => 
                             </Notice>
                         );
                     })}
-                    {busy && <div className="text-sm text-tertiary">Working…</div>}
+                    {busy && (
+                        <div className="flex items-center gap-2 text-sm text-tertiary animate-in fade-in duration-300">
+                            <Spinner />
+                            Working…
+                        </div>
+                    )}
                     <div ref={bottom} />
                 </div>
             </div>
-            <div className="border-t border-secondary px-6 py-4">
-                <div className="mx-auto flex max-w-3xl items-end gap-3">
+            <div className="px-4 pt-2 pb-4 sm:px-6">
+                <div className="mx-auto flex max-w-3xl items-end gap-2 rounded-2xl bg-primary p-2 shadow-sm ring-1 ring-primary transition ring-inset focus-within:ring-2 focus-within:ring-brand">
                     <TextAreaBase
                         aria-label="Message"
                         placeholder="Ask Relay to do something…"
@@ -168,7 +196,7 @@ export const ChatScreen = ({ ready, onSetup }: { ready: boolean; onSetup: () => 
                                 send();
                             }
                         }}
-                        className="flex-1 resize-none"
+                        className="max-h-48 min-h-11 flex-1 resize-none bg-transparent shadow-none ring-0 focus:ring-0"
                         disabled={!ready}
                     />
                     {busy ? (

@@ -15,7 +15,9 @@ use crate::{claude, proc, secrets};
 
 /// Relay's own MCP server, registered by Relay and shown as built in.
 pub const RELAY_SCREEN: &str = "relay-screen";
-pub const BUILTIN_SERVERS: &[&str] = &[RELAY_SCREEN];
+/// Relay's browser lane: Playwright MCP driving the owner's Chromium browser.
+pub const RELAY_BROWSER: &str = "relay-browser";
+pub const BUILTIN_SERVERS: &[&str] = &[RELAY_SCREEN, RELAY_BROWSER];
 
 pub fn is_builtin(name: &str) -> bool {
     BUILTIN_SERVERS.contains(&name)
@@ -55,6 +57,8 @@ pub struct Entry {
     pub transport: String,
     pub status: Status,
     pub status_text: String,
+    /// For plugin servers: the plugin that brings them ("productivity@synced").
+    pub plugin: Option<String>,
 }
 
 fn classify(name: &str) -> Kind {
@@ -117,6 +121,7 @@ pub fn parse_list(text: &str) -> Vec<Entry> {
                 transport: transport.to_string(),
                 status: parse_status(&status_text),
                 status_text,
+                plugin: None,
             })
         })
         .collect()
@@ -233,8 +238,15 @@ async fn claude_mcp(args: &[String]) -> Result<proc::Output> {
 
 /// Every server Claude Code sees, plus paused ones from Relay's settings.
 pub async fn list(paused: &[PausedServer]) -> Result<Vec<Entry>> {
-    let out = claude_mcp(&["mcp".into(), "list".into()]).await?;
-    let mut entries = parse_list(&out.stdout);
+    let args = ["mcp".to_string(), "list".to_string()];
+    let (out, plugins) = tokio::join!(claude_mcp(&args), plugins());
+    let mut entries = parse_list(&out?.stdout);
+    let plugins = plugins.unwrap_or_default();
+    for e in entries.iter_mut().filter(|e| e.kind == Kind::Plugin) {
+        e.plugin = plugin_name(&e.name)
+            .and_then(|p| plugins.iter().find(|x| x.name() == p))
+            .map(|p| p.id.clone());
+    }
     for p in paused {
         if entries.iter().any(|e| e.name == p.name) {
             continue;
@@ -264,9 +276,91 @@ pub async fn list(paused: &[PausedServer]) -> Result<Vec<Entry>> {
             transport: transport.into(),
             status: Status::Paused,
             status_text: "Paused in Relay".into(),
+            plugin: None,
         });
     }
     Ok(entries)
+}
+
+/// The plugin part of a plugin server's name: "plugin:productivity:slack" -> "productivity".
+pub fn plugin_name(server: &str) -> Option<&str> {
+    server.strip_prefix("plugin:")?.split(':').next()
+}
+
+/// A Claude Code plugin, from `claude plugin list --json`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Plugin {
+    /// "name@marketplace".
+    pub id: String,
+    #[serde(default)]
+    pub version: Option<String>,
+    #[serde(default)]
+    pub scope: Option<String>,
+    #[serde(default)]
+    pub enabled: bool,
+}
+
+impl Plugin {
+    pub fn name(&self) -> &str {
+        self.id.split('@').next().unwrap_or(&self.id)
+    }
+}
+
+pub async fn plugins() -> Result<Vec<Plugin>> {
+    let out = claude_mcp(&["plugin".into(), "list".into(), "--json".into()]).await?;
+    if !out.ok {
+        bail!("claude plugin list failed: {}", out.stderr.trim());
+    }
+    Ok(serde_json::from_str(out.stdout.trim())?)
+}
+
+/// `claude plugin enable|disable <id>`: turns every server, skill and command of
+/// the plugin on or off together.
+pub async fn set_plugin_enabled(id: &str, enabled: bool) -> Result<()> {
+    let verb = if enabled { "enable" } else { "disable" };
+    let out = claude_mcp(&["plugin".into(), verb.into(), id.into()]).await?;
+    if !out.ok {
+        bail!(
+            "claude plugin {verb} failed: {}{}",
+            out.stderr.trim(),
+            out.stdout.trim()
+        );
+    }
+    Ok(())
+}
+
+/// `claude mcp login <name>`: Claude Code opens the browser for the server's own
+/// sign-in and keeps the token itself. Relay only waits for it to finish.
+pub async fn login(name: &str, on_line: impl Fn(String) + Send + Sync + 'static) -> Result<()> {
+    let claude = claude::find().context("Claude Code is not installed")?;
+    let mut cmd = proc::command(&claude);
+    cmd.current_dir(crate::paths::work_dir())
+        .args(["mcp", "login", name]);
+    let run = proc::run_streaming(cmd, on_line);
+    let out = tokio::time::timeout(std::time::Duration::from_secs(600), run)
+        .await
+        .context("the sign-in was not finished within 10 minutes")??;
+    if !out.ok {
+        bail!(
+            "sign-in did not finish: {}",
+            last_line(&out.stderr)
+                .or(last_line(&out.stdout))
+                .unwrap_or("unknown error")
+        );
+    }
+    Ok(())
+}
+
+pub async fn logout(name: &str) -> Result<()> {
+    let out = claude_mcp(&["mcp".into(), "logout".into(), name.into()]).await?;
+    if !out.ok {
+        bail!("claude mcp logout failed: {}", out.stderr.trim());
+    }
+    Ok(())
+}
+
+fn last_line(text: &str) -> Option<&str> {
+    text.lines().map(str::trim).rfind(|l| !l.is_empty())
 }
 
 /// `claude mcp get <name>`: the full details as Claude Code prints them.
@@ -427,6 +521,22 @@ plugin:playwright:playwright: npx @playwright/mcp@latest - √ Connected\n\
 plugin:productivity:gmail:  (HTTP) - - Not configured\n\
 context7: https://mcp.context7.com/mcp (HTTP) - √ Connected\n\
 relay-screen: C:\\Program Files\\Relay\\python\\pythonw.exe -m relay_screen.server - √ Connected\n";
+
+    #[test]
+    fn plugin_names_and_ids() {
+        assert_eq!(
+            plugin_name("plugin:productivity:slack"),
+            Some("productivity")
+        );
+        assert_eq!(plugin_name("plugin:design:google calendar"), Some("design"));
+        assert_eq!(plugin_name("claude.ai Gmail"), None);
+        let list: Vec<Plugin> = serde_json::from_str(
+            r#"[{"id":"productivity@synced","version":"1.0.0","scope":"synced","enabled":true,"installPath":"x"}]"#,
+        )
+        .unwrap();
+        assert_eq!(list[0].name(), "productivity");
+        assert!(list[0].enabled);
+    }
 
     #[test]
     fn parses_claude_mcp_list() {
