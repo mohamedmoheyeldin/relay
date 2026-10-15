@@ -2,6 +2,11 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
+## 2026-10-15 · Relay Setup: an installer app with Relay's look
+- Owner: the installer should notice an older Relay and update or uninstall it, install fresh otherwise, and look like the app. `dist/Relay-Setup.exe` is now Relay Setup (`relay-setup/`, Tauri 2, static HTML/CSS/JS in the app's warm palette, light and dark). It reads `HKLM` and `HKCU` `...\Uninstall\Relay` (`DisplayVersion`, `InstallLocation`, `UninstallString`, as Tauri's NSIS template writes them) and offers Install, Update (old → new) or Uninstall, Repair or Uninstall, or Uninstall only when a newer Relay is installed.
+- The stock NSIS installer rides inside as the payload: unpacked to %TEMP% and run with `/S` through ShellExecuteExW "runas" (one UAC prompt), waited on. Uninstall re-launches Relay Setup elevated, which runs the uninstaller in place (`/S _?=<dir>`) and removes the folder. A running Relay (and its relay-screen Python) is closed first. The raw installer is kept as `dist/Relay-Setup-nsis-<ver>.exe`, and the app's updater skips it.
+- MinGW builds embed WebView2Loader.dll and load it at run time, so the exe is one file; `build_installer.py` checks the import table. Not run on the owner's PC yet. Design notes were sent to the coordinator for a D-entry.
+
 ## 2026-10-15 · The local AI owns UI automation (D-069)
 - Owner: Relay is RefBox in software and should beat it; the local AI's job is UI automation, everything else goes to Claude. Recorded as D-069 and rewrote architecture §1. New relay-screen tool `ui_task` lets Claude hand a whole UI task to the local operator (model kept loaded in the MCP server, unloaded when idle, one task at a time). 3 new tests.
 - App side (via the coordinator): Claude's instructions in the app should tell it to use `ui_task` for UI work.
