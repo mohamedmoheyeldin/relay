@@ -49,7 +49,7 @@
     "windows": {
       "webviewInstallMode": { "type": "downloadBootstrapper", "silent": true },
       "nsis": {
-        "installMode": "currentUser",
+        "installMode": "perMachine",
         "displayLanguageSelector": false,
         "installerIcon": "icons/icon.ico",
         "installerHooks": "installer/hooks.nsh"
