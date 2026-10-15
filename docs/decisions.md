@@ -837,3 +837,15 @@ pseudo-terminal. The app shows the link from its output, takes the code the
 owner pastes back, and polls `claude auth status` until it reports signed
 in. The token stays inside Claude Code; Relay only reads the signed-in flag
 (D-002).
+
+## D-063 Relay installs per machine into Program Files
+*2026-10-15 · accepted · owner request · app thread, PRs #56/#57 · amends D-044*
+
+Relay-Setup.exe installs for all users into `C:\Program Files\Relay` and asks
+for admin rights once during setup. The owner asked for this location.
+Relay 0.1.0 installed per user, so the installer's pre-install hook removes
+any per-user 0.1.0 copy (`C:\relay`), along with its `HKCU\...\Uninstall\Relay` and
+`HKCU\Software\Relay` keys. Per-user data (`%LOCALAPPDATA%\Relay` for the
+runtime, models and browser profile, and `%APPDATA%\Relay\settings.json`)
+stays where it is. D-057's update flow is unchanged: a newer
+Relay-Setup.exe downloads into Downloads and runs.
