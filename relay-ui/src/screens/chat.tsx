@@ -7,6 +7,7 @@ import { TextAreaBase } from "@/components/base/textarea/textarea";
 import { Markdown } from "@/components/relay/markdown";
 import { Notice, Spinner } from "@/components/relay/ui";
 import { type ChatEvent, api, errorText } from "@/lib/api";
+import { describeTool, isHiddenTool } from "@/lib/describe-tool";
 import { isAuthError, refreshClaude, useClaude } from "@/lib/claude";
 import { SignIn } from "./sign-in";
 import { cx } from "@/utils/cx";
@@ -26,6 +27,14 @@ const SUGGESTIONS = ["Summarise my unread email", "Open Notepad and write a shop
 const toolLabel = (name: string) => {
     const short = name.replace(/^mcp__/, "").replace(/__/g, " · ");
     return short.replace(/_/g, " ");
+};
+
+const pretty = (input: string) => {
+    try {
+        return JSON.stringify(JSON.parse(input), null, 2);
+    } catch {
+        return input;
+    }
 };
 
 // A quiet, one-line activity row (a tool call or a local-AI step) that opens to show details.
@@ -88,16 +97,19 @@ const ToolItem = ({ item }: { item: Extract<Item, { kind: "tool" }> }) => {
                     <Tool01 className="size-4 shrink-0 animate-pulse text-fg-brand-primary" />
                 )
             }
-            title={toolLabel(item.name)}
-            summary={item.input}
-            expandable={!!item.result?.text}
+            title={<span className="font-normal">{describeTool(item.name, item.input, !!item.result)}</span>}
+            expandable
             open={open}
             onToggle={() => setOpen(!open)}
         >
-            {open && item.result?.text && (
-                <pre className="mt-1 mb-1 ml-4 max-h-48 overflow-auto border-l border-secondary pl-4 font-mono text-xs whitespace-pre-wrap text-tertiary animate-in fade-in slide-in-from-top-1 duration-200">
-                    {item.result.text}
-                </pre>
+            {open && (
+                <div className="mt-1 mb-1 ml-4 flex flex-col gap-2 border-l border-secondary pl-4 animate-in fade-in slide-in-from-top-1 duration-200">
+                    <span className="text-xs text-quaternary">{toolLabel(item.name)}</span>
+                    <pre className="max-h-48 overflow-auto font-mono text-xs whitespace-pre-wrap text-tertiary">{pretty(item.input)}</pre>
+                    {item.result?.text && (
+                        <pre className="max-h-48 overflow-auto font-mono text-xs whitespace-pre-wrap text-quaternary">{item.result.text}</pre>
+                    )}
+                </div>
             )}
             {item.result?.image && (
                 <img src={item.result.image} alt="Screenshot from Relay" className="mt-1 mb-2 ml-2 max-h-72 rounded-xl ring-1 ring-secondary animate-in fade-in duration-300" />
@@ -131,13 +143,22 @@ const LocalStep = ({ item }: { item: Extract<Item, { kind: "step" }> }) => {
 
 const LOCAL_MODEL_MISSING = /Settings > Local AI/;
 
+const APPROVAL_NOTE: Record<string, string> = {
+    risky: "Relay asks here only before steps that can't be undone.",
+    ask: "Relay asks here before every click or keystroke.",
+    off: "Relay acts without asking.",
+};
+
 export const ChatScreen = ({
     ready,
     onSetup,
     onLocalAi,
     newChatRequest = 0,
+    approvalMode = "risky",
 }: {
     ready: boolean;
+    /** Settings > Safety: what the line under the composer promises. */
+    approvalMode?: string;
     onSetup: () => void;
     onLocalAi: () => void;
     /** Bumped by the sidebar's "New chat" button. */
@@ -255,7 +276,7 @@ export const ChatScreen = ({
                 className="max-h-60 min-h-11 resize-none rounded-none bg-transparent px-2.5 pt-2 pb-1 text-md shadow-none ring-0 focus:ring-0"
             />
             <div className="flex items-center justify-between gap-3 pl-2.5">
-                <span className="truncate text-xs text-quaternary">Relay asks before it clicks or types.</span>
+                <span className="truncate text-xs text-quaternary">{APPROVAL_NOTE[approvalMode] ?? APPROVAL_NOTE.risky}</span>
                 {busy ? (
                     <button
                         aria-label="Stop"
@@ -340,7 +361,8 @@ export const ChatScreen = ({
                                     <Markdown text={it.text} />
                                 </div>
                             );
-                        if (it.kind === "tool") return <ToolItem key={i} item={it} />;
+                        if (it.kind === "tool")
+                            return isHiddenTool(it.name) && it.result?.ok !== false ? null : <ToolItem key={i} item={it} />;
                         if (it.kind === "fallback")
                             return (
                                 <div key={i} className="flex items-center gap-2 pt-1 text-sm font-medium text-brand-secondary animate-in fade-in duration-300">

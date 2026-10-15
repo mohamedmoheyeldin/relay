@@ -268,3 +268,70 @@ class SubprocessPrompter:
             lines[-1].strip() if lines else f"exit code {done.returncode}"
         )
         raise PromptUnavailableError(str(reason))
+
+
+def _app_address() -> dict[str, Any] | None:
+    """Where the running Relay app takes approvals (approval.json), if it is running."""
+    from relay_screen.runtime.paths import default_home
+
+    home = default_home()
+    for path in (home / "approval.json", home / "data" / "approval.json"):
+        try:
+            info = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(info, dict) and info.get("port") and info.get("token"):
+            return info
+    return None
+
+
+@dataclass
+class AppPrompter:
+    """Asks in the Relay app's own window when it is running, else falls back.
+
+    The app drops software-injected input aimed at its window while it runs, so, as
+    with the native prompt, automation can't answer its own approvals.
+    """
+
+    fallback: Prompter = field(default_factory=lambda: SubprocessPrompter())
+    address: Callable[[], dict[str, Any] | None] = _app_address
+
+    def ask(self, request: PromptRequest) -> Decision:
+        import urllib.error
+        import urllib.request
+
+        info = self.address()
+        if info is None:
+            return self.fallback.ask(request)
+        payload = {
+            "title": request.title,
+            "detail": request.detail,
+            "step": request.step,
+            "total": request.total,
+            "image": base64.b64encode(request.image).decode() if request.image else None,
+            "timeout": request.timeout,
+            "approve_label": request.approve_label,
+            "allow_batch": request.allow_batch,
+            "batch_label": request.batch_label,
+        }
+        http = urllib.request.Request(
+            f"http://127.0.0.1:{int(info['port'])}/ask",
+            data=json.dumps(payload).encode(),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {info['token']}",
+            },
+            method="POST",
+        )
+        # Straight to localhost, never through a proxy.
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        try:
+            with opener.open(http, timeout=request.timeout + 15) as response:
+                answer = json.load(response)
+        except (urllib.error.URLError, OSError, ValueError):
+            # The app isn't running (or is an older version): use the native prompt.
+            return self.fallback.ask(request)
+        decision = answer.get("decision") if isinstance(answer, dict) else None
+        if decision in ("approve", "approve_batch", "deny", "timeout"):
+            return decision
+        return self.fallback.ask(request)

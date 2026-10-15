@@ -7,6 +7,7 @@ import { Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { Checkbox } from "@/components/base/checkbox/checkbox";
 import { type AppInfo, type Settings, type UpdateInfo, api } from "@/lib/api";
 import { cx } from "@/utils/cx";
+import { ApprovalTray } from "@/components/relay/approval";
 import { ChatScreen } from "./screens/chat";
 import { useClaude } from "@/lib/claude";
 import { SettingsScreen } from "./screens/settings";
@@ -154,6 +155,7 @@ export default function App() {
     return (
         <div className="flex h-screen bg-primary">
             <CloseDialog open={closeAsk} onClose={() => setCloseAsk(false)} />
+            <ApprovalTray />
             {view !== "setup" && (
                 <nav
                     aria-label="Relay"
@@ -226,6 +228,7 @@ export default function App() {
                         <ChatScreen
                             ready={ready}
                             newChatRequest={newChat}
+                            approvalMode={settings.safety.approval_mode}
                             onSetup={() => setView("setup")}
                             onLocalAi={() => {
                                 setSettingsPage("local-ai");

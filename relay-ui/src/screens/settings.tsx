@@ -170,7 +170,7 @@ const BrowserPage = ({ settings, save }: PageProps) => {
             <Section title="Browser lane" description="Claude works in your browser through each page's structure, which is faster and steadier than reading the screen.">
                 <Toggle
                     label="Let Claude use my browser for web tasks"
-                    hint="Relay asks before Claude clicks or types on a page, the same as on the desktop."
+                    hint="Claude follows your Safety setting here too: by default it asks only before sending, paying, deleting and the like."
                     isSelected={browser.lane_enabled}
                     onChange={(v) => change({ ...browser, lane_enabled: v })}
                 />
@@ -266,15 +266,16 @@ const SafetyPage = ({ settings, save }: PageProps) => {
     const safety = settings.safety;
     return (
         <>
-            <Section title="Approvals" description="Relay can ask before it clicks or types for Claude.">
+            <Section title="Approvals" description="When Relay should check with you. Its questions appear in the chat, never as separate windows.">
                 <Select
                     size="sm"
                     aria-label="Approval mode"
                     selectedKey={safety.approval_mode}
                     onSelectionChange={(k) => save({ ...settings, safety: { ...safety, approval_mode: String(k) } })}
                     items={[
-                        { id: "ask", label: "Ask before acting (recommended)" },
-                        { id: "off", label: "Don't ask" },
+                        { id: "risky", label: "Only before steps that can't be undone (recommended)" },
+                        { id: "ask", label: "Before every click or keystroke" },
+                        { id: "off", label: "Never ask" },
                     ]}
                 >
                     {(item) => <Select.Item id={item.id} label={item.label} />}

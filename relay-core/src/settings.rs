@@ -149,8 +149,14 @@ impl Default for Browser {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct Safety {
-    /// "ask" (Relay asks before acting) or "off". Passed to relay-screen as RELAY_APPROVAL.
+    /// "risky" (ask only before steps that can't be undone, the default), "ask" (before
+    /// every step) or "off". Passed to relay-screen as RELAY_APPROVAL (D-073).
     pub approval_mode: String,
+    /// Which approval default this file has seen. Files from before 0.1.7 say 0: their
+    /// "ask" was the old default, never a choice (the picker had no "risky"), so it
+    /// becomes "risky" once.
+    #[serde(default)]
+    pub defaults_version: u32,
     /// Tools that always ask, even when approvals are off (names, e.g. "type").
     pub always_ask: Vec<String>,
     pub phone_approvals: bool,
@@ -158,10 +164,14 @@ pub struct Safety {
     pub ntfy_topic: String,
 }
 
+/// Bump when the safety defaults change in a way old settings files should pick up.
+pub const SAFETY_DEFAULTS: u32 = 1;
+
 impl Default for Safety {
     fn default() -> Self {
         Self {
-            approval_mode: "ask".into(),
+            approval_mode: "risky".into(),
+            defaults_version: SAFETY_DEFAULTS,
             always_ask: Vec::new(),
             phone_approvals: false,
             ntfy_topic: String::new(),
@@ -223,11 +233,23 @@ impl Settings {
 
     pub fn load_from(path: &Path) -> Result<Self> {
         match std::fs::read_to_string(path) {
-            Ok(text) => serde_json::from_str(&text)
-                .with_context(|| format!("{} is not valid settings JSON", path.display())),
+            Ok(text) => {
+                let mut settings: Self = serde_json::from_str(&text)
+                    .with_context(|| format!("{} is not valid settings JSON", path.display()))?;
+                settings.upgrade();
+                Ok(settings)
+            }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
             Err(e) => Err(e).with_context(|| format!("could not read {}", path.display())),
         }
+    }
+
+    /// Bring an older settings file up to today's defaults where it never chose.
+    fn upgrade(&mut self) {
+        if self.safety.defaults_version < 1 && self.safety.approval_mode == "ask" {
+            self.safety.approval_mode = "risky".into();
+        }
+        self.safety.defaults_version = SAFETY_DEFAULTS;
     }
 
     pub fn save(&self) -> Result<()> {
@@ -281,8 +303,28 @@ mod tests {
         let s = Settings::load_from(&dir.path().join("nope.json")).unwrap();
         assert_eq!(s, Settings::default());
         assert_eq!(s.local_ai.idle_unload_secs, 60);
-        assert_eq!(s.safety.approval_mode, "ask");
+        assert_eq!(s.safety.approval_mode, "risky");
         assert_eq!(s.general.close_action, CloseAction::Ask);
+    }
+
+    #[test]
+    fn old_ask_default_becomes_risky_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        std::fs::write(&path, r#"{"safety":{"approval_mode":"ask"}}"#).unwrap();
+        let mut s = Settings::load_from(&path).unwrap();
+        assert_eq!(s.safety.approval_mode, "risky");
+        s.safety.approval_mode = "ask".into();
+        s.save_to(&path).unwrap();
+        assert_eq!(
+            Settings::load_from(&path).unwrap().safety.approval_mode,
+            "ask"
+        );
+        std::fs::write(&path, r#"{"safety":{"approval_mode":"off"}}"#).unwrap();
+        assert_eq!(
+            Settings::load_from(&path).unwrap().safety.approval_mode,
+            "off"
+        );
     }
 
     #[test]
