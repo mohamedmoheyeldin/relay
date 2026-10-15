@@ -849,3 +849,32 @@ any per-user 0.1.0 copy (`C:\relay`), along with its `HKCU\...\Uninstall\Relay` 
 runtime, models and browser profile, and `%APPDATA%\Relay\settings.json`)
 stays where it is. D-057's update flow is unchanged: a newer
 Relay-Setup.exe downloads into Downloads and runs.
+
+## D-064 The approval prompt is a plain Win32 window
+*2026-10-15 · accepted · app thread, PR #60 · implements D-019 and D-025*
+
+`relay_screen/safety/prompt.py` builds the approval prompt with ctypes and
+Win32 directly, not tkinter. The embedded CPython that the installer ships
+(D-054) has no tkinter, so before this change every gated call was refused
+without a prompt ever appearing. The window keeps D-019's low-level input
+hooks, which ignore injected clicks and keys. `python -m
+relay_screen.safety.prompt --check` builds the window off-screen, and the
+doctor and the app's self-test run that check as "Approval prompt".
+
+## D-065 A prompt that can't open is not a denial
+*2026-10-15 · accepted · app thread, PR #60 · refines D-025*
+
+When the approval prompt can't be shown, relay-screen raises
+`PromptUnavailableError`. Claude is told the owner was not asked, not that
+the owner said no, so it reports a setup problem instead of giving up on the
+task as refused. The call is still not run.
+
+## D-066 Browser navigation runs freely; the rest can be allowed per request
+*2026-10-15 · accepted · app thread, PR #60 · extends D-061*
+
+On relay-browser, `browser_navigate` and `browser_navigate_back` run without
+a prompt, along with D-061's read-only tools. Every other browser tool
+(click, type, fill, and so on) still asks. The prompt has a third button,
+"Allow the browser for this request", which approves the remaining browser
+tools until that `claude -p` run ends. relay-screen's desktop act tools are
+not covered by that button.
