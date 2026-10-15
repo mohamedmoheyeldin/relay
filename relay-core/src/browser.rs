@@ -157,6 +157,44 @@ pub fn extension_installed(user_data: &Path) -> bool {
     })
 }
 
+/// The `HKLM\SOFTWARE\Policies` key a Chromium browser reads, from its program path.
+pub fn policy_key(browser: &BrowserInfo) -> Option<&'static str> {
+    let path = browser.path.to_lowercase();
+    if path.contains("bravesoftware") {
+        Some(r"SOFTWARE\Policies\BraveSoftware\Brave")
+    } else if path.ends_with("chrome.exe") && path.contains("google") {
+        Some(r"SOFTWARE\Policies\Google\Chrome")
+    } else if path.ends_with("msedge.exe") {
+        Some(r"SOFTWARE\Policies\Microsoft\Edge")
+    } else {
+        None
+    }
+}
+
+/// Whether Relay's installer asked this browser to add the extension itself
+/// (`ExtensionInstallForcelist`), so it only has to wait for the browser to do it.
+#[cfg(windows)]
+pub fn extension_by_policy(browser: &BrowserInfo) -> bool {
+    use winreg::enums::HKEY_LOCAL_MACHINE;
+    use winreg::RegKey;
+    let Some(key) = policy_key(browser) else {
+        return false;
+    };
+    RegKey::predef(HKEY_LOCAL_MACHINE)
+        .open_subkey(format!(r"{key}\ExtensionInstallForcelist"))
+        .map(|k| {
+            k.enum_values()
+                .flatten()
+                .any(|(_, v)| v.to_string().starts_with(EXTENSION_ID))
+        })
+        .unwrap_or(false)
+}
+
+#[cfg(not(windows))]
+pub fn extension_by_policy(_browser: &BrowserInfo) -> bool {
+    false
+}
+
 pub fn has_token() -> bool {
     crate::secrets::get(RELAY_BROWSER, TOKEN_SECRET).is_ok_and(|t| !t.trim().is_empty())
 }
@@ -224,14 +262,24 @@ pub fn state(settings: &Settings) -> LaneState {
             "The browser lane needs Node.js. Install it from nodejs.org, then reopen Relay.".into(),
         )
     } else if use_own && !extension {
-        Some(format!(
-            "Relay works in {name} through the Playwright Extension, which isn't installed yet. \
-             Add it in Settings > Browser."
-        ))
+        Some(if browser.as_ref().is_some_and(extension_by_policy) {
+            format!(
+                "{name} is adding the Playwright Extension that Relay set up during install. \
+                     It appears within a minute while {name} is open; if it doesn't, close and \
+                     reopen {name}."
+            )
+        } else {
+            format!(
+                "Relay works in {name} through the Playwright Extension, which isn't \
+                     installed yet. Run Relay Setup and choose Repair to add it, or add it in \
+                     Settings > Browser."
+            )
+        })
     } else if use_own && !token {
         Some(format!(
-            "Paste the Playwright Extension's token in Settings > Browser so Relay can use {name} \
-             without asking you to pick a tab each time."
+            "One step is left, once: click the Playwright Extension's icon in {name} (under the \
+             puzzle piece), copy the token it shows and paste it in Settings > Browser. The \
+             extension makes this token itself, as your OK for Relay to use {name}."
         ))
     } else if !use_own
         && browser
@@ -343,6 +391,34 @@ mod tests {
             local.join("Microsoft").join("Edge").join("User Data")
         );
         assert!(user_data_dir(&b("Odd", true), local).is_none());
+    }
+
+    #[test]
+    fn policy_key_follows_the_browser() {
+        let at = |path: &str| BrowserInfo {
+            name: "x".into(),
+            path: path.into(),
+            chromium: true,
+        };
+        assert_eq!(
+            policy_key(&at(
+                r"C:\Program Files\BraveSoftware\Brave-Origin\Application\brave.exe"
+            )),
+            Some(r"SOFTWARE\Policies\BraveSoftware\Brave")
+        );
+        assert_eq!(
+            policy_key(&at(
+                r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+            )),
+            Some(r"SOFTWARE\Policies\Google\Chrome")
+        );
+        assert_eq!(
+            policy_key(&at(
+                r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
+            )),
+            Some(r"SOFTWARE\Policies\Microsoft\Edge")
+        );
+        assert_eq!(policy_key(&at(r"C:\Vivaldi\vivaldi.exe")), None);
     }
 
     #[test]
