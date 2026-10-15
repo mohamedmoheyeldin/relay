@@ -4,7 +4,7 @@ Short entries so later sessions can pick up where earlier ones stopped. Newest f
 
 ## 2026-10-15 · 0.1.6: Claude-desktop-style look and Relay Setup
 - Owner: the app looked bad; wanted it clean and modern like the Claude desktop app. Restyled relay-ui: warm neutrals with a terracotta accent, Inter for UI and a serif for replies, collapsible sidebar with New chat, centered chat column with a rounded composer and compact activity rows; settings and the wizard follow. No Anthropic assets.
-- Shipped together with Relay Setup (below) as 0.1.6. In-app approvals and auto-allowed lookups are parked on a local branch until the owner answers in their own words.
+- Shipped together with Relay Setup (below) as 0.1.6, recorded as D-076 (look) and D-077 (Setup bootstrapper). In-app approvals and auto-allowed lookups are parked on a local branch until the owner answers in their own words.
 
 ## 2026-10-15 · Relay Setup: an installer app with Relay's look
 - Owner: the installer should notice an older Relay and update or uninstall it, install fresh otherwise, and look like the app. `dist/Relay-Setup.exe` is now Relay Setup (`relay-setup/`, Tauri 2, static HTML/CSS/JS in the app's warm palette, light and dark). It reads `HKLM` and `HKCU` `...\Uninstall\Relay` (`DisplayVersion`, `InstallLocation`, `UninstallString`, as Tauri's NSIS template writes them) and offers Install, Update (old → new) or Uninstall, Repair or Uninstall, or Uninstall only when a newer Relay is installed.
