@@ -23,7 +23,7 @@ export interface Settings {
         models_dir: string | null;
     };
     connections: { paused: PausedServer[]; secret_names: Record<string, string[]> };
-    browser: { preferred: string };
+    browser: { preferred: string; lane_enabled: boolean };
     safety: { approval_mode: string; always_ask: string[]; phone_approvals: boolean; ntfy_topic: string };
     privacy: { runs_dir: string | null; retention_days: number };
     updates: { check_on_start: boolean };
@@ -123,6 +123,31 @@ export interface McpEntry {
     transport: string;
     status: McpStatus;
     status_text: string;
+    /** For plugin servers: the plugin that brings them, e.g. "productivity@synced". */
+    plugin: string | null;
+}
+
+export interface Plugin {
+    id: string;
+    version: string | null;
+    scope: string | null;
+    enabled: boolean;
+}
+
+export interface BrowserInfo {
+    name: string;
+    path: string;
+    chromium: boolean;
+}
+
+export interface BrowserState {
+    enabled: boolean;
+    browsers: BrowserInfo[];
+    browser: BrowserInfo | null;
+    node: boolean;
+    profile_dir: string;
+    problem: string | null;
+    registered: boolean;
 }
 
 export interface CatalogServer {
@@ -187,10 +212,10 @@ export const api = {
     claudeInstall: () => invoke<void>("claude_install"),
     claudeUpdate: () => invoke<void>("claude_update"),
     claudeVerify: () => invoke<string>("claude_verify"),
-    ptyStart: (kind: "login", cols: number, rows: number) => invoke<void>("pty_start", { kind, cols, rows }),
+    ptyStart: (kind: "login" | "login-console", cols: number, rows: number) => invoke<number>("pty_start", { kind, cols, rows }),
     ptyWrite: (data: string) => invoke<void>("pty_write", { data }),
     ptyResize: (cols: number, rows: number) => invoke<void>("pty_resize", { cols, rows }),
-    ptyKill: () => invoke<void>("pty_kill"),
+    ptyKill: (id: number) => invoke<void>("pty_kill", { id }),
 
     localAi: () => invoke<LocalAiState>("local_ai_state"),
     runtimeInstall: () => invoke<void>("runtime_install"),
@@ -206,12 +231,18 @@ export const api = {
     mcpRemove: (name: string) => invoke<void>("mcp_remove", { name }),
     mcpPause: (name: string) => invoke<void>("mcp_pause", { name }),
     mcpResume: (name: string) => invoke<void>("mcp_resume", { name }),
+    mcpLogin: (name: string) => invoke<void>("mcp_login", { name }),
+    mcpLogout: (name: string) => invoke<void>("mcp_logout", { name }),
+    plugins: () => invoke<Plugin[]>("plugins_list"),
+    pluginSetEnabled: (id: string, enabled: boolean) => invoke<void>("plugin_set_enabled", { id, enabled }),
 
     chatSend: (prompt: string) => invoke<void>("chat_send", { prompt }),
     chatStop: () => invoke<void>("chat_stop"),
     chatNew: () => invoke<void>("chat_new"),
 
-    browsers: () => invoke<{ name: string; path: string }[]>("browsers"),
+    browsers: () => invoke<BrowserInfo[]>("browsers"),
+    browserState: () => invoke<BrowserState>("browser_state"),
+    browserOpen: () => invoke<void>("browser_open"),
     playbooks: () => invoke<Playbook[]>("playbooks_list"),
     playbookDelete: (name: string) => invoke<void>("playbook_delete", { name }),
     doctor: () => invoke<{ checks: Check[]; report: string }>("doctor_run"),

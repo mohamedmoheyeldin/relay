@@ -22,14 +22,15 @@ import { Button } from "@/components/base/buttons/button";
 import { Input } from "@/components/base/input/input";
 import { Select } from "@/components/base/select/select";
 import { Toggle } from "@/components/base/toggle/toggle";
-import { Card, JobProgress, KeyValue, Notice, PageHeader, Section } from "@/components/relay/ui";
+import { Card, JobProgress, KeyValue, Notice, PageHeader, Section, Skeleton } from "@/components/relay/ui";
 import { type AppInfo, type Check, type Playbook, type Settings, type UpdateInfo, api, errorText } from "@/lib/api";
 import { bytes } from "@/lib/format";
 import { clearJob, useJobs } from "@/lib/jobs";
 import { cx } from "@/utils/cx";
-import { ClaudeSetup } from "./claude-setup";
+import { ClaudeChecks } from "./claude-setup";
 import { useTheme } from "@/providers/theme-provider";
 import { ConnectionsPage } from "./connections";
+import { useBrowserLane } from "./setup-checks";
 import { LocalAiPage } from "./local-ai";
 
 type Save = (s: Settings) => Promise<void>;
@@ -98,7 +99,7 @@ const GeneralPage = ({ settings, save, rerunSetup }: PageProps) => (
                 {(item) => <Select.Item id={item.id} label={item.label} />}
             </Select>
         </Section>
-        <Section title="Setup" description="Go through the first-run setup again: Claude Code, the local model and the self-test.">
+        <Section title="Setup" description="Open the setup checks again: Claude, the local model, the browser and the self-test.">
             <div>
                 <Button size="sm" color="secondary" onClick={rerunSetup}>
                     Run setup again
@@ -113,7 +114,9 @@ const ClaudePage = ({ settings, save }: PageProps) => {
     return (
         <>
             <Section title="Claude Code" description="Relay uses your own Claude Code and Claude subscription. It never sees your password or token.">
-                <ClaudeSetup />
+                <Card className="overflow-hidden p-0">
+                    <ClaudeChecks />
+                </Card>
             </Section>
             <Section title="Model and effort" description="Passed to Claude Code for each task. Leave empty to use Claude Code's own default.">
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:items-end">
@@ -148,30 +151,96 @@ const ClaudePage = ({ settings, save }: PageProps) => {
 };
 
 const BrowserPage = ({ settings, save }: PageProps) => {
-    const [browsers, setBrowsers] = useState<{ name: string; path: string }[]>([]);
-    useEffect(() => {
-        api.browsers().then(setBrowsers);
-    }, []);
+    const { state, refresh } = useBrowserLane();
+    const [error, setError] = useState<string | null>(null);
+    const browser = settings.browser;
+    const change = async (next: Settings["browser"]) => {
+        setError(null);
+        try {
+            await save({ ...settings, browser: next });
+        } catch (e) {
+            setError(errorText(e));
+        }
+        await refresh();
+    };
+    const chromium = state?.browsers.filter((b) => b.chromium) ?? [];
+    const others = state?.browsers.filter((b) => !b.chromium) ?? [];
     return (
         <>
-            <Section title="Browser" description="The browser Relay uses for web tasks. Relay finds the browsers installed on this PC.">
+            <Section title="Browser lane" description="Claude works in your browser through each page's structure, which is faster and steadier than reading the screen.">
+                <Toggle
+                    label="Let Claude use my browser for web tasks"
+                    hint="Relay asks before Claude clicks or types on a page, the same as on the desktop."
+                    isSelected={browser.lane_enabled}
+                    onChange={(v) => change({ ...browser, lane_enabled: v })}
+                />
+                {!state ? (
+                    <Card className="flex flex-col gap-3">
+                        <Skeleton className="h-4 w-48" />
+                        <Skeleton className="h-4 w-72" />
+                    </Card>
+                ) : (
+                    browser.lane_enabled && (
+                        <Card className="flex flex-col gap-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                <span className="flex items-center gap-2 text-md font-semibold text-primary">
+                                    <Globe01 className="size-5 text-fg-quaternary" />
+                                    {state.browser?.name ?? "No browser"}
+                                </span>
+                                {state.problem ? (
+                                    <Badge size="sm" color="warning">
+                                        Needs attention
+                                    </Badge>
+                                ) : state.registered ? (
+                                    <Badge size="sm" color="success">
+                                        Ready
+                                    </Badge>
+                                ) : (
+                                    <Badge size="sm" color="gray">
+                                        Waiting for Claude Code
+                                    </Badge>
+                                )}
+                            </div>
+                            {state.problem && <Notice>{state.problem}</Notice>}
+                            {state.browser && <KeyValue label="Program" value={state.browser.path} />}
+                            <KeyValue label="Relay's profile" value={state.profile_dir} />
+                            <KeyValue label="Node.js" value={state.node ? "Found" : "Not found"} />
+                            <div className="flex flex-wrap gap-2">
+                                <Button
+                                    size="sm"
+                                    iconLeading={Globe01}
+                                    isDisabled={!state.browser}
+                                    onClick={() => api.browserOpen().catch((e) => setError(errorText(e)))}
+                                >
+                                    Open to sign in to sites
+                                </Button>
+                                <Button size="sm" color="secondary" iconLeading={Folder} onClick={() => api.openPath(state.profile_dir)}>
+                                    Open profile folder
+                                </Button>
+                            </div>
+                            <p className="text-xs text-tertiary">
+                                Chromium browsers don't let other apps control your everyday profile, so Relay keeps its own profile of your browser. Sign
+                                in to the sites you want Claude to use there once; they stay signed in. Close that window before you ask Claude to browse.
+                            </p>
+                        </Card>
+                    )
+                )}
+                {error && <Notice tone="error">{error}</Notice>}
+            </Section>
+            <Section title="Which browser" description="Relay finds the browsers on this PC. Brave, Chrome, Edge and other Chromium browsers work.">
                 <Select
                     size="sm"
                     aria-label="Browser"
-                    selectedKey={settings.browser.preferred}
-                    onSelectionChange={(k) => save({ ...settings, browser: { preferred: String(k) } })}
-                    items={[{ id: "auto", label: "Windows default browser" }, ...browsers.map((b) => ({ id: b.name, label: b.name, supportingText: b.path }))]}
+                    selectedKey={browser.preferred}
+                    onSelectionChange={(k) => change({ ...browser, preferred: String(k) })}
+                    items={[
+                        { id: "auto", label: "Pick for me", supportingText: state?.browser && browser.preferred === "auto" ? state.browser.name : undefined },
+                        ...chromium.map((b) => ({ id: b.name, label: b.name, supportingText: undefined })),
+                    ]}
                 >
                     {(item) => <Select.Item id={item.id} label={item.label} supportingText={item.supportingText} />}
                 </Select>
-            </Section>
-            <Section title="Relay extension" description="Lets Relay work inside your own signed-in browser profile.">
-                <Card className="flex items-center justify-between gap-3">
-                    <span className="text-sm text-secondary">The Brave extension is not available yet. Until then Relay works in the browser through the screen.</span>
-                    <Badge color="gray" size="sm">
-                        Coming soon
-                    </Badge>
-                </Card>
+                {others.length > 0 && <p className="text-xs text-tertiary">Not supported yet: {others.map((b) => b.name).join(", ")}.</p>}
             </Section>
         </>
     );
@@ -450,7 +519,7 @@ const PAGES: { id: string; label: string; icon: FC<{ className?: string }>; desc
     { id: "claude", label: "Claude", icon: Stars01, description: "Claude Code, your sign-in, and the model Relay asks for." },
     { id: "local-ai", label: "Local AI", icon: CpuChip01, description: "The models that run on your GPU to find and check things on screen." },
     { id: "connections", label: "Connections", icon: Link01, description: "MCP servers and connectors, shared with Claude Code." },
-    { id: "browser", label: "Browser", icon: Globe01, description: "Which browser Relay uses for web tasks." },
+    { id: "browser", label: "Browser", icon: Globe01, description: "How Claude works in your browser for web tasks." },
     { id: "safety", label: "Safety", icon: Shield01, description: "Approvals, the kill switch and phone approvals." },
     { id: "playbooks", label: "Playbooks", icon: BookOpen01, description: "Tasks Relay has learned to repeat." },
     { id: "privacy", label: "Privacy", icon: Lock01, description: "Activity logs and screenshots." },
@@ -470,24 +539,41 @@ export const SettingsScreen = ({
     const props = { settings, save, info, rerunSetup };
     return (
         <div className="flex h-full min-h-0">
-            <nav className="w-52 shrink-0 overflow-y-auto border-r border-secondary px-3 py-6">
+            <nav className="hidden w-56 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-secondary px-3 py-6 md:flex">
                 <div className="px-3 pb-3 text-xs font-semibold tracking-wide text-quaternary uppercase">Settings</div>
                 {PAGES.map((p) => (
                     <button
                         key={p.id}
                         onClick={() => setPage(p.id)}
+                        aria-current={p.id === current.id ? "page" : undefined}
                         className={cx(
-                            "flex w-full cursor-pointer items-center gap-3 rounded-md px-3 py-2 text-sm font-semibold transition",
+                            "group flex w-full cursor-pointer items-center gap-3 rounded-md px-3 py-2 text-sm font-semibold transition duration-150 ease-out",
                             p.id === current.id ? "bg-active text-secondary_hover" : "text-secondary hover:bg-primary_hover",
                         )}
                     >
-                        <p.icon className="size-5 text-fg-quaternary" />
+                        <p.icon
+                            className={cx(
+                                "size-5 shrink-0 transition",
+                                p.id === current.id ? "text-fg-brand-primary" : "text-fg-quaternary group-hover:text-fg-quaternary_hover",
+                            )}
+                        />
                         {p.label}
                     </button>
                 ))}
             </nav>
-            <div className="min-w-0 flex-1 overflow-y-auto px-8 py-6">
-                <div className="mx-auto max-w-4xl">
+            <div className="min-w-0 flex-1 overflow-y-auto">
+                <div className="sticky top-0 z-10 border-b border-secondary bg-primary/90 px-4 py-3 backdrop-blur md:hidden">
+                    <Select
+                        size="sm"
+                        aria-label="Settings page"
+                        selectedKey={current.id}
+                        onSelectionChange={(k) => setPage(String(k))}
+                        items={PAGES.map((p) => ({ id: p.id, label: p.label, icon: p.icon }))}
+                    >
+                        {(item) => <Select.Item id={item.id} label={item.label} icon={item.icon} />}
+                    </Select>
+                </div>
+                <div key={current.id} className="@container mx-auto max-w-5xl px-4 py-6 animate-in fade-in slide-in-from-bottom-1 duration-200 sm:px-8">
                     <PageHeader title={current.label} description={current.description} />
                     {current.id === "general" && <GeneralPage {...props} />}
                     {current.id === "claude" && <ClaudePage {...props} />}

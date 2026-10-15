@@ -79,3 +79,35 @@ pub fn dir_size(path: &std::path::Path) -> u64 {
         })
         .sum()
 }
+
+/// A Windows path without the `\\?\` prefix that `canonicalize` and Tauri's
+/// resource folder add. Other programs (and people) expect the plain form.
+pub fn plain(path: impl Into<PathBuf>) -> PathBuf {
+    let path = path.into();
+    let text = path.to_string_lossy();
+    if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+        return PathBuf::from(format!(r"\\{rest}"));
+    }
+    match text.strip_prefix(r"\\?\") {
+        Some(rest) => PathBuf::from(rest),
+        None => path,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn plain_strips_verbatim_prefixes() {
+        assert_eq!(
+            plain(r"\\?\C:\relay\python\pythonw.exe"),
+            PathBuf::from(r"C:\relay\python\pythonw.exe")
+        );
+        assert_eq!(
+            plain(r"\\?\UNC\server\share\relay.exe"),
+            PathBuf::from(r"\\server\share\relay.exe")
+        );
+        assert_eq!(plain("/opt/relay"), PathBuf::from("/opt/relay"));
+    }
+}

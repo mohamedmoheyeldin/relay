@@ -4,6 +4,7 @@
 //! always-on daemon of D-032 wraps the same modules in M2. Every module works on any
 //! OS so tests run in the cloud, and Windows-only calls are guarded.
 
+pub mod browser;
 pub mod catalog;
 pub mod chat;
 pub mod claude;

@@ -34,6 +34,25 @@ from relay_screen.uia import UiaService
 
 SERVER_NAME = "relay-screen"
 RELAY_TOOL_PREFIX = f"mcp__{SERVER_NAME}__"
+# Relay's browser lane (Playwright MCP). Tools that only look are allowed without asking.
+BROWSER_TOOL_PREFIX = "mcp__relay-browser__"
+BROWSER_READ_ONLY = frozenset(
+    {
+        "browser_snapshot",
+        "browser_take_screenshot",
+        "browser_console_messages",
+        "browser_network_requests",
+        "browser_wait_for",
+    }
+)
+
+
+def _looks_only(tool_name: str) -> bool:
+    return (
+        tool_name.startswith(BROWSER_TOOL_PREFIX)
+        and tool_name.removeprefix(BROWSER_TOOL_PREFIX) in BROWSER_READ_ONLY
+    )
+
 
 ScrollDirection = Literal["up", "down", "left", "right"]
 
@@ -471,7 +490,8 @@ def build_server(services: Services | None = None) -> FastMCP:
         """Permission prompt for headless runs (claude -p --permission-prompt-tool).
 
         Relay's own tools are allowed here because Relay asks the owner before each act
-        itself. Any other tool is shown to the owner in Relay's prompt.
+        itself, and so are browser-lane tools that only look at the page. Any other tool
+        is shown to the owner in Relay's prompt.
 
         Claude Code wants exactly one text block back. A `str` return would also carry
         `structuredContent`, which Claude Code rejects as "an invalid result", so the
@@ -483,7 +503,12 @@ def build_server(services: Services | None = None) -> FastMCP:
 
         s = svc()
         allow = {"behavior": "allow", "updatedInput": input}
-        if tool_name.startswith(RELAY_TOOL_PREFIX) or s.gate is None or s.gate.mode == "off":
+        if (
+            tool_name.startswith(RELAY_TOOL_PREFIX)
+            or _looks_only(tool_name)
+            or s.gate is None
+            or s.gate.mode == "off"
+        ):
             return answer(allow)
         detail = describe(tool_name, input)
         title = f"Claude wants to use {tool_name}"
