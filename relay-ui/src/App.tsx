@@ -150,7 +150,16 @@ export default function App() {
                             }}
                         />
                     )}
-                    {view === "chat" && <ChatScreen ready={ready} onSetup={() => setView("setup")} />}
+                    {view === "chat" && (
+                        <ChatScreen
+                            ready={ready}
+                            onSetup={() => setView("setup")}
+                            onLocalAi={() => {
+                                setSettingsPage("local-ai");
+                                setView("settings");
+                            }}
+                        />
+                    )}
                     {view === "settings" && (
                         <SettingsScreen
                             settings={settings}
