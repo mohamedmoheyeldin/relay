@@ -2,6 +2,10 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
+## 2026-10-15 · Screen first and self-setup (D-079)
+- Owner: Relay answered "go to dice.com and search" with a Dice connector table and asked them to install a browser extension. They want it to act on screen end to end and set itself up. Added `open_url` (owner's browser, no extension); Claude is told to do "go to" on screen and never to ask for setup; the local operator opens the page a task names before its first step; `ui_task` starts downloading the runtime and model in the background when they are missing. 9 new tests.
+- The owner's reference video was blocked by the proxy and robots.txt; asked for the file. Rebased onto the rewritten history (dev 1a0bc83). Nothing ran on the PC.
+
 ## 2026-10-15 · Relay finds and focuses the program to control (D-078)
 - Owner: the app should know where the program is and act on it by itself. In their run Relay screenshotted its own window, kept clicking the Brave taskbar button and Claude used PowerShell to find Brave. New `list_windows` and `focus_window` tools (Relay's own window marked and never chosen); the local operator sees the open windows each step, focuses the program the task names before its first step and has a `focus_window` action. 6 new tests.
 - Sent the white border around the setup dialog and moving Relay's window aside during tasks to the app thread. Nothing ran on the PC.

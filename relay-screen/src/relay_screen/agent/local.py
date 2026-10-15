@@ -54,6 +54,8 @@ ctrl+l, alt+F4, super
 - {"action": "scroll", "x": X, "y": Y, "direction": "down", "amount": 3}
 - {"action": "launch_app", "name": "Notepad", "args": []}  opens an installed app; \
 name "browser" opens the owner's web browser, and a URL in args opens that page
+- {"action": "open_url", "url": "https://www.dice.com"}  opens a web page in the \
+owner's browser and brings it to the front
 - {"action": "focus_window", "window": "Brave"}  brings an open window to the front \
 (restoring it if minimized) by its title or program name from the open windows list
 - {"action": "wait", "seconds": 2}
@@ -86,6 +88,7 @@ task, reply with fail and the reason "sign-in needed".
 - Only buy, pay, send, submit or delete when the task clearly asks for it. Relay asks \
 the owner before such steps either way.
 - If an action did not change the screen, try something different.
+- To go to a website, use open_url instead of typing in the address bar.
 - Never click taskbar buttons to switch programs (that minimizes them); use \
 focus_window. Never act on Relay's own window; it is marked in the windows list.
 """
@@ -240,6 +243,11 @@ def to_member(action: Mapping[str, Any], frame: Frame, coords: Coords) -> tuple[
         if isinstance(args, str):
             args = [args]
         return "launch_app", {"name": app, "args": [str(a) for a in args]}
+    if name in ("open_url", "go_to", "navigate", "open_website"):
+        url = action.get("url") or action.get("address")
+        if not isinstance(url, str) or not url.strip():
+            raise ReplyError("open_url needs a url")
+        return "open_url", {"url": url.strip()[:MAX_TEXT]}
     if name in ("focus_window", "focus", "switch_to"):
         window = action.get("window") or action.get("name") or action.get("title")
         if not isinstance(window, str) or not window.strip():
@@ -276,6 +284,23 @@ class Context:
     screen_text: str = ""
     apps: str = ""
     windows: str = ""
+
+
+URL_IN_TASK = re.compile(
+    r"(?:https?://|www\.)[^\s\"'<>]+"
+    r"|\b(?:go to|open|visit|navigate to)\s+([a-z0-9-]+(?:\.[a-z0-9-]+)*"
+    r"\.(?:com|org|net|io|ai|dev|app|co|edu|gov|jobs|info|me|us|uk|ca|de|eg)"
+    r"(?:/\S*)?)\b",
+    re.IGNORECASE,
+)
+
+
+def _task_url(task: str) -> str | None:
+    """The web address a task names ("go to dice.com and ..."), if any."""
+    found = URL_IN_TASK.search(task)
+    if found is None:
+        return None
+    return (found.group(1) or found.group(0)).rstrip(".,;:!?)")
 
 
 def _few(elements: str) -> bool:
@@ -386,13 +411,18 @@ class LocalAgent:
         return rest[:MAX_WINDOWS_CHARS]
 
     def _focus_target(self, task: str) -> None:
-        """Before the first step, bring the task's program to the front (D-078).
+        """Before the first step, bring the task's page or program to the front (D-078, D-079).
 
         Relay's own chat window is usually in front when a task starts, which left the
         model screenshotting Relay and clicking the taskbar. When an open window's
         program is named in the task ("in Brave, ..."), it goes in front first;
         otherwise the model sees the windows list and can focus_window itself.
         """
+        url = _task_url(task)
+        if url:  # "go to https://www.dice.com/ and ...": open it before the first look
+            with contextlib.suppress(ActionError, ApprovalDeniedError, PromptUnavailableError):
+                self.hands.run("open_url", {"url": url})
+            return
         words = set(re.findall(r"[a-z0-9]+", task.casefold()))
         for line in self._windows().splitlines():
             parts = line.split(" · ")
