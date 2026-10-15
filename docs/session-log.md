@@ -2,6 +2,10 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
+## 2026-10-15 · Local operator: UI tasks without Claude (D-067)
+- Owner: UI automation must work with the local AI alone; nothing worked while their Claude login was expired. Added `relay_screen/agent/`, a screenshot → local VLM → one JSON action loop that runs through the same `Computer` (kill switch, approvals, audit log), and `relay-screen agent "task" [--json]` for the app. Model from `local_ai.agent`/`describe`/`grounding`, else Qwen3-VL-8B-Instruct. 14 new tests with a scripted model and fake hands.
+- Not run on the owner's PC yet (needs Qwen3-VL-8B downloaded). App side, sent via the coordinator to the app thread: route chat to `relay-screen agent --json` when Claude is unavailable.
+
 ## 2026-10-15 · Approval prompt without tkinter, 0.1.2 (app thread)
 - Owner's Dice task: every relay-browser call was refused with no prompt shown. The bundled CPython (NuGet package) has no tkinter, so `safety/prompt.py` crashed on import and the gate read that as "deny". The prompt is now plain Win32 through ctypes (same hooks, buttons, preview, timeout, focus restore). `prompt --check` builds it off screen; the self-test runs it as "Approval prompt" (passed on the owner's PC with the bundled Python, no window).
 - A prompt that can't open now raises `PromptUnavailableError`, and Claude is told the owner was not asked, instead of "The owner denied this tool call."

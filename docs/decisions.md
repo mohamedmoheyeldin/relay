@@ -878,3 +878,39 @@ a prompt, along with D-061's read-only tools. Every other browser tool
 "Allow the browser for this request", which approves the remaining browser
 tools until that `claude -p` run ends. relay-screen's desktop act tools are
 not covered by that button.
+
+## D-067 The local model can do UI tasks on its own when Claude is unavailable
+*2026-10-15 · accepted · owner request · amends D-032..D-043 (and D-001's "local hands only")*
+
+The owner: UI automation has to work with the local AI alone, so Relay still
+does mouse, keyboard and browser-window tasks when Claude can't be reached
+(signed out, offline, out of quota). Until now nothing worked without Claude.
+
+Decision:
+- Claude stays the preferred brain whenever it is available. When it isn't,
+  the app hands the task to Relay's **local operator**:
+  `relay-screen agent "task" --json`.
+- The local operator is a plan-act loop on the local vision model. Each step
+  it takes a screenshot, sends the model the task, the earlier steps and the
+  image (at most 1280 px on the long edge), and gets back one JSON action:
+  click, double_click, right_click, type, key, scroll, launch_app, wait,
+  done or fail. Coordinates are 0-1000 of the image for the Qwen3-VL family
+  (`ModelSpec.coords`), and Relay converts them to screenshot pixels.
+- Actions run through the same `Computer` that Claude drives, so the kill
+  switch, the approval prompt (D-025, D-064) and the audit log all apply.
+  An owner denial, the kill switch or a prompt that can't open stops the run.
+  Other errors go back to the model as the step's result.
+- The model never signs in or types passwords. A sign-in page ends the run
+  with "sign-in needed", as the rule for Claude already says.
+- The run gives up after 25 steps by default, after three unusable replies,
+  or when the same action changes nothing three times in a row.
+- Model choice: `--model`, then settings.json `local_ai.agent`, then
+  `local_ai.describe` or `local_ai.grounding` (each `{model_id}`), then the
+  first downloaded of Qwen3-VL-8B-Instruct, Holo2-8B, Holo2-4B and UI-Venus.
+  Qwen3-VL-8B-Instruct is the only one with a download source today (D-052),
+  so it is the local operator's default.
+- The model loads when the run starts and unloads when the run ends, because
+  the CLI process ends with the task.
+
+This changes D-001's split for the no-Claude case only. With Claude
+available, the local model is still hands and eyes (D-008 layering, D-036).
