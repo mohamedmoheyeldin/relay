@@ -2,6 +2,10 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
+## 2026-10-15 · Risky-only approval mode, local operator reads text (D-073)
+- Owner: still hasn't seen the local AI do UI tasks; too many popups. New approval mode "risky" asks only before clicks/invokes on controls named like send, pay, delete (UIA name under the pointer) and risky browser-lane calls; "ask" stays the default until the owner picks "risky". The local operator now also gets the installed apps, OCR text when UIA sees little, and a `click_text` action. 9 new tests.
+- Nothing ran on the PC (no access from the cloud session, and the owner didn't ask).
+
 ## 2026-10-15 · The local AI owns UI automation (D-069)
 - Owner: Relay is RefBox in software and should beat it; the local AI's job is UI automation, everything else goes to Claude. Recorded as D-069 and rewrote architecture §1. New relay-screen tool `ui_task` lets Claude hand a whole UI task to the local operator (model kept loaded in the MCP server, unloaded when idle, one task at a time). 3 new tests.
 - App side (via the coordinator): Claude's instructions in the app should tell it to use `ui_task` for UI work.

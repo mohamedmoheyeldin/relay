@@ -57,6 +57,11 @@ class UiaBackend(Protocol):
         windows whose title contains ``title``."""
         ...
 
+    def element_at(self, x: int, y: int) -> UiaElement | None:
+        """The control at physical virtual-desktop pixel (x, y), or the nearest
+        ancestor that can be pressed (so the text of a button gives the button)."""
+        ...
+
     def run(self, work: Callable[[], object]) -> object:
         """Run ``work`` with COM initialized for the calling thread."""
         ...
@@ -319,6 +324,16 @@ class UiaService:
             return "value set"
 
         return str(self.backend.run(work))
+
+    def label_at(self, x: int, y: int) -> str | None:
+        """'Button "Send"' for the control at physical pixel (x, y), if UIA sees one."""
+
+        def work() -> str | None:
+            element = self.backend.element_at(x, y)
+            return self.describe(element) if element is not None else None
+
+        found = self.backend.run(work)
+        return found if isinstance(found, str) else None
 
     def label(self, element_id: str) -> str:
         element = self.element(element_id)

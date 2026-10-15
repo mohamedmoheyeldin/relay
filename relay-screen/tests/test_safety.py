@@ -13,6 +13,7 @@ from relay_screen.safety.approval import (
     Decision,
     PromptRequest,
     describe,
+    is_risky,
 )
 from relay_screen.safety.audit import AuditLog
 from relay_screen.safety.killswitch import (
@@ -276,3 +277,30 @@ def test_prompter_failure_is_not_a_denial(monkeypatch):
         _run_prompter(monkeypatch, raises=OSError("no python"))
     timeout = subprocess.TimeoutExpired("python", 1)
     assert _run_prompter(monkeypatch, raises=timeout) == "timeout"
+
+
+@pytest.mark.parametrize(
+    ("name", "summary", "risky"),
+    [
+        ("left_click", 'Left click at (1, 2) on Button "Send"', True),
+        ("double_click", 'Double click at (1, 2) on ListItem "Delete me"', True),
+        ("left_click", 'Left click at (1, 2) on Button "Search"', False),
+        ("left_click", None, False),
+        ("uia_invoke", 'Activate Button "Place order"', True),
+        ("uia_invoke", 'Activate MenuItem "Save"', False),
+        ("type", 'Type "send it"', False),
+        ("uia_set_value", 'Set Edit "To" to "delete"', False),
+    ],
+)
+def test_what_counts_as_risky(name, summary, risky):
+    assert is_risky(ActRequest(name, {}, summary=summary)) is risky
+
+
+def test_risky_mode_asks_for_risky_acts_only():
+    prompter = FakePrompter("approve")
+    gate = ApprovalGate(prompter, mode="risky")
+    assert gate.check(ActRequest("key", {"text": "ctrl+s"})) == "not asked (not risky)"
+    assert gate.check(ActRequest("uia_invoke", {}, summary='Activate Button "Pay now"')) == (
+        "approved"
+    )
+    assert [r.detail for r in prompter.requests] == ['Activate Button "Pay now"']
