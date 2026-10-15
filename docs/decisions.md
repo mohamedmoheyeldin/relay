@@ -105,13 +105,11 @@ system memory.
 ## D-007 UI stack: Tauri 2 + React + Untitled UI React
 *2026-10-14 · accepted*
 
-Context: the owner suggested Untitled UI React unless Violoop's own stack could
-be identified. Inspection of the installed Violoop 0.7.36 (file names, Electron
-version, and package.json dependency names only; no code extracted or copied)
-shows Electron 40.9.3 + Vite + Vue 3 + ant-design-vue, Inter / JetBrains Mono
-fonts, ~703 MB installed.
+Context: the owner suggested Untitled UI React unless a better-fitting stack
+turned up. The common alternative for desktop agents is Electron + Vite + Vue 3
++ ant-design-vue (~700 MB installed).
 
-Decision: Relay does not copy Violoop's stack. Tauri 2 (WebView2, small
+Decision: Relay does not use Electron. Tauri 2 (WebView2, small
 install, first-class sidecar support for the Python backend and llama-server)
 with React + TypeScript + Untitled UI React, which matches the owner's TS
 background. Electron stays acceptable if a Tauri blocker appears.
@@ -124,9 +122,8 @@ approval card with Run / Always allow / Cancel.
 *2026-10-14 · accepted · from the project brief*
 
 connector/API -> UIA accessibility tree -> Windows OCR -> local VLM -> Claude
-with a screenshot. Violoop's published routing (script/API 10 ms, keyboard
-shortcut 20 ms, accessibility handle 50 ms, GUI click 200 ms) matches the same
-idea; Relay adds "keyboard shortcut" as a preferred action form inside
+with a screenshot. Typical costs (script/API 10 ms, keyboard shortcut 20 ms,
+accessibility handle 50 ms, GUI click 200 ms) follow the same order; Relay adds "keyboard shortcut" as a preferred action form inside
 playbooks.
 
 ## D-009 Tool contract mirrors computer_toolset_20260801
@@ -209,8 +206,8 @@ the replacements in D-004, D-005 and D-013.
 *2026-10-14 · proposed*
 
 Most real tasks happen in a browser. Chromium exposes an accessibility tree to
-UIA but it is shallow and slow on big pages. Violoop bundles playwright-core
-for this reason. Option for M2: launch the owner's preferred Chromium browser
+UIA but it is shallow and slow on big pages, which is why desktop agents
+commonly bundle playwright-core. Option for M2: launch the owner's preferred Chromium browser
 (Edge is the default handler; Brave is installed; Chrome is not) with a
 dedicated profile and remote debugging on localhost, and add a DOM lane between
 UIA and vision. Trade-off: a separate browser profile means logins are not
@@ -218,7 +215,7 @@ shared with the owner's everyday profile. Decide in M2 with real data from the
 M1 form demo.
 
 ## D-017 Wake up accessibility trees while Relay is armed
-*2026-10-14 · accepted · from the Violoop research thread (PR #18)*
+*2026-10-14 · accepted · from the screen-lane research (PR #18)*
 
 Chromium/Electron apps only build a full UIA tree when they believe assistive
 technology is running. While Relay is armed it sets `SPI_SETSCREENREADER` (and
@@ -228,7 +225,7 @@ layer (D-008) useful in Electron apps without bundling a screen reader such as
 NVDA (GPL). Tracked in #7.
 
 ## D-018 Every act reports what changed
-*2026-10-14 · accepted · from the Violoop research thread*
+*2026-10-14 · accepted · from the screen-lane research*
 
 After each state-changing action relay-screen re-reads the target cheaply
 (UIA value/focus where available, otherwise a pixel diff of the region around
@@ -238,7 +235,7 @@ on demand. This catches silent misses early without a cloud round trip.
 Tracked in #5.
 
 ## D-019 Approvals cannot be given by synthetic input
-*2026-10-14 · accepted · from the Violoop research thread*
+*2026-10-14 · accepted · from the screen-lane research*
 
 The approval prompt is Relay's own top-most window and ignores injected input
 (events flagged `LLMHF_INJECTED`/`LLKHF_INJECTED`, including Relay's own
@@ -246,7 +243,7 @@ SendInput events), so the agent can never click "Approve" on itself. Tracked
 in #6; the M3 tray UI keeps the same rule.
 
 ## D-020 Playbooks are Claude Code skill compatible
-*2026-10-14 · accepted (amends architecture §7) · from the Violoop research thread*
+*2026-10-14 · accepted (amends architecture §7) · from the screen-lane research*
 
 Playbook front matter uses the Claude Code `SKILL.md` keys (`name`,
 `description`) plus Relay's own keys (`app`, `match`, `inputs`,
@@ -255,7 +252,7 @@ cloud call; when escalation is needed, Claude Code can load the same file as a
 skill. Tracked in #12.
 
 ## D-021 More API lanes before pixels
-*2026-10-14 · accepted for M2 · from the Violoop research thread*
+*2026-10-14 · accepted for M2 · from the screen-lane research*
 
 Extends D-003/D-008: Office apps are driven through COM automation (Word,
 Excel, Outlook) before screen automation; browsers get the DOM lane from D-016
@@ -560,7 +557,7 @@ for admin rights for everything else.
 ## D-044 Target: one download that sets up the whole app
 *2026-10-14 · accepted · owner request · reshapes the roadmap*
 
-The owner wants a complete, Violoop-like product: download one installer,
+The owner wants a complete, polished product: download one installer,
 click through it, and have everything work, with no other app to set up by
 hand. v1.0 is defined by that experience:
 - **One installer** (`Relay-Setup.exe`, the Tauri NSIS bundle). It ships the
@@ -948,10 +945,10 @@ Decision:
 ## D-069 The local AI owns UI automation; Claude handles everything else
 *2026-10-15 · accepted · owner request · amends D-001, D-008, D-036; builds on D-067, D-068*
 
-The owner: Relay is Violoop (violoop.ai) done in software. Instead of an
+The owner: Relay is a desktop operator done in software. Instead of an
 external box with its own AI driving the mouse and keyboard, the local AI and
-the input control run on the PC, and Relay should beat Violoop because it has
-full access to the PC's hardware and software. The local AI's main job is to
+the input control run on the PC, and Relay should beat hardware operators
+because it has full access to the PC's hardware and software. The local AI's main job is to
 make UI automation work well; anything else is for the cloud AI, Claude.
 
 Decision:

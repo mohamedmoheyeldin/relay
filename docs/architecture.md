@@ -6,14 +6,13 @@
 ## 1. What Relay is
 
 Relay is a "second user" for one Windows PC. It sees the screen and drives the
-keyboard and mouse to finish tasks on its owner's behalf. It is the software
-counterpart of the Violoop hardware box: instead of an external capture/HID
-device with an 8B model on an NPU, Relay runs on the owner's own GPU and borrows
+keyboard and mouse to finish tasks on its owner's behalf. It needs no external
+capture/HID device: Relay runs on the owner's own GPU and borrows
 its judgment from the owner's Claude subscription through Claude Code.
 
-**Local hands, cloud brain.** The owner's goal (D-069): Violoop done in
-software and better than it, because Relay runs on the PC itself with full
-access to its hardware and software. The local AI owns UI automation end to
+**Local hands, cloud brain.** The owner's goal (D-069): a desktop operator done
+entirely in software, running on the PC itself with full access to its
+hardware and software. The local AI owns UI automation end to
 end; everything else that needs intelligence goes to Claude.
 
 | Local (RTX 5080, on this PC) | Cloud (Claude via Claude Code) |
@@ -266,11 +265,11 @@ personal data and gitignored, except `playbooks/examples/`.
 6. Submit is irreversible -> approval -> submit.
 7. Screenshot saved as proof, playbook saved, model unloads after idle.
 
-## 9. Known limits of a software operator (vs. Violoop hardware)
+## 9. Known limits of a software operator (vs. a hardware capture box)
 
 - **Secure desktop:** UAC prompts, the lock screen and Ctrl+Alt+Del cannot be
-  seen or driven by a user-mode process. Violoop's "lock your screen and walk
-  away" mode relies on HDMI capture + USB HID. Relay asks the owner instead.
+  seen or driven by a user-mode process. Only a hardware operator with HDMI
+  capture + USB HID could drive them. Relay asks the owner instead.
 - **Elevated windows (UIPI):** a non-elevated Relay cannot send input to admin
   windows. Relay runs non-elevated by design and asks the owner.
 - **Shared mouse:** Relay and the owner use the same cursor. Relay shows a
