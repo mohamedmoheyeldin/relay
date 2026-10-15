@@ -26,6 +26,8 @@ pub struct TurnOptions {
     pub resume: Option<String>,
     pub model: String,
     pub effort: String,
+    /// Added to the system prompt, e.g. why the browser lane can't open pages now.
+    pub note: Option<String>,
 }
 
 /// The `claude` arguments for a turn (the prompt itself goes on stdin).
@@ -42,7 +44,10 @@ pub fn args(opts: &TurnOptions) -> Vec<String> {
     .collect();
     args.push(format!("mcp__{}__approve", mcp::RELAY_SCREEN));
     args.push("--append-system-prompt".into());
-    args.push(SYSTEM_PROMPT.into());
+    args.push(match &opts.note {
+        Some(note) => format!("{SYSTEM_PROMPT} {note}"),
+        None => SYSTEM_PROMPT.into(),
+    });
     if let Some(id) = &opts.resume {
         args.push("--resume".into());
         args.push(id.clone());
@@ -286,9 +291,13 @@ mod tests {
             resume: Some("abc".into()),
             model: "opus".into(),
             effort: String::new(),
+            note: Some("Lane note.".into()),
         });
         assert_eq!(a[0], "-p");
         assert!(a.contains(&"mcp__relay-screen__approve".to_string()));
+        assert!(a
+            .iter()
+            .any(|x| x.starts_with("You are running inside Relay") && x.ends_with("Lane note.")));
         let i = a.iter().position(|x| x == "--resume").unwrap();
         assert_eq!(a[i + 1], "abc");
         assert!(a.contains(&"--model".to_string()));
