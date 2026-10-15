@@ -8,6 +8,8 @@ import { FeaturedIcon } from "@/components/foundations/featured-icon/featured-ic
 import { Markdown } from "@/components/relay/markdown";
 import { Notice, Spinner } from "@/components/relay/ui";
 import { type ChatEvent, api, errorText } from "@/lib/api";
+import { isAuthError, refreshClaude, useClaude } from "@/lib/claude";
+import { SignIn } from "./sign-in";
 import { cx } from "@/utils/cx";
 
 type Item =
@@ -51,7 +53,18 @@ export const ChatScreen = ({ ready, onSetup }: { ready: boolean; onSetup: () => 
     const [items, setItems] = useState<Item[]>([]);
     const [input, setInput] = useState("");
     const [busy, setBusy] = useState(false);
+    const [signingIn, setSigningIn] = useState(false);
+    // Auth failures at or before this index were fixed by signing in again.
+    const [signedInAt, setSignedInAt] = useState(-1);
     const bottom = useRef<HTMLDivElement>(null);
+    const claude = useClaude();
+
+    let lastAuthFailure = -1;
+    items.forEach((it, i) => {
+        if ((it.kind === "error" || (it.kind === "done" && !it.ok)) && isAuthError(it.text)) lastAuthFailure = i;
+    });
+    const signedOut = !!claude.state?.installed && !claude.state.auth.loggedIn;
+    const needsSignIn = ready && (signedOut || lastAuthFailure > signedInAt);
 
     useEffect(() => {
         const un = listen<{ event: ChatEvent | null; finished: boolean }>("chat", ({ payload }) => {
@@ -72,6 +85,7 @@ export const ChatScreen = ({ ready, onSetup }: { ready: boolean; onSetup: () => 
                             it.kind === "tool" && it.id === e.tool_use_id ? { ...it, result: { ok: !e.is_error, text: e.text, image: e.image } } : it,
                         );
                     case "done":
+                        if (e.is_error && isAuthError(e.result)) refreshClaude().catch(() => {});
                         return [...prev, { kind: "done", ok: !e.is_error, text: e.is_error ? e.result : "", seconds: e.duration_ms ? e.duration_ms / 1000 : null }];
                     case "error":
                         return [...prev, { kind: "error", text: e.message }];
@@ -155,6 +169,7 @@ export const ChatScreen = ({ ready, onSetup }: { ready: boolean; onSetup: () => 
                                     {it.text}
                                 </div>
                             );
+                        if (it.kind === "assistant" && isAuthError(it.text) && items[i + 1]?.kind === "done") return null;
                         if (it.kind === "assistant")
                             return (
                                 <div key={i} className="max-w-[92%] text-md break-words text-primary animate-in fade-in duration-300">
@@ -174,6 +189,25 @@ export const ChatScreen = ({ ready, onSetup }: { ready: boolean; onSetup: () => 
                             </Notice>
                         );
                     })}
+                    {needsSignIn &&
+                        !busy &&
+                        (signingIn ? (
+                            <SignIn
+                                onDone={() => {
+                                    setSigningIn(false);
+                                    setSignedInAt(items.length);
+                                }}
+                                onCancel={() => setSigningIn(false)}
+                            />
+                        ) : (
+                            <Notice tone="warning">
+                                {signedOut ? "Claude Code isn't signed in." : "Your Claude sign-in has expired, so Claude can't answer."}{" "}
+                                <button className="cursor-pointer font-semibold underline" onClick={() => setSigningIn(true)}>
+                                    Sign in again
+                                </button>
+                                , then send your task again.
+                            </Notice>
+                        ))}
                     {busy && (
                         <div className="flex items-center gap-2 text-sm text-tertiary animate-in fade-in duration-300">
                             <Spinner />

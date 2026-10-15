@@ -3,6 +3,10 @@
 import { useEffect, useState } from "react";
 import { type ClaudeState, api, errorText } from "./api";
 
+/** Claude Code's words when its sign-in is missing, expired or revoked. */
+export const isAuthError = (text: string) =>
+    /failed to authenticate|oauth session expired|could not be refreshed|not logged in|please run \/login|invalid api key|authentication_error|token (has )?expired/i.test(text);
+
 export type CheckState = { status: "idle" } | { status: "running" } | { status: "ok"; text: string } | { status: "error"; text: string };
 
 interface Store {
