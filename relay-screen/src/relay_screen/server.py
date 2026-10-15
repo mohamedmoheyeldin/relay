@@ -28,7 +28,13 @@ from relay_screen.apps import AppCatalog
 from relay_screen.capture import Grabber
 from relay_screen.input.driver import InputDriver
 from relay_screen.ocr import OcrService
-from relay_screen.safety.approval import ActRequest, ApprovalGate, PromptUnavailableError, describe
+from relay_screen.safety.approval import (
+    RISKY,
+    ActRequest,
+    ApprovalGate,
+    PromptUnavailableError,
+    describe,
+)
 from relay_screen.safety.audit import AuditLog
 from relay_screen.safety.killswitch import GuardedBackend, KillSwitch
 from relay_screen.state import ScreenState
@@ -51,6 +57,18 @@ BROWSER_NO_PROMPT = frozenset(
         "browser_wait_for",
     }
 )
+
+
+# Browser tools that always ask in "risky" mode: they hand a file or code to the page.
+BROWSER_ALWAYS_ASK = frozenset({"browser_file_upload", "browser_evaluate", "browser_run_code"})
+
+
+def _browser_risky(tool_name: str, params: dict[str, Any]) -> bool:
+    """In "risky" mode (D-073), whether a browser-lane call needs the owner: uploads and
+    scripts always, clicks and typing when what they target reads as irreversible."""
+    if tool_name.removeprefix(BROWSER_TOOL_PREFIX) in BROWSER_ALWAYS_ASK:
+        return True
+    return RISKY.search(json.dumps(params, ensure_ascii=False)) is not None
 
 
 def _browser_no_prompt(tool_name: str) -> bool:
@@ -146,7 +164,7 @@ def default_services() -> Services:
         grabber=grabber,
         driver=InputDriver(GuardedBackend(SendInputBackend(), switch)),
         killswitch=switch,
-        gate=ApprovalGate(SubprocessPrompter(), mode="off" if mode == "off" else "ask"),
+        gate=ApprovalGate(SubprocessPrompter(), mode=mode if mode in ("off", "risky") else "ask"),
         audit=AuditLog.create(),
         uia=uia,
         ocr=ocr,
@@ -542,8 +560,10 @@ def build_server(services: Services | None = None) -> FastMCP:
     ) -> CallToolResult:
         """Permission prompt for headless runs (claude -p --permission-prompt-tool).
 
-        Relay's own tools are allowed here because Relay asks the owner before each act
-        itself, and so are browser-lane tools that only look at or open a page. Any other
+        Relay's own tools are allowed here because Relay's gate asks the owner itself, and
+        so are browser-lane tools that only look at or open a page. In "risky" mode other
+        browser tools ask only when they upload, run code or target something that reads
+        as irreversible (send, submit, pay, delete ...). Any other
         tool is shown to the owner in Relay's prompt; for browser tools the prompt also
         offers to allow the browser for the rest of this request.
 
@@ -566,6 +586,8 @@ def build_server(services: Services | None = None) -> FastMCP:
             return answer(allow)
         browser = tool_name.startswith(BROWSER_TOOL_PREFIX)
         if browser and trusted_browser:
+            return answer(allow)
+        if browser and s.gate.mode == "risky" and not _browser_risky(tool_name, input):
             return answer(allow)
         detail = describe(tool_name, input)
         title = f"Claude wants to use {tool_name}"
