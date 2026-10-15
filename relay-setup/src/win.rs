@@ -283,3 +283,21 @@ pub fn uninstall_in_place(uninstaller: &str, dir: &str) -> u32 {
     }
     code
 }
+
+/// Windows 11 draws a light 1 px frame around a borderless window that has a shadow.
+/// Turn it off so the window edge is the page's own (Windows 10 has no such frame and
+/// ignores the call).
+pub fn hide_border(hwnd: isize) {
+    use windows_sys::Win32::Graphics::Dwm::{
+        DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_COLOR_NONE,
+    };
+    let none: u32 = DWMWA_COLOR_NONE;
+    unsafe {
+        DwmSetWindowAttribute(
+            hwnd as windows_sys::Win32::Foundation::HWND,
+            DWMWA_BORDER_COLOR as u32,
+            (&none as *const u32).cast(),
+            std::mem::size_of::<u32>() as u32,
+        );
+    }
+}

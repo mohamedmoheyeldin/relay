@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -31,6 +32,7 @@ from relay_screen.ocr import OcrService
 from relay_screen.safety.approval import (
     RISKY,
     ActRequest,
+    AppPrompter,
     ApprovalGate,
     PromptUnavailableError,
     describe,
@@ -69,6 +71,34 @@ def _browser_risky(tool_name: str, params: dict[str, Any]) -> bool:
     if tool_name.removeprefix(BROWSER_TOOL_PREFIX) in BROWSER_ALWAYS_ASK:
         return True
     return RISKY.search(json.dumps(params, ensure_ascii=False)) is not None
+
+
+# Other tools in "risky" mode: lookups run, and so does everything else unless
+# its name says it sends, pays or deletes, or it is a shell command that deletes, wipes,
+# shuts down or pushes.
+LOOKUP = re.compile(r"^(get|list|search|read|find|fetch|query|describe|show|view)(_|$)")
+TOOL_RISKY = re.compile(RISKY.pattern + r"|\b(trash|forward|share|invite|respond)\b", re.I)
+SHELL_TOOLS = re.compile(r"(^|__)(Bash|PowerShell|start_process|interact_with_process)$")
+SHELL_RISKY = re.compile(
+    r"\b(remove-item|rm|rmdir|rd|del|erase|format-volume|clear-disk|diskpart|"
+    r"stop-computer|restart-computer|shutdown|remove-itemproperty|clear-content|"
+    r"clear-recyclebin|uninstall-package|set-executionpolicy|send-mailmessage)\b|"
+    r"\bformat\s+[a-z]:|\breg(\.exe)?\s+delete\b|\bgit\s+(push|reset\s+--hard|clean)\b|"
+    r"-method\s+(post|put|delete|patch)\b|\s-X\s*(POST|PUT|DELETE|PATCH)\b",
+    re.I,
+)
+
+
+def _tool_risky(tool_name: str, params: dict[str, Any]) -> bool:
+    """In "risky" mode, whether a tool call outside Relay's lanes needs the owner."""
+    if SHELL_TOOLS.search(tool_name):
+        command = params.get("command") or params.get("input") or ""
+        return SHELL_RISKY.search(str(command)) is not None
+    short = tool_name.rsplit("__", 1)[-1]
+    words = re.sub(r"(?<=[a-z])(?=[A-Z])", "_", short).lower()
+    if LOOKUP.match(words):
+        return False
+    return TOOL_RISKY.search(words.replace("_", " ").replace("-", " ")) is not None
 
 
 def _browser_no_prompt(tool_name: str) -> bool:
@@ -131,7 +161,6 @@ def default_services() -> Services:
     from relay_screen import displays, win32
     from relay_screen.capture import MssGrabber
     from relay_screen.input.sendinput import SendInputBackend
-    from relay_screen.safety.approval import SubprocessPrompter
 
     switch = KillSwitch()
     switch.start_cursor_watcher(win32.cursor_position)
@@ -164,7 +193,7 @@ def default_services() -> Services:
         grabber=grabber,
         driver=InputDriver(GuardedBackend(SendInputBackend(), switch)),
         killswitch=switch,
-        gate=ApprovalGate(SubprocessPrompter(), mode=mode if mode in ("off", "risky") else "ask"),
+        gate=ApprovalGate(AppPrompter(), mode=mode if mode in ("off", "risky") else "ask"),
         audit=AuditLog.create(),
         uia=uia,
         ocr=ocr,
@@ -585,9 +614,11 @@ def build_server(services: Services | None = None) -> FastMCP:
         Relay's own tools are allowed here because Relay's gate asks the owner itself, and
         so are browser-lane tools that only look at or open a page. In "risky" mode other
         browser tools ask only when they upload, run code or target something that reads
-        as irreversible (send, submit, pay, delete ...). Any other
-        tool is shown to the owner in Relay's prompt; for browser tools the prompt also
-        offers to allow the browser for the rest of this request.
+        as irreversible (send, submit, pay, delete ...), and other tools only when their
+        name says so or a shell command deletes, shuts down or pushes. Otherwise the
+        tool is shown to the owner in Relay's prompt (in the app's chat when it runs);
+        for browser tools the prompt also offers to allow the browser for the rest of
+        this request.
 
         Claude Code wants exactly one text block back. A `str` return would also carry
         `structuredContent`, which Claude Code rejects as "an invalid result", so the
@@ -610,6 +641,8 @@ def build_server(services: Services | None = None) -> FastMCP:
         if browser and trusted_browser:
             return answer(allow)
         if browser and s.gate.mode == "risky" and not _browser_risky(tool_name, input):
+            return answer(allow)
+        if not browser and s.gate.mode == "risky" and not _tool_risky(tool_name, input):
             return answer(allow)
         detail = describe(tool_name, input)
         title = f"Claude wants to use {tool_name}"

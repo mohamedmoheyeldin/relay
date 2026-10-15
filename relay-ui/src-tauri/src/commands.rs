@@ -65,6 +65,7 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
         browser_state,
         browser_open,
         browser_set_token,
+        approval_answer,
         chat_send,
         chat_stop,
         chat_new,
@@ -639,6 +640,7 @@ struct ChatPayload {
 }
 
 fn emit_chat(app: &AppHandle, event: Option<chat::ChatEvent>) {
+    crate::stage::on_chat(app, event.as_ref());
     let finished = event.is_none();
     let _ = app.emit("chat", ChatPayload { event, finished });
 }
@@ -777,6 +779,12 @@ async fn chat_stop(state: State<'_, AppState>) -> Res<()> {
         turn.stop().await;
     }
     Ok(())
+}
+
+/// The owner's answer on an in-app approval card.
+#[tauri::command]
+fn approval_answer(app: AppHandle, id: u64, decision: String) -> bool {
+    crate::approvals::answer(&app, id, &decision)
 }
 
 #[tauri::command]
