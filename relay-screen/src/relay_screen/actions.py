@@ -9,6 +9,7 @@ exact halt text.
 from __future__ import annotations
 
 import json
+import re
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -68,6 +69,7 @@ RELAY_MEMBERS: dict[str, Kind] = {
     "launch_app": "act",
     "list_windows": "read",
     "focus_window": "act",
+    "open_url": "act",
 }
 
 MEMBERS: dict[str, Kind] = {**TOOLSET_MEMBERS, **RELAY_MEMBERS}
@@ -103,9 +105,11 @@ _ALLOWED_PARAMS: dict[str, frozenset[str]] = {
     "launch_app": frozenset({"name", "args"}),
     "list_windows": frozenset({"query"}),
     "focus_window": frozenset({"window"}),
+    "open_url": frozenset({"url"}),
 }
 
 PREVIEW_EDGE = 720  # px, long edge of the screenshot shown in the approval prompt
+MAX_URL = 2000
 
 # Region checked around a coordinate target for the "what changed" verdict (D-018).
 CHANGE_RADIUS = 120  # physical px
@@ -255,6 +259,9 @@ class Computer:
             args = _args(params.get("args"))
             shown = " ".join(json.dumps(a, ensure_ascii=False) for a in args)
             return f"Open {app.name}" + (f" with {shown[:300]}" if args else "")
+        if name == "open_url":
+            browser = self._apps().resolve("browser")
+            return f"Open {_web_url(params.get('url'))} in {browser.name}"
         if name == "focus_window":
             catalog = self._apps()
             window = app_launch.find_window(
@@ -572,6 +579,25 @@ class Computer:
         text += " in front" if in_front else " (behind other windows)"
         return ActionResult(text + self._display_note(window))
 
+    def _do_open_url(self, url: str) -> ActionResult:
+        """Open a web page on screen in the owner's own browser (D-079)."""
+        address = _web_url(url)
+        catalog = self._apps()
+        browser = catalog.resolve("browser")
+        try:
+            window, in_front = app_launch.launch(catalog.backend, browser, [address], self.sleep)
+        except OSError as exc:
+            raise ActionError(f"could not open {browser.name}: {exc}") from exc
+        if window is None:
+            return ActionResult(
+                f"Asked {browser.name} to open {address}, but no window of it changed "
+                f"within {app_launch.WINDOW_PATIENCE:g} s. Check with screenshot."
+            )
+        text = f"Opened {address} in {browser.name} · window "
+        text += json.dumps(window.title, ensure_ascii=False)
+        text += " in front" if in_front else " (behind other windows; focus_window it)"
+        return ActionResult(text + self._display_note(window))
+
     def _display_note(self, window: app_launch.Window) -> str:
         cx = window.rect.left + window.rect.width // 2
         cy = window.rect.top + window.rect.height // 2
@@ -605,6 +631,21 @@ class Computer:
                 "Take a screenshot; click its title bar if it is visible."
             )
         return ActionResult(f"{title} is in front" + self._display_note(target))
+
+
+def _web_url(value: Any) -> str:
+    """An http(s) address; a bare "dice.com" gets https://."""
+    if not isinstance(value, str) or not value.strip() or len(value) > MAX_URL:
+        raise ActionError("url must be a web address like https://www.dice.com")
+    address = value.strip()
+    if "://" not in address:
+        if re.match(r"[a-z][a-z0-9+.-]*:(?!\d)", address, re.IGNORECASE):
+            raise ActionError("url must be an http or https web address")  # mailto:, javascript:
+        address = "https://" + address
+    scheme, _, rest = address.partition("://")
+    if scheme.casefold() not in ("http", "https") or not rest or any(c.isspace() for c in rest):
+        raise ActionError("url must be an http or https web address")
+    return address
 
 
 def _args(value: Any) -> list[str]:

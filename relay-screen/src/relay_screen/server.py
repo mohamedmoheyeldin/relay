@@ -250,7 +250,11 @@ def build_server(services: Services | None = None) -> FastMCP:
             "vision. Use batch to run several computer actions in one call. ui_task hands a "
             "whole UI task to the local operator, which works on this PC on its own. To "
             "work in a program that is already open, focus_window it first (list_windows "
-            "shows what is open); never click taskbar buttons or act on Relay's own window."
+            "shows what is open); never click taskbar buttons or act on Relay's own window. "
+            "When the owner says go to, open, search on or use a site or app, do it on "
+            "this screen (open_url, then ui_task or the direct tools) so they see it "
+            "happen; a connector that fetches the same data is not a substitute. These "
+            "screen tools need no setup, so never stop to ask the owner to set something up."
         ),
     )
     holder: dict[str, Services] = {}
@@ -505,6 +509,16 @@ def build_server(services: Services | None = None) -> FastMCP:
         return await run("launch_app", {"name": name, "args": args})
 
     @mcp.tool()
+    async def open_url(url: str) -> CallToolResult:
+        """Open a web page on this screen in the owner's own browser (a new tab when it
+        is already running) and bring it to the front. "dice.com" becomes https://dice.com.
+
+        Use it for "go to <site>"; then do the rest on screen with ui_task or the direct
+        tools. It works without the browser extension the browser_* tools need.
+        """
+        return await run("open_url", {"url": url})
+
+    @mcp.tool()
     async def list_windows(query: str | None = None) -> CallToolResult:
         """Open windows, topmost first, with their program, which one is in front and
         which are minimized. query filters by title or program ("brave", "Monster").
@@ -531,11 +545,12 @@ def build_server(services: Services | None = None) -> FastMCP:
         """Hand a whole UI task to Relay's local operator, which does it on this PC with
         the local vision model, UI Automation and the apps catalog, then reports back.
 
-        Use it for clicking through an app ("in Notepad, replace every cat with bird",
-        "open Display settings and set scale to 125%"); keep the thinking (what to do,
+        Use it for clicking through an app or a site ("in Notepad, replace every cat with
+        bird", "go to dice.com and search for FDE jobs"); keep the thinking (what to do,
         what to write, whether it worked) for yourself. Describe one goal in plain words
-        with the app's name. Approvals and the kill switch apply to every action. If no
-        local model is downloaded it says so; do the task with the direct tools instead.
+        with the app's or site's name. Approvals and the kill switch apply to every
+        action. If the local model is not there yet, Relay starts setting it up by itself
+        and says so; do this task with the direct tools meanwhile, without asking.
         """
         from relay_screen.agent.operator import LocalOperator
         from relay_screen.runtime.supervisor import RuntimeUnavailable

@@ -269,11 +269,52 @@ def test_operator_needs_a_downloaded_model(tmp_path: Any, monkeypatch: pytest.Mo
     monkeypatch.setenv("RELAY_HOME", str(tmp_path))
     monkeypatch.delenv("APPDATA", raising=False)
     operator = LocalOperator(connect=lambda url: Script())
+    started: list[Any] = []
+    operator.setup.spawn = started.append  # no real downloads in tests
     try:
-        with pytest.raises(RuntimeUnavailable, match="No local model"):
+        with pytest.raises(RuntimeUnavailable, match="downloading the local model runtime and"):
             operator.run("open notepad", FakeHands(), 5)
+        with pytest.raises(RuntimeUnavailable, match="direct tools"):
+            operator.run("open notepad", FakeHands(), 5)
+        assert len(started) == 1  # a second task doesn't start a second download
     finally:
         operator.supervisor.stop_all()
+
+
+def test_setup_downloads_runtime_then_model_and_reports_failures() -> None:
+    from relay_screen.agent.operator import Setup
+    from relay_screen.runtime.store import Installed
+
+    class FakeStore:
+        def __init__(self) -> None:
+            self.state = Installed()
+            self.calls: list[str] = []
+            self.fail = False
+
+        def installed(self) -> Installed:
+            return self.state
+
+        def install_runtime(self, tag: Any, cuda: Any) -> None:
+            self.calls.append("runtime")
+            self.state.runtime = object()  # type: ignore[assignment]
+
+        def install_model(self, spec: Any) -> None:
+            self.calls.append(spec.id)
+            if self.fail:
+                raise OSError("disk full")
+            self.state.models[spec.id] = object()  # type: ignore[assignment]
+
+    store = FakeStore()
+    events: list[dict[str, Any]] = []
+    setup = Setup(store, record=events.append, spawn=lambda work: work())  # type: ignore[arg-type]
+    store.fail = True
+    assert setup.start().startswith("Relay is downloading")
+    assert setup.error == "OSError: disk full" and not setup.running
+    store.fail = False
+    setup.start()
+    assert store.calls == ["runtime", "qwen3-vl-8b-instruct", "qwen3-vl-8b-instruct"]
+    assert setup.missing() == [] and setup.start() == "ready"
+    assert [e["status"] for e in events] == ["started", "failed", "started", "done"]
 
 
 def test_reads_screen_text_and_clicks_it_when_ui_automation_sees_little() -> None:
@@ -339,3 +380,39 @@ def test_focus_window_action_maps_to_the_member() -> None:
     )
     with pytest.raises(ReplyError, match="focus_window needs"):
         to_member({"action": "focus_window"}, frame, "rel1000")
+
+
+# --- going to web pages on screen (D-079) -----------------------------------
+
+
+@pytest.mark.parametrize(
+    ("task", "url"),
+    [
+        ("go to https://www.dice.com/ and search for fde jobs", "https://www.dice.com/"),
+        ("Go to dice.com and search for FDE jobs", "dice.com"),
+        ("visit www.monster.com.", "www.monster.com"),
+        ("open notes.txt in Notepad", None),
+        ("open Notepad", None),
+    ],
+)
+def test_finds_the_web_address_a_task_names(task: str, url: str | None) -> None:
+    from relay_screen.agent.local import _task_url
+
+    assert _task_url(task) == url
+
+
+def test_opens_the_page_the_task_names_before_the_first_step() -> None:
+    hands = FakeHands({"list_windows": WINDOWS})
+    model = Script({"action": "done", "summary": "ok"})
+    LocalAgent(hands, model).run("go to https://www.dice.com/ and search for fde jobs")
+    assert hands.acts() == [("open_url", {"url": "https://www.dice.com/"})]
+
+
+def test_open_url_action_maps_to_the_member() -> None:
+    frame = Frame.from_png(png())
+    assert to_member({"action": "open_url", "url": "dice.com"}, frame, "rel1000") == (
+        "open_url",
+        {"url": "dice.com"},
+    )
+    with pytest.raises(ReplyError, match="open_url needs"):
+        to_member({"action": "go_to"}, frame, "rel1000")

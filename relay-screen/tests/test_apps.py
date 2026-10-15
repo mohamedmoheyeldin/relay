@@ -279,3 +279,20 @@ def test_focus_window_through_computer(owner_displays):
     assert "kept it behind" in text
     with pytest.raises(ActionError, match="No open window"):
         c.run("focus_window", {"window": "Photoshop"})
+
+
+def test_open_url_opens_the_page_in_the_owners_browser(owner_displays):
+    fake = FakeApps()
+    fake.on_launch = Window(9, "Dice - Brave", Rect(0, 0, 1600, 900), exe=BRAVE)
+    seen: list[ActRequest] = []
+    c = computer(owner_displays, fake, [lambda r: seen.append(r)])
+    text = c.run("open_url", {"url": "dice.com"}).text or ""
+    assert fake.launched == [("Brave Origin", ["https://dice.com"])]
+    assert seen[0].summary == "Open https://dice.com in Brave Origin"
+    assert text.startswith(
+        'Opened https://dice.com in Brave Origin · window "Dice - Brave" in front'
+    )
+    for bad in ("file:///C:/x", "javascript:alert(1)", "dice .com", ""):
+        with pytest.raises(ActionError, match="url must be"):
+            c.run("open_url", {"url": bad})
+    assert len(fake.launched) == 1
