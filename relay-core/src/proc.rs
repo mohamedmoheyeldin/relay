@@ -16,6 +16,8 @@ pub fn command(program: impl AsRef<std::ffi::OsStr>) -> tokio::process::Command 
     #[cfg(windows)]
     cmd.creation_flags(CREATE_NO_WINDOW);
     cmd.stdin(Stdio::null());
+    // A timed-out or abandoned call must not leave the process running.
+    cmd.kill_on_drop(true);
     cmd
 }
 

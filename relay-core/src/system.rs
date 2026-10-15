@@ -13,6 +13,18 @@ use crate::settings::Settings;
 pub struct BrowserInfo {
     pub name: String,
     pub path: String,
+    /// Chromium-based browsers (Brave, Chrome, Edge, ...) can run Relay's browser lane.
+    pub chromium: bool,
+}
+
+/// Whether a browser, by its registered name or path, is built on Chromium.
+pub fn is_chromium(name: &str, path: &str) -> bool {
+    let text = format!("{name} {path}").to_lowercase();
+    [
+        "brave", "chrome", "chromium", "edge", "msedge", "vivaldi", "opera", "arc",
+    ]
+    .iter()
+    .any(|k| text.contains(k))
 }
 
 /// Browsers registered with Windows (`StartMenuInternet`), found, never hardcoded.
@@ -36,8 +48,17 @@ pub fn browsers() -> Vec<BrowserInfo> {
                 .and_then(|c| c.get_value(""))
                 .unwrap_or_default();
             let path = path.trim_matches('"').to_string();
+            // Internet Explorer is still registered on Windows 11 but can't be used.
+            if path.to_lowercase().ends_with("iexplore.exe") {
+                continue;
+            }
             if !found.iter().any(|b| b.name == name) {
-                found.push(BrowserInfo { name, path });
+                let chromium = is_chromium(&name, &path);
+                found.push(BrowserInfo {
+                    name,
+                    path,
+                    chromium,
+                });
             }
         }
     }
@@ -81,6 +102,19 @@ pub fn relay_screen_spec(python: &Path, settings: &Settings) -> ServerSpec {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chromium_browsers_are_recognised() {
+        assert!(is_chromium(
+            "Brave Origin",
+            r"C:\Program Files\BraveSoftware\Brave-Origin\Application\brave.exe"
+        ));
+        assert!(is_chromium("Microsoft Edge", "msedge.exe"));
+        assert!(!is_chromium(
+            "Firefox",
+            r"C:\Program Files\Mozilla Firefox\firefox.exe"
+        ));
+    }
 
     #[test]
     fn relay_screen_spec_carries_settings() {
