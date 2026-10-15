@@ -2,6 +2,9 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
+## 2026-10-15 · 0.1.8: Relay Setup has no white border
+- Owner on 0.1.7: the installer still had white borders. The screenshot shows 5 px of white on the left, right and bottom, none on top: tao keeps a resize frame around an undecorated window with a shadow, and Windows paints it white when the window isn't resizable. `win::hide_border` now subclasses the window so `WM_NCCALCSIZE` leaves no frame, and turns the frame's resize hit-tests into client hits.
+
 ## 2026-10-15 · Screen first and self-setup (D-079)
 - Owner: Relay answered "go to dice.com and search" with a Dice connector table and asked them to install a browser extension. They want it to act on screen end to end and set itself up. Added `open_url` (owner's browser, no extension); Claude is told to do "go to" on screen and never to ask for setup; the local operator opens the page a task names before its first step; `ui_task` starts downloading the runtime and model in the background when they are missing. 9 new tests.
 - The owner's reference video was blocked by the proxy and robots.txt; asked for the file. Moved onto the rewritten history. Recorded the app thread's 0.1.7 approvals as D-080 after reading the owner's yes. Nothing ran on the PC.
