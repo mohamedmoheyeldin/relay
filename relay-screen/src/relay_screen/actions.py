@@ -26,7 +26,7 @@ from relay_screen.input.driver import MAX_DURATION, InputDriver
 from relay_screen.input.events import Button
 from relay_screen.input.keys import parse_modifiers
 from relay_screen.ocr import OcrService
-from relay_screen.safety.approval import ActRequest
+from relay_screen.safety.approval import CLICKS, ActRequest, describe
 from relay_screen.safety.audit import AuditLog, elapsed_ms
 from relay_screen.scaling import Rect, ScreenshotGeometry
 from relay_screen.state import ScreenState
@@ -251,6 +251,8 @@ class Computer:
             args = _args(params.get("args"))
             shown = " ".join(json.dumps(a, ensure_ascii=False) for a in args)
             return f"Open {app.name}" + (f" with {shown[:300]}" if args else "")
+        if name in CLICKS:
+            return self._click_summary(name, params)
         if name not in ("uia_invoke", "uia_set_value"):
             return None
         label = self._uia().label(str(params.get("element", "")))
@@ -259,6 +261,22 @@ class Computer:
         value = str(params.get("value", ""))
         shown = value if len(value) <= 300 else value[:300] + "…"
         return f"Set {label} to {json.dumps(shown, ensure_ascii=False)}"
+
+    def _click_summary(self, name: str, params: Mapping[str, Any]) -> str | None:
+        """'Left click at (x, y) on Button "Send"', so the gate can tell risky clicks."""
+        point = params.get("coordinate")
+        if self.uia is None or not (
+            isinstance(point, (list, tuple))
+            and len(point) == 2
+            and all(isinstance(v, int) for v in point)
+        ):
+            return None
+        try:
+            x, y = self._geometry().to_physical(point[0], point[1])
+            label = self.uia.label_at(x, y)
+        except Exception:  # the summary is a nicety; never block the click on it
+            return None
+        return f"{describe(name, params)} on {label}" if label else None
 
     def _preview(self, points: list[tuple[int, int]]) -> bytes | None:
         """The active display, small, with the target point(s) circled in red."""

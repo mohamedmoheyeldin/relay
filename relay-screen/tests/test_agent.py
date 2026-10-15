@@ -24,6 +24,9 @@ def png(width: int = 2000, height: int = 1000) -> bytes:
     return out.getvalue()
 
 
+READS = ("screenshot", "uia_tree", "find_text", "list_apps")
+
+
 class FakeHands:
     def __init__(self, results: Mapping[str, Any] | None = None) -> None:
         self.calls: list[tuple[str, dict[str, Any]]] = []
@@ -35,12 +38,14 @@ class FakeHands:
         if name == "screenshot":
             return ActionResult(image=self.shot)
         outcome = self.results.get(name, "OK · screen changed")
+        if callable(outcome):
+            outcome = outcome(dict(params or {}))
         if isinstance(outcome, Exception):
             raise outcome
-        return ActionResult(outcome)
+        return ActionResult(str(outcome))
 
     def acts(self) -> list[tuple[str, dict[str, Any]]]:
-        return [c for c in self.calls if c[0] not in ("screenshot", "uia_tree")]
+        return [c for c in self.calls if c[0] not in READS]
 
 
 class Script:
@@ -269,3 +274,32 @@ def test_operator_needs_a_downloaded_model(tmp_path: Any, monkeypatch: pytest.Mo
             operator.run("open notepad", FakeHands(), 5)
     finally:
         operator.supervisor.stop_all()
+
+
+def test_reads_screen_text_and_clicks_it_when_ui_automation_sees_little() -> None:
+    ocr = '2 line(s) of text (OCR 0.20 s):\n"File" center (40, 20) box [0, 0, 1, 1]\n'
+    ocr += '"Send message" center (900, 700) box [0, 0, 1, 1]'
+    apps = "3 apps installed (...)\nNotepad\nBrave Origin · default browser\nCalculator"
+    match = "1 match(es) for 'Send message', best first (OCR 0.20 s):\n"
+    match += '"Send message" center (900, 700) box [0, 0, 1, 1]'
+
+    def find_text(params: dict[str, Any]) -> str:
+        return match if params.get("text") else ocr
+
+    hands = FakeHands({"find_text": find_text, "list_apps": apps, "uia_tree": "No elements"})
+    model = Script({"action": "click_text", "text": "Send message"}, done())
+    outcome, _ = run(hands, model)
+    assert outcome.status == "done"
+    prompt = model.prompt(0)
+    assert "Installed apps: Notepad, Brave Origin · default browser, Calculator" in prompt
+    assert "Text on the screen (OCR), usable with click_text:\nFile\nSend message" in prompt
+    assert ("find_text", {"text": "Send message"}) in hands.calls
+    assert hands.acts() == [("left_click", {"coordinate": [900, 700]})]
+
+    hands = FakeHands({"find_text": "No match for 'Nope' (OCR 0.10 s)."})
+    outcome, _ = run(hands, Script({"action": "click_text", "text": "Nope"}, done()))
+    assert outcome.status == "done" and hands.acts() == []
+
+
+def done() -> dict[str, Any]:
+    return {"action": "done", "summary": "ok"}

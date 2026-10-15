@@ -1017,3 +1017,39 @@ the version.
   finishes.
 - No benchmark button in the app yet. `relay-screen agent-bench` opens
   windows, so it runs only when the owner asks (D-068).
+
+## D-073 An approval mode for irreversible steps only; the local operator reads text and knows the apps
+*2026-10-15 · accepted · owner request · extends D-011, D-024, D-067, D-069*
+
+The owner: in the installed app they still haven't seen the local AI do UI
+automation. The app keeps showing popups, and they want it to just work. The
+local AI should understand the screen with every tool Windows offers, decide
+the next move itself, and know which programs are installed.
+
+Decision:
+- New approval mode **"risky"** (`RELAY_APPROVAL=risky`). Relay asks only
+  before an act that looks irreversible:
+  - a click or `uia_invoke` on a control whose UI Automation name contains
+    send, submit, pay, buy, purchase, order, checkout, delete, remove,
+    uninstall, transfer, confirm, publish, post, reply, discard, book,
+    subscribe, sign, agree, accept, install and similar words;
+  - a browser-lane call whose input reads like that, plus browser file
+    uploads and scripts, which always ask.
+
+  Typing, keys, scrolling, opening apps and other clicks run without a
+  prompt. Other tools (Bash, connectors) still ask.
+- A click where UI Automation sees nothing is not asked in this mode.
+- "ask" (every act) stays the default until the owner chooses "risky".
+  Because it loosens a safety default, the switch waits for the owner's word.
+- For clicks, Relay looks up the control under the pointer
+  (`UiaBackend.element_at`: the nearest ancestor that can be pressed). The
+  prompt and the audit log now say what a click lands on, in every mode.
+- The local operator now gets, besides the screenshot and the UIA element
+  list:
+  - the installed apps (from `list_apps`), once per task;
+  - the screen's text from Windows OCR when UIA sees fewer than 6 elements
+    (browsers, custom-drawn apps);
+  - a new `click_text` action that clicks text found by OCR.
+
+  The prompt orders the ways to act: element ids first, then click_text,
+  then position.
