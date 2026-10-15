@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from typing import Literal
 
 Role = Literal["locate", "check", "both"]
+Coords = Literal["rel1000", "pixels"]
+"""How a model writes screen coordinates: 0-1000 of the image (Qwen3-VL family) or pixels."""
 
 ROLE_LABEL = {"locate": "where is it", "check": "check / describe", "both": "both"}
 
@@ -20,6 +22,7 @@ class ModelSpec:
     quant: str = "Q4_K_M"
     context: int = 8192
     license: str = "Apache-2.0"
+    coords: Coords = "rel1000"
 
 
 CATALOG: tuple[ModelSpec, ...] = (
