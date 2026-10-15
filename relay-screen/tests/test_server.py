@@ -202,6 +202,8 @@ async def test_approve_tool_contract(owner_displays):
         server, "approve", {"tool_name": "mcp__relay-screen__left_click", "input": {"x": 1}}
     )
     assert json.loads(text(relay)) == {"behavior": "allow", "updatedInput": {"x": 1}}
+    # Claude Code accepts exactly one text block and no structured content.
+    assert len(relay.content) == 1 and relay.structuredContent is None
     assert prompter.titles == []  # Relay asks per act itself
     bash = {"tool_name": "Bash", "input": {"command": "dir"}, "tool_use_id": "t1"}
     assert json.loads(text(await call(server, "approve", bash)))["behavior"] == "allow"

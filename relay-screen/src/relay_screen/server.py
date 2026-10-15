@@ -465,22 +465,32 @@ def build_server(services: Services | None = None) -> FastMCP:
         return CallToolResult(content=[TextContent(type="text", text="Relay is armed again.")])
 
     @mcp.tool()
-    async def approve(tool_name: str, input: dict[str, Any], tool_use_id: str | None = None) -> str:
+    async def approve(
+        tool_name: str, input: dict[str, Any], tool_use_id: str | None = None
+    ) -> CallToolResult:
         """Permission prompt for headless runs (claude -p --permission-prompt-tool).
 
         Relay's own tools are allowed here because Relay asks the owner before each act
         itself. Any other tool is shown to the owner in Relay's prompt.
+
+        Claude Code wants exactly one text block back. A `str` return would also carry
+        `structuredContent`, which Claude Code rejects as "an invalid result", so the
+        answer goes out as a bare CallToolResult.
         """
+
+        def answer(decision: dict[str, Any]) -> CallToolResult:
+            return CallToolResult(content=[TextContent(type="text", text=json.dumps(decision))])
+
         s = svc()
-        allow = json.dumps({"behavior": "allow", "updatedInput": input})
+        allow = {"behavior": "allow", "updatedInput": input}
         if tool_name.startswith(RELAY_TOOL_PREFIX) or s.gate is None or s.gate.mode == "off":
-            return allow
+            return answer(allow)
         detail = describe(tool_name, input)
         title = f"Claude wants to use {tool_name}"
         ok = await anyio.to_thread.run_sync(s.gate.confirm, title, detail, "Allow")
         if ok:
-            return allow
-        return json.dumps({"behavior": "deny", "message": "The owner denied this tool call."})
+            return answer(allow)
+        return answer({"behavior": "deny", "message": "The owner denied this tool call."})
 
     return mcp
 
