@@ -2,6 +2,9 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
+## 2026-10-15 · Per-machine install (app thread)
+- Owner asked for `C:\Program Files\Relay`: the installer is now per machine with one admin prompt and removes the per-user 0.1.0 copy and its HKCU keys first. Merged in #56 (`dev`) and #57 (`main`); recorded as D-063.
+
 ## 2026-10-15 · App round 2 from the owner's first install (app thread)
 - Chat tool calls all failed with "Permission prompt tool returned an invalid result": relay-screen's `approve` returned FastMCP `structuredContent`; it now returns one bare text block (test asserts it). Browser-lane tools that only look (snapshot, screenshot, console, network, wait) are allowed without a prompt.
 - Self-test hung on "asking Claude": the check now times out after 90 s, child processes are killed on drop, and only one check runs at a time. `claude -p` itself answered in about 3 s on the owner's PC.
