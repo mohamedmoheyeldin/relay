@@ -9,6 +9,11 @@ With --json every event is one JSON line on stdout, for the app's chat:
     {"event": "done" | "failed" | "stopped", "message": ..., "steps": n}
     {"event": "unavailable", "message": ...}  the local model can't run at all
 Exit code: 0 done, 1 failed or stopped, 2 unavailable.
+
+    relay-screen agent-bench [--only ID ...] [--repeat N] [--tasks FILE] [--json]
+
+runs the fixed benchmark (D-068) and writes the results under %LOCALAPPDATA%\\Relay\\bench.
+Exit code: 0 at or above the 95% target, 1 below it, 2 unavailable.
 """
 
 from __future__ import annotations
@@ -18,7 +23,9 @@ import json
 import sys
 import time
 import urllib.request
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from dataclasses import asdict
+from pathlib import Path
 from typing import Any
 
 from relay_screen.agent.local import MAX_STEPS, LocalAgent, Model
@@ -96,52 +103,124 @@ def parser() -> argparse.ArgumentParser:
     return p
 
 
+class Loaded:
+    """A local model that is running, and how to reach it."""
+
+    def __init__(self, emit: Callable[[dict[str, Any]], None], wanted: str | None) -> None:
+        self.paths = RelayPaths.default()
+        settings = local_ai_settings(settings_file())
+        self.record = jsonl_recorder(self.paths.log)
+        store = Store(self.paths)
+        self.supervisor = Supervisor(store, idle=idle_seconds(settings), record=self.record)
+        try:
+            self.model_id = pick_model(store.installed().models, settings, wanted)
+            spec = catalog.find(self.model_id)
+            self.coords: catalog.Coords = spec.coords if spec else "rel1000"
+            emit({"event": "loading", "model": self.model_id})
+            start = time.monotonic()
+            self.model = llama_model(self.supervisor.ensure(self.model_id).url)
+            seconds = round(time.monotonic() - start, 1)
+            emit({"event": "ready", "model": self.model_id, "seconds": seconds})
+        except RuntimeUnavailable:
+            self.supervisor.stop_all()
+            raise
+
+
+def emitter(as_json: bool) -> Callable[[dict[str, Any]], None]:
+    def emit(event: dict[str, Any]) -> None:
+        print(json.dumps(event) if as_json else _human(event), flush=True)
+
+    return emit
+
+
 def main(argv: list[str]) -> int:
     args = parser().parse_args(argv)
     task = " ".join(args.task).strip()
-    as_json: bool = args.json
-
-    def emit(event: dict[str, Any]) -> None:
-        if as_json:
-            print(json.dumps(event), flush=True)
-        else:
-            print(_human(event), flush=True)
-
-    paths = RelayPaths.default()
-    store = Store(paths)
-    settings = local_ai_settings(settings_file())
-    record = jsonl_recorder(paths.log)
-    supervisor = Supervisor(store, idle=idle_seconds(settings), record=record)
+    emit = emitter(args.json)
     try:
-        model_id = pick_model(store.installed().models, settings, args.model)
-        spec = catalog.find(model_id)
-        emit({"event": "loading", "model": model_id})
-        start = time.monotonic()
-        endpoint = supervisor.ensure(model_id)
-        emit({"event": "ready", "model": model_id, "seconds": round(time.monotonic() - start, 1)})
+        loaded = Loaded(emit, args.model)
     except RuntimeUnavailable as exc:
-        supervisor.stop_all()
         emit({"event": "unavailable", "message": str(exc)})
         return 2
 
     try:
-        with supervisor.task(model_id):
+        with loaded.supervisor.task(loaded.model_id):
             agent = LocalAgent(
                 _hands(),
-                llama_model(endpoint.url),
-                coords=spec.coords if spec else "rel1000",
+                loaded.model,
+                coords=loaded.coords,
                 max_steps=args.max_steps,
                 on_event=emit,
             )
             outcome = agent.run(task)
-        record({"event": "agent", "model": model_id, "status": outcome.status})
+        loaded.record({"event": "agent", "model": loaded.model_id, "status": outcome.status})
         return 0 if outcome.status == "done" else 1
     except Exception as exc:  # report, never leave the model loaded
         emit({"event": "failed", "message": f"{type(exc).__name__}: {exc}", "steps": 0})
         return 1
     finally:
         # This process ends with the task, so nothing would unload the model later.
-        supervisor.stop_all()
+        loaded.supervisor.stop_all()
+
+
+def bench_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="relay-screen agent-bench",
+        description="Measure the local operator on the fixed task set (opens windows).",
+    )
+    p.add_argument("--only", nargs="+", metavar="ID", help="run only these task ids")
+    p.add_argument("--repeat", type=int, default=1, help="run every task this many times")
+    p.add_argument("--tasks", type=Path, help="a task file instead of the built-in one")
+    p.add_argument("--model", help="a downloaded model id (default: from Settings)")
+    p.add_argument("--json", action="store_true", help="events as JSON lines")
+    return p
+
+
+def bench_main(argv: list[str]) -> int:
+    from relay_screen.agent import bench
+
+    args = bench_parser().parse_args(argv)
+    emit = emitter(args.json)
+    tasks = bench.load_tasks(args.tasks)
+    if args.only:
+        unknown = sorted(set(args.only) - {t.id for t in tasks})
+        if unknown:
+            emit({"event": "unavailable", "message": f"Unknown task ids: {', '.join(unknown)}"})
+            return 2
+        tasks = [t for t in tasks if t.id in args.only]
+    try:
+        loaded = Loaded(emit, args.model)
+    except RuntimeUnavailable as exc:
+        emit({"event": "unavailable", "message": str(exc)})
+        return 2
+
+    def on_result(result: bench.TaskResult) -> None:
+        emit({"event": "task", **asdict(result)})
+
+    try:
+        hands = _hands()
+        with loaded.supervisor.task(loaded.model_id):
+            results = bench.run_bench(
+                tasks,
+                hands,
+                loaded.model,
+                bench.windows_desktop(hands),
+                coords=loaded.coords,
+                repeat=max(1, args.repeat),
+                on_result=on_result,
+            )
+    finally:
+        loaded.supervisor.stop_all()
+    report = {"model": loaded.model_id, **bench.summary(results)}
+    out = loaded.paths.home / "bench" / time.strftime("%Y%m%d-%H%M%S.json")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    message = (
+        f"{report['passed']}/{report['runs']} passed ({report['rate']:.0%}, "
+        f"target {bench.TARGET:.0%}). Results: {out}"
+    )
+    emit({"event": "summary", "message": message, "file": str(out), **report})
+    return 0 if report["meets_target"] else 1
 
 
 def _hands() -> Any:
@@ -162,6 +241,12 @@ def _human(event: dict[str, Any]) -> str:
         return f"Loading {event['model']}..."
     if kind == "ready":
         return f"{event['model']} ready in {event['seconds']} s"
+    if kind == "task":
+        mark = "pass" if event["passed"] else "FAIL"
+        why = "; ".join(event["failed_checks"]) or event["message"]
+        return f"{mark} {event['id']} ({event['steps']} steps, {event['seconds']} s): {why}"
+    if kind == "summary":
+        return str(event["message"])
     if kind == "bad_reply":
         return f"    (unusable reply: {event['error']})"
     return f"{str(kind).capitalize()}: {event.get('message', '')}"

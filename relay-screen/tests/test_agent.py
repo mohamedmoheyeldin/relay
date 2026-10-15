@@ -40,7 +40,7 @@ class FakeHands:
         return ActionResult(outcome)
 
     def acts(self) -> list[tuple[str, dict[str, Any]]]:
-        return [c for c in self.calls if c[0] != "screenshot"]
+        return [c for c in self.calls if c[0] not in ("screenshot", "uia_tree")]
 
 
 class Script:
@@ -188,6 +188,36 @@ def test_gives_up_after_max_steps() -> None:
 def test_the_model_can_fail_with_a_reason() -> None:
     outcome, _ = run(FakeHands(), Script({"action": "fail", "reason": "sign-in needed"}))
     assert (outcome.status, outcome.message) == ("failed", "sign-in needed")
+
+
+def test_uses_the_element_list_when_ui_automation_can_read_the_window() -> None:
+    tree = (
+        'Elements (ids ...):\n[e1] Window "Untitled - Notepad"\n'
+        '  [e5] Document "Text editor" {value}'
+    )
+    hands = FakeHands({"uia_tree": tree, "uia_set_value": "OK · target changed"})
+    model = Script(
+        {"action": "set_value", "element": "e5", "value": "hello"},
+        {"action": "invoke", "element": "e9"},
+        {"action": "done", "summary": "ok"},
+    )
+    outcome, events = run(hands, model)
+    assert outcome.status == "done"
+    assert hands.acts() == [
+        ("uia_set_value", {"element": "e5", "value": "hello"}),
+        ("uia_invoke", {"element": "e9"}),
+    ]
+    assert '[e5] Document "Text editor"' in model.prompt(0)
+    assert events[0]["action"] == 'set_value e5 = "hello"'
+    with pytest.raises(ReplyError, match="element id"):
+        to_member({"action": "invoke", "element": "Save"}, Frame.from_png(png()), "rel1000")
+
+
+def test_works_without_ui_automation() -> None:
+    hands = FakeHands({"uia_tree": ActionError("UI Automation is not available in this server")})
+    model = Script({"action": "done", "summary": "ok"})
+    outcome, _ = run(hands, model)
+    assert outcome.status == "done" and "Element list" not in model.prompt(0)
 
 
 # --- model choice -----------------------------------------------------------
