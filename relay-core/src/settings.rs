@@ -131,6 +131,9 @@ pub struct Browser {
     pub preferred: String,
     /// Give Claude the relay-browser server (Playwright over the chosen browser).
     pub lane_enabled: bool,
+    /// Drive the browser the owner already has open, through the Playwright
+    /// Extension, instead of a separate Relay profile.
+    pub use_own: bool,
 }
 
 impl Default for Browser {
@@ -138,6 +141,7 @@ impl Default for Browser {
         Self {
             preferred: "auto".into(),
             lane_enabled: true,
+            use_own: true,
         }
     }
 }

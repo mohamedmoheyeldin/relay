@@ -110,7 +110,17 @@ pub async fn ensure_relay_browser(app: &AppHandle) -> anyhow::Result<bool> {
     let have = mcp::user_config(mcp::RELAY_BROWSER).ok();
     let want = match (&lane.browser, browser::npx()) {
         (Some(b), Some(npx)) if lane.enabled => {
-            Some(browser::spec(&npx, std::path::Path::new(&b.path), &settings).config_json(None))
+            let spec = browser::spec(&npx, std::path::Path::new(&b.path), &settings);
+            // The extension's token reaches Playwright through Relay's launcher, from
+            // Credential Manager, and never sits in Claude Code's config.
+            let secrets = settings.browser.use_own
+                && settings
+                    .connections
+                    .secret_names
+                    .get(mcp::RELAY_BROWSER)
+                    .is_some_and(|names| !names.is_empty());
+            let launcher = launcher_path();
+            Some(spec.config_json(secrets.then_some(launcher.as_path())))
         }
         _ => None,
     };

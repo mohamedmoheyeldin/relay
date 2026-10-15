@@ -25,7 +25,7 @@ export interface Settings {
         models_dir: string | null;
     };
     connections: { paused: PausedServer[]; secret_names: Record<string, string[]> };
-    browser: { preferred: string; lane_enabled: boolean };
+    browser: { preferred: string; lane_enabled: boolean; use_own: boolean };
     safety: { approval_mode: string; always_ask: string[]; phone_approvals: boolean; ntfy_topic: string };
     privacy: { runs_dir: string | null; retention_days: number };
     updates: { check_on_start: boolean };
@@ -148,6 +148,11 @@ export interface BrowserState {
     browser: BrowserInfo | null;
     node: boolean;
     profile_dir: string;
+    /** Drives the browser the owner already has open, through the Playwright Extension. */
+    use_own: boolean;
+    extension: boolean;
+    token: boolean;
+    extension_url: string;
     problem: string | null;
     registered: boolean;
 }
@@ -170,6 +175,7 @@ export type ServerSpec =
 export type ChatEvent =
     | { type: "started"; session_id: string; model: string; mcp_servers: string[] }
     | { type: "text"; text: string }
+    | { type: "text_delta"; text: string }
     | { type: "tool_use"; id: string; name: string; input: string }
     | { type: "tool_result"; tool_use_id: string; is_error: boolean; text: string; image: string | null }
     | { type: "done"; is_error: boolean; result: string; cost_usd: number | null; duration_ms: number | null }
@@ -247,7 +253,8 @@ export const api = {
 
     browsers: () => invoke<BrowserInfo[]>("browsers"),
     browserState: () => invoke<BrowserState>("browser_state"),
-    browserOpen: () => invoke<void>("browser_open"),
+    browserOpen: (url?: string) => invoke<void>("browser_open", { url: url ?? null }),
+    browserSetToken: (token: string) => invoke<void>("browser_set_token", { token }),
     playbooks: () => invoke<Playbook[]>("playbooks_list"),
     playbookDelete: (name: string) => invoke<void>("playbook_delete", { name }),
     doctor: () => invoke<{ checks: Check[]; report: string }>("doctor_run"),
