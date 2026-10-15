@@ -29,16 +29,22 @@ STEPS = [
 ]
 
 
-# The Rust core and the Tauri app (relay-core, relay-ui). They run when cargo and pnpm
-# are installed. Off Windows the app is checked for the MinGW target, which needs no
-# Linux GUI libraries (rustup target add x86_64-pc-windows-gnu).
+# The Rust core, the Tauri app and the setup app (relay-core, relay-ui, relay-setup).
+# They run when cargo and pnpm are installed. Off Windows the apps are checked for the
+# MinGW target, which needs no Linux GUI libraries (rustup target add
+# x86_64-pc-windows-gnu). relay-setup's version and state logic is plain Rust, so its
+# tests run on the host.
 APP_STEPS = [
     ["cargo", "fmt", "--all", "--check"],
     ["cargo", "clippy", "-p", "relay-core", "--all-targets", "--", "-D", "warnings"],
     ["cargo", "test", "-p", "relay-core"],
+    ["cargo", "test", "-p", "relay-setup"],
     ["pnpm", "--dir", "relay-ui", "exec", "tsc", "--noEmit"],
 ]
-APP_CLIPPY = ["cargo", "clippy", "-p", "relay-ui", "--", "-D", "warnings"]
+APP_CLIPPY = [
+    ["cargo", "clippy", "-p", "relay-ui", "--", "-D", "warnings"],
+    ["cargo", "clippy", "-p", "relay-setup", "--all-targets", "--", "-D", "warnings"],
+]
 
 
 def app_steps() -> list[list[str]]:
@@ -46,10 +52,12 @@ def app_steps() -> list[list[str]]:
         print("Skipping the app checks: cargo and pnpm are needed.")
         return []
     steps = [list(s) for s in APP_STEPS]
-    clippy = list(APP_CLIPPY)
-    if sys.platform != "win32":
-        clippy[4:4] = ["--target", "x86_64-pc-windows-gnu"]
-    return [*steps, clippy]
+    for clippy in APP_CLIPPY:
+        clippy = list(clippy)
+        if sys.platform != "win32":
+            clippy[4:4] = ["--target", "x86_64-pc-windows-gnu"]
+        steps.append(clippy)
+    return steps
 
 
 def git(*args: str) -> str:

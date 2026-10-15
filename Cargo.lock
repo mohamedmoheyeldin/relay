@@ -3126,6 +3126,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "relay-setup"
+version = "0.1.5"
+dependencies = [
+ "serde",
+ "tauri",
+ "tauri-build",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
 name = "relay-ui"
 version = "0.1.5"
 dependencies = [
