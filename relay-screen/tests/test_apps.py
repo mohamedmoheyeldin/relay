@@ -5,7 +5,17 @@ from collections.abc import Sequence
 import pytest
 
 from relay_screen.actions import Computer
-from relay_screen.apps import App, AppCatalog, Window, launch, merge, new_window, preferred_browser
+from relay_screen.apps import (
+    App,
+    AppCatalog,
+    Window,
+    find_window,
+    launch,
+    merge,
+    new_window,
+    preferred_browser,
+    window_listing,
+)
 from relay_screen.errors import ActionError
 from relay_screen.safety.approval import ActRequest
 from relay_screen.scaling import Rect
@@ -210,3 +220,62 @@ def test_list_apps_through_computer(owner_displays):
     bare = Computer(ScreenState(lambda: owner_displays, lambda ds: None), GradientGrabber(), None)
     with pytest.raises(ActionError, match="not available"):
         bare.run("list_apps", {})
+
+
+# --- open windows (D-078) ---------------------------------------------------
+
+RELAY = r"C:\Program Files\Relay\relay.exe"
+
+
+def desktop() -> list[Window]:
+    return [
+        Window(5, "Relay", Rect(0, 0, 1200, 900), exe=RELAY),
+        Window(6, "Monster Jobs - Brave", Rect(-32000, -32000, 160, 28), exe=BRAVE),
+        Window(7, "notes.txt - Notepad", Rect(100, 100, 800, 600), exe=r"C:\W\notepad.exe"),
+        Window(8, "Dice - Brave", Rect(0, 0, 1600, 900), exe=BRAVE),
+    ]
+
+
+def test_window_listing_marks_relay_front_and_minimized():
+    text = window_listing(desktop(), 5)
+    assert text.splitlines() == [
+        "4 open window(s), topmost first:",
+        '"Relay" · relay.exe · Relay itself, never the target · in front',
+        '"Monster Jobs - Brave" · brave.exe · minimized',
+        '"notes.txt - Notepad" · notepad.exe',
+        '"Dice - Brave" · brave.exe',
+    ]
+    assert (
+        window_listing(desktop(), 5, "brave").splitlines()[0] == "2 open window(s), topmost first:"
+    )
+    assert "No open window matches" in window_listing(desktop(), 5, "excel")
+
+
+def test_find_window_by_title_program_or_app_name_never_relay():
+    windows = desktop()
+    assert find_window(windows, "Dice").handle == 8
+    assert find_window(windows, "brave").handle == 6  # topmost Brave window
+    assert find_window(windows, "Brave Origin", catalog()).handle == 6  # app name → exe
+    assert find_window(windows, "notepad").handle == 7
+    with pytest.raises(ActionError, match="No open window"):
+        find_window(windows, "Relay")
+    with pytest.raises(ActionError, match="launch_app"):
+        find_window(windows, "Calculator", catalog())
+
+
+def test_focus_window_through_computer(owner_displays):
+    fake = FakeApps()
+    fake.open = desktop()
+    fake.fg = 5
+    seen: list[ActRequest] = []
+    c = computer(owner_displays, fake, [lambda r: seen.append(r)])
+    text = c.run("focus_window", {"window": "Monster"}).text or ""
+    assert fake.fg == 6 and text.startswith('"Monster Jobs - Brave" is in front')
+    assert seen[0].summary == 'Bring "Monster Jobs - Brave" to the front'
+    listing = c.run("list_windows", {"query": "brave"}).text or ""
+    assert '"Monster Jobs - Brave" · brave.exe · in front' in listing
+    fake.front_ok = False
+    text = c.run("focus_window", {"window": "Dice"}).text or ""
+    assert "kept it behind" in text
+    with pytest.raises(ActionError, match="No open window"):
+        c.run("focus_window", {"window": "Photoshop"})

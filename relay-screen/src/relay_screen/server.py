@@ -219,7 +219,9 @@ def build_server(services: Services | None = None) -> FastMCP:
             "Relay's hands on this Windows PC. Coordinates are screenshot pixels of the "
             "active display (see list_displays). Prefer UI Automation and OCR tools before "
             "vision. Use batch to run several computer actions in one call. ui_task hands a "
-            "whole UI task to the local operator, which works on this PC on its own."
+            "whole UI task to the local operator, which works on this PC on its own. To "
+            "work in a program that is already open, focus_window it first (list_windows "
+            "shows what is open); never click taskbar buttons or act on Relay's own window."
         ),
     )
     holder: dict[str, Services] = {}
@@ -472,6 +474,26 @@ def build_server(services: Services | None = None) -> FastMCP:
         its title and display.
         """
         return await run("launch_app", {"name": name, "args": args})
+
+    @mcp.tool()
+    async def list_windows(query: str | None = None) -> CallToolResult:
+        """Open windows, topmost first, with their program, which one is in front and
+        which are minimized. query filters by title or program ("brave", "Monster").
+
+        Use this to find where a program already is instead of clicking taskbar buttons
+        or running Get-Process. Relay's own window is marked; never act on it.
+        """
+        return await run("list_windows", {"query": query})
+
+    @mcp.tool()
+    async def focus_window(window: str) -> CallToolResult:
+        """Bring an open window to the front (restoring it if minimized) by its title,
+        a part of it, or the program's name ("Brave", "Notepad", "Monster").
+
+        Do this before screenshotting or clicking in a program that is already open; use
+        launch_app only when no window of it is open. Taskbar clicks toggle minimize.
+        """
+        return await run("focus_window", {"window": window})
 
     # -- local operator (D-067, D-069) ------------------------------------------
 
