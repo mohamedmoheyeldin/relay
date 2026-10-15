@@ -87,10 +87,7 @@ pub async fn check(current: &str) -> Result<UpdateInfo> {
         bail!("GitHub answered {}", resp.status());
     }
     let release: Release = resp.json().await?;
-    let asset = release
-        .assets
-        .iter()
-        .find(|a| a.name.starts_with("Relay-Setup") && a.name.ends_with(".exe"));
+    let asset = release.assets.iter().find(|a| is_setup_asset(&a.name));
     Ok(UpdateInfo {
         current: current.into(),
         available: asset.is_some() && is_newer(&release.tag_name, current),
@@ -103,6 +100,13 @@ pub async fn check(current: &str) -> Result<UpdateInfo> {
             .unwrap_or_default(),
         asset_size: asset.map(|a| a.size).unwrap_or(0),
     })
+}
+
+/// The release asset the owner runs: Relay Setup (`Relay-Setup.exe` or
+/// `Relay-Setup-<ver>.exe`), not the raw NSIS installer kept for silent installs
+/// (`Relay-Setup-nsis-<ver>.exe`).
+fn is_setup_asset(name: &str) -> bool {
+    name.starts_with("Relay-Setup") && name.ends_with(".exe") && !name.contains("-nsis")
 }
 
 /// Download the new installer into Downloads and return its path.
@@ -140,5 +144,13 @@ mod tests {
         assert!(is_newer("v0.2.0", "0.1.0"));
         assert!(!is_newer("v0.1.0", "0.1.0"));
         assert!(!is_newer("garbage", "0.1.0"));
+    }
+
+    #[test]
+    fn the_setup_app_is_picked_over_the_raw_nsis_installer() {
+        assert!(is_setup_asset("Relay-Setup.exe"));
+        assert!(is_setup_asset("Relay-Setup-0.1.6.exe"));
+        assert!(!is_setup_asset("Relay-Setup-nsis-0.1.6.exe"));
+        assert!(!is_setup_asset("Relay-Setup-0.1.6.zip"));
     }
 }

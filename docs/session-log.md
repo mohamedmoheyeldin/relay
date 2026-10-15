@@ -2,6 +2,14 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
+## 2026-10-15 · 0.1.6: Claude-desktop-style look and Relay Setup
+- Owner: the app looked bad; wanted it clean and modern like the Claude desktop app. Restyled relay-ui: warm neutrals with a terracotta accent, Inter for UI and a serif for replies, collapsible sidebar with New chat, centered chat column with a rounded composer and compact activity rows; settings and the wizard follow. No Anthropic assets.
+- Shipped together with Relay Setup (below) as 0.1.6. In-app approvals and auto-allowed lookups are parked on a local branch until the owner answers in their own words.
+
+## 2026-10-15 · Relay Setup: an installer app with Relay's look
+- Owner: the installer should notice an older Relay and update or uninstall it, install fresh otherwise, and look like the app. `dist/Relay-Setup.exe` is now Relay Setup (`relay-setup/`, Tauri 2, static HTML/CSS/JS in the app's warm palette, light and dark). It reads `HKLM` and `HKCU` `...\Uninstall\Relay` (`DisplayVersion`, `InstallLocation`, `UninstallString`, as Tauri's NSIS template writes them) and offers Install, Update (old → new) or Uninstall, Repair or Uninstall, or Uninstall only when a newer Relay is installed.
+- The stock NSIS installer rides inside as the payload: unpacked to %TEMP% and run with `/S` through ShellExecuteExW "runas" (one UAC prompt), waited on. Uninstall re-launches Relay Setup elevated, which runs the uninstaller in place (`/S _?=<dir>`) and removes the folder. A running Relay (and its relay-screen Python) is closed first. The raw installer is kept as `dist/Relay-Setup-nsis-<ver>.exe`, and the app's updater skips it.
+- MinGW builds embed WebView2Loader.dll and load it at run time, so the exe is one file; `build_installer.py` checks the import table. Not run on the owner's PC yet. Design notes were sent to the coordinator for a D-entry.
 ## 2026-10-15 · Removed the outside-product name from the project
 - Owner asked to remove every mention of the hardware operator product that Relay was first compared with. Rewrote README, CLAUDE.md, architecture, decisions, the final-architecture proposal, setup and this log to describe Relay on its own terms; the reasoning behind each decision stays.
 - Replaced the product research file with [research/screen-lane-notes.md](research/screen-lane-notes.md), which keeps only Relay's design takeaways.

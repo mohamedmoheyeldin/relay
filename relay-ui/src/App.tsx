@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { Dialog, Heading } from "react-aria-components";
-import { MessageChatCircle, Settings01 } from "@untitledui/icons";
+import { LayoutLeft, MessageChatCircle, Plus, Settings01 } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
 import { Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { Checkbox } from "@/components/base/checkbox/checkbox";
@@ -12,9 +12,9 @@ import { useClaude } from "@/lib/claude";
 import { SettingsScreen } from "./screens/settings";
 import { Wizard } from "./screens/wizard";
 
-const RelayMark = () => (
-    <svg viewBox="0 0 32 32" className="size-8 shrink-0" aria-hidden>
-        <rect width="32" height="32" rx="8" style={{ fill: "var(--color-bg-brand-solid)" }} />
+const RelayMark = ({ className = "size-8" }: { className?: string }) => (
+    <svg viewBox="0 0 32 32" className={cx("shrink-0", className)} aria-hidden>
+        <rect width="32" height="32" rx="9" style={{ fill: "var(--color-bg-brand-solid)" }} />
         <path d="M9 21V11h6.5a3.5 3.5 0 0 1 0 7H9m6.5 0L21 23" stroke="white" strokeWidth="2.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
 );
@@ -51,6 +51,55 @@ const CloseDialog = ({ open, onClose }: { open: boolean; onClose: () => void }) 
     );
 };
 
+const COLLAPSED_KEY = "relay-sidebar-collapsed";
+const readCollapsed = () => {
+    try {
+        return localStorage.getItem(COLLAPSED_KEY) === "1";
+    } catch {
+        return false;
+    }
+};
+
+/** One quiet row in the sidebar; only its label hides when the sidebar collapses. */
+const NavItem = ({
+    icon: Icon,
+    label,
+    active,
+    collapsed,
+    onClick,
+    accent,
+}: {
+    icon: typeof Plus;
+    label: string;
+    active?: boolean;
+    collapsed: boolean;
+    onClick: () => void;
+    accent?: boolean;
+}) => (
+    <button
+        title={collapsed ? label : undefined}
+        aria-label={label}
+        aria-current={active ? "page" : undefined}
+        onClick={onClick}
+        className={cx(
+            "group flex h-9 w-full cursor-pointer items-center gap-2.5 rounded-lg px-1.5 text-sm transition duration-150 ease-out outline-focus-ring focus-visible:outline-2",
+            active ? "bg-tertiary font-medium text-primary" : "text-secondary hover:bg-tertiary/70 hover:text-primary",
+            accent && "font-medium text-primary",
+        )}
+    >
+        {accent ? (
+            <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-brand-solid text-white transition duration-150 group-hover:scale-105 group-hover:bg-brand-solid_hover">
+                <Icon className="size-4" />
+            </span>
+        ) : (
+            <span className="flex size-6 shrink-0 items-center justify-center">
+                <Icon className={cx("size-[18px] transition", active ? "text-fg-secondary" : "text-fg-tertiary group-hover:text-fg-secondary")} />
+            </span>
+        )}
+        <span className={cx("truncate", collapsed && "sr-only")}>{label}</span>
+    </button>
+);
+
 export default function App() {
     const [settings, setSettings] = useState<Settings | null>(null);
     const [info, setInfo] = useState<AppInfo | null>(null);
@@ -58,6 +107,19 @@ export default function App() {
     const [settingsPage, setSettingsPage] = useState("general");
     const [closeAsk, setCloseAsk] = useState(false);
     const [update, setUpdate] = useState<UpdateInfo | null>(null);
+    const [collapsed, setCollapsed] = useState(readCollapsed);
+    // Bumped by the sidebar's "New chat"; the chat screen then starts a fresh conversation.
+    const [newChat, setNewChat] = useState(0);
+    const toggleSidebar = () => {
+        setCollapsed((c) => {
+            try {
+                localStorage.setItem(COLLAPSED_KEY, c ? "0" : "1");
+            } catch {
+                /* the sidebar still works without saving its state */
+            }
+            return !c;
+        });
+    };
     const { signedIn: ready, refresh: refreshClaude } = useClaude();
 
     useEffect(() => {
@@ -84,50 +146,60 @@ export default function App() {
     if (!settings || !info)
         return (
             <div className="flex h-screen flex-col items-center justify-center gap-4 bg-primary text-sm text-tertiary">
-                <RelayMark />
+                <RelayMark className="size-10 animate-pulse" />
                 Starting Relay…
             </div>
         );
-
-    const nav = [
-        { id: "chat" as const, label: "Chat", icon: MessageChatCircle },
-        { id: "settings" as const, label: "Settings", icon: Settings01 },
-    ];
 
     return (
         <div className="flex h-screen bg-primary">
             <CloseDialog open={closeAsk} onClose={() => setCloseAsk(false)} />
             {view !== "setup" && (
-                <nav className="flex w-16 shrink-0 flex-col gap-1 border-r border-secondary bg-secondary_alt px-3 py-4 xl:w-56">
-                    <div className="mb-6 flex items-center gap-3 px-1">
-                        <RelayMark />
-                        <span className="hidden text-lg font-semibold text-primary xl:block">Relay</span>
-                    </div>
-                    {nav.map((n) => (
+                <nav
+                    aria-label="Relay"
+                    className={cx("flex shrink-0 flex-col bg-secondary px-2 py-3 transition-[width] duration-200 ease-out", collapsed ? "w-[52px]" : "w-60")}
+                >
+                    <div className={cx("mb-4 flex h-9 items-center gap-2", collapsed ? "justify-center" : "justify-between pl-1.5")}>
+                        {!collapsed && (
+                            <div className="flex min-w-0 items-center gap-2 animate-in fade-in duration-200">
+                                <RelayMark className="size-6" />
+                                <span className="text-md font-semibold tracking-tight text-primary">Relay</span>
+                            </div>
+                        )}
                         <button
-                            key={n.id}
-                            title={n.label}
-                            aria-label={n.label}
-                            aria-current={view === n.id ? "page" : undefined}
-                            onClick={() => setView(n.id)}
-                            className={cx(
-                                "group flex h-10 cursor-pointer items-center justify-center gap-3 rounded-lg px-2.5 text-sm font-semibold transition duration-150 ease-out xl:justify-start",
-                                view === n.id ? "bg-primary text-secondary shadow-xs ring-1 ring-secondary" : "text-tertiary hover:bg-primary_hover hover:text-secondary",
-                            )}
+                            onClick={toggleSidebar}
+                            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+                            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+                            className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-fg-tertiary transition outline-focus-ring hover:bg-tertiary/70 hover:text-fg-secondary focus-visible:outline-2"
                         >
-                            <n.icon className={cx("size-5 shrink-0 transition", view === n.id ? "text-fg-brand-primary" : "text-fg-quaternary group-hover:text-fg-quaternary_hover")} />
-                            <span className="hidden xl:block">{n.label}</span>
+                            <LayoutLeft className="size-[18px]" />
                         </button>
-                    ))}
+                    </div>
+                    <div className="flex flex-col gap-0.5">
+                        <NavItem
+                            icon={Plus}
+                            label="New chat"
+                            accent
+                            collapsed={collapsed}
+                            onClick={() => {
+                                setView("chat");
+                                setNewChat((n) => n + 1);
+                            }}
+                        />
+                        <NavItem icon={MessageChatCircle} label="Chat" active={view === "chat"} collapsed={collapsed} onClick={() => setView("chat")} />
+                    </div>
+                    <div className="mt-auto flex flex-col gap-0.5">
+                        <NavItem icon={Settings01} label="Settings" active={view === "settings"} collapsed={collapsed} onClick={() => setView("settings")} />
+                    </div>
                 </nav>
             )}
             <div className="flex min-w-0 flex-1 flex-col">
                 {update && view !== "setup" && (
-                    <div className="flex items-center justify-between gap-3 bg-brand-section_subtle px-6 py-2 text-sm text-white">
+                    <div className="flex items-center justify-center gap-3 border-b border-secondary bg-brand-primary px-6 py-1.5 text-sm text-brand-secondary animate-in fade-in slide-in-from-top-1 duration-300">
                         <span>Relay {update.latest} is available.</span>
                         <Button
                             size="sm"
-                            color="secondary"
+                            color="link-color"
                             onClick={() => {
                                 setSettingsPage("updates");
                                 setView("settings");
@@ -138,7 +210,7 @@ export default function App() {
                         </Button>
                     </div>
                 )}
-                <div key={view} className="min-h-0 flex-1 animate-in fade-in duration-200">
+                <div key={view} className="min-h-0 flex-1 animate-in fade-in duration-300">
                     {view === "setup" && (
                         <Wizard
                             settings={settings}
@@ -153,6 +225,7 @@ export default function App() {
                     {view === "chat" && (
                         <ChatScreen
                             ready={ready}
+                            newChatRequest={newChat}
                             onSetup={() => setView("setup")}
                             onLocalAi={() => {
                                 setSettingsPage("local-ai");

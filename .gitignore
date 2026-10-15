@@ -289,3 +289,4 @@ Desktop.ini
 relay-ui/resources/python/*
 !relay-ui/resources/python/.gitkeep
 !relay-ui/src/lib/
+relay-setup/gen/
