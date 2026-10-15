@@ -1111,3 +1111,34 @@ Decision:
 - WebView2Loader.dll is embedded, so Setup is one file.
 - The raw NSIS installer also ships as `Relay-Setup-nsis-<ver>.exe`. The
   updater ignores it.
+
+## D-078 Relay finds and focuses the program to control
+*2026-10-15 · accepted · owner request · extends D-030, D-069, D-073*
+
+The owner: "the app should know where is the program need to be controlled and
+do whatever needed automatically". In a job-search run Relay screenshotted its
+own chat window, clicked the Brave taskbar button again and again (which
+minimizes and restores it), and Claude ran PowerShell `Get-Process` to look for
+Brave's windows.
+
+- Two Relay-only members, with the same safety layer and audit log:
+  - `list_windows(query?)` (read): open top-level windows, topmost first, with
+    title, program, which one is in front and which are minimized. Relay's own
+    window (binary `relay.exe`) is marked "Relay itself, never the target".
+  - `focus_window(window)` (act): finds a window by title, part of a title,
+    program name or installed-app name (resolved to its exe through the
+    catalog), topmost match first, never Relay's own, and brings it to the
+    front, restoring it if minimized. The approval summary is
+    `Bring "<title>" to the front`.
+- The MCP server instructions and both tool descriptions tell Claude to
+  `focus_window` an open program instead of clicking the taskbar or running
+  `Get-Process`, and to use `launch_app` only when no window of it is open.
+- The local operator:
+  - gets the open-windows list every step and a `focus_window` action;
+  - before its first step, focuses the open window whose program the task
+    names ("in Brave, ..."), so the first screenshot shows the target, not
+    Relay;
+  - has prompt rules: focus an open program rather than relaunching it, never
+    click taskbar buttons to switch programs, never act on Relay's window.
+- Keeping Relay's own window out of the way while a task runs (and the
+  no-popups ask) belongs to the app thread.

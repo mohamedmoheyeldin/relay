@@ -66,6 +66,8 @@ RELAY_MEMBERS: dict[str, Kind] = {
     "find_text": "read",
     "list_apps": "read",
     "launch_app": "act",
+    "list_windows": "read",
+    "focus_window": "act",
 }
 
 MEMBERS: dict[str, Kind] = {**TOOLSET_MEMBERS, **RELAY_MEMBERS}
@@ -99,6 +101,8 @@ _ALLOWED_PARAMS: dict[str, frozenset[str]] = {
     "find_text": frozenset({"text", "region", "fuzzy"}),
     "list_apps": frozenset({"query", "refresh"}),
     "launch_app": frozenset({"name", "args"}),
+    "list_windows": frozenset({"query"}),
+    "focus_window": frozenset({"window"}),
 }
 
 PREVIEW_EDGE = 720  # px, long edge of the screenshot shown in the approval prompt
@@ -251,6 +255,12 @@ class Computer:
             args = _args(params.get("args"))
             shown = " ".join(json.dumps(a, ensure_ascii=False) for a in args)
             return f"Open {app.name}" + (f" with {shown[:300]}" if args else "")
+        if name == "focus_window":
+            catalog = self._apps()
+            window = app_launch.find_window(
+                catalog.backend.windows(), str(params.get("window", "")), catalog
+            )
+            return f"Bring {json.dumps(window.title, ensure_ascii=False)} to the front"
         if name in CLICKS:
             return self._click_summary(name, params)
         if name not in ("uia_invoke", "uia_set_value"):
@@ -560,12 +570,41 @@ class Computer:
             )
         text = f"Opened {app.name} · window {json.dumps(window.title, ensure_ascii=False)}"
         text += " in front" if in_front else " (behind other windows)"
+        return ActionResult(text + self._display_note(window))
+
+    def _display_note(self, window: app_launch.Window) -> str:
         cx = window.rect.left + window.rect.width // 2
         cy = window.rect.top + window.rect.height // 2
         display = display_at(self.state.displays(), cx, cy)
         if display is not None and display.id != self.state.active().id:
-            text += f" on display {display.id}, not the active one (select_display {display.id})"
-        return ActionResult(text)
+            return f" on display {display.id}, not the active one (select_display {display.id})"
+        return ""
+
+    def _do_list_windows(self, query: str | None = None) -> ActionResult:
+        if query is not None and not isinstance(query, str):
+            raise ActionError("query must be text")
+        backend = self._apps().backend
+        return ActionResult(
+            app_launch.window_listing(backend.windows(), backend.foreground(), query)
+        )
+
+    def _do_focus_window(self, window: str) -> ActionResult:
+        """Find an open window by title or program and bring it in front (D-078)."""
+        if not isinstance(window, str) or not window.strip():
+            raise ActionError("window must be a window title or program name from list_windows")
+        catalog = self._apps()
+        backend = catalog.backend
+        target = app_launch.find_window(backend.windows(), window, catalog)
+        in_front = backend.foreground() == target.handle or backend.bring_to_front(target.handle)
+        if in_front:
+            self.sleep(app_launch.WINDOW_SETTLE)  # let it restore and repaint
+        title = json.dumps(target.title, ensure_ascii=False)
+        if not in_front:
+            return ActionResult(
+                f"Found {title} but Windows kept it behind other windows. "
+                "Take a screenshot; click its title bar if it is visible."
+            )
+        return ActionResult(f"{title} is in front" + self._display_note(target))
 
 
 def _args(value: Any) -> list[str]:
