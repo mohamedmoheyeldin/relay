@@ -2,6 +2,10 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
+## 2026-10-15 · The local AI owns UI automation (D-069)
+- Owner: Relay is Violoop in software and should beat it; the local AI's job is UI automation, everything else goes to Claude. Recorded as D-069 and rewrote architecture §1. New relay-screen tool `ui_task` lets Claude hand a whole UI task to the local operator (model kept loaded in the MCP server, unloaded when idle, one task at a time). 3 new tests.
+- App side (via the coordinator): Claude's instructions in the app should tell it to use `ui_task` for UI work.
+
 ## 2026-10-15 · 0.1.4: Claude sign-in fixed, chat falls back to the local AI
 - Sign-in never printed anything: portable-pty's ConPTY (PSEUDOCONSOLE_INHERIT_CURSOR) sends `ESC[6n` and blocks until it gets a cursor report. `pty.rs` now answers `ESC[1;1R` (verified on the owner's PC: `claude --version` printed only `ESC[6n` before, the version after). An expired sign-in now shows "Sign in again" in chat and on the Claude page.
 - Chat fallback (D-067 app side): if Claude isn't installed, or a turn fails to authenticate or reach the network before any tool ran, the same message goes to `python -m relay_screen.server agent --json` (hidden, same env as relay-screen). Steps show under "Local AI (Claude unavailable)"; Stop kills it. Chat input works while Claude is signed out. Settings > Local AI has a "Local operator model" picker (`local_ai.agent`), and the setup wizard starts the suggested download (Qwen3-VL-8B on the owner's GPU) on its own.
