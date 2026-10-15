@@ -30,6 +30,8 @@ SEND_EDGE = 1280  # px, long edge of the screenshot sent to the model
 MAX_BAD_REPLIES = 3
 STUCK_REPEATS = 3  # the same action with no visible change this many times in a row
 MAX_TEXT = 2000
+MAX_UIA_CHARS = 5000  # the focused window's UI Automation list, ~1.5k tokens
+UIA_DEPTH = 8
 
 SYSTEM_PROMPT = """\
 You are Relay, an assistant that operates a Windows PC for its owner. You see a \
@@ -48,11 +50,19 @@ ctrl+l, alt+F4, super
 - {"action": "launch_app", "name": "Notepad", "args": []}  opens an installed app; \
 name "browser" opens the owner's web browser, and a URL in args opens that page
 - {"action": "wait", "seconds": 2}
+- {"action": "invoke", "element": "e12"}  presses a button, menu item, link, checkbox or \
+list item from the element list
+- {"action": "set_value", "element": "e5", "value": "..."}  fills a text field from the \
+element list in one go
 - {"action": "done", "summary": "..."}  the task is finished; say what you did
 - {"action": "fail", "reason": "..."}  you cannot finish; say why
 
 X and Y are positions on the screenshot from 0 to 1000: 0,0 is the top left corner \
 and 1000,1000 the bottom right.
+
+When an element list of the focused window is given, prefer invoke and set_value \
+with its ids over clicking and typing: they are faster and do not miss. Each line is \
+[id] Role "name" ... {what it can do}.
 
 Rules:
 - Click a field before typing into it. Prefer keyboard shortcuts when they are certain.
@@ -122,7 +132,9 @@ def describe(action: Mapping[str, Any]) -> str:
     name = action.get("action", "?")
     if "x" in action and "y" in action:
         return f"{name} at ({action['x']}, {action['y']})"
-    for key in ("text", "keys", "name", "seconds", "summary", "reason"):
+    if "element" in action and "value" in action:
+        return f"{name} {action['element']} = {json.dumps(action['value'])[:60]}"
+    for key in ("element", "text", "keys", "name", "seconds", "summary", "reason"):
         if key in action:
             return f"{name} {json.dumps(action[key])[:80]}"
     return str(name)
@@ -211,6 +223,16 @@ def to_member(action: Mapping[str, Any], frame: Frame, coords: Coords) -> tuple[
         if isinstance(args, str):
             args = [args]
         return "launch_app", {"name": app, "args": [str(a) for a in args]}
+    if name in ("invoke", "set_value"):
+        element = action.get("element") or action.get("id")
+        if not isinstance(element, str) or not re.fullmatch(r"e\d+", element):
+            raise ReplyError(f"{name} needs an element id like e12 from the element list")
+        if name == "invoke":
+            return "uia_invoke", {"element": element}
+        value = action.get("value", action.get("text"))
+        if not isinstance(value, str):
+            raise ReplyError("set_value needs a value")
+        return "uia_set_value", {"element": element, "value": value[:MAX_TEXT]}
     if name == "wait":
         return "wait", {"duration": min(float(action.get("seconds", 1)), 10.0)}
     raise ReplyError(f"unknown action {name!r}")
@@ -241,7 +263,8 @@ class LocalAgent:
         note = ""
         for n in range(1, self.max_steps + 1):
             frame = Frame.from_png(self._screenshot())
-            reply = self.model(self._messages(task, steps, frame, note))
+            elements = self._elements()
+            reply = self.model(self._messages(task, steps, frame, note, elements))
             note = ""
             try:
                 action = parse_reply(reply)
@@ -276,8 +299,18 @@ class LocalAgent:
             raise ActionError("the screenshot came back empty")
         return shot.image
 
+    def _elements(self) -> str:
+        """The focused window's UI Automation elements, or "" when UIA can't read it."""
+        try:
+            listing = self.hands.run("uia_tree", {"depth": UIA_DEPTH}).text or ""
+        except Exception:
+            return ""
+        if len(listing) > MAX_UIA_CHARS:
+            listing = listing[:MAX_UIA_CHARS].rsplit("\n", 1)[0] + "\n… (list cut)"
+        return listing
+
     def _messages(
-        self, task: str, steps: list[Step], frame: Frame, note: str
+        self, task: str, steps: list[Step], frame: Frame, note: str, elements: str = ""
     ) -> list[dict[str, Any]]:
         lines = [f"Task: {task}"]
         if steps:
@@ -285,6 +318,9 @@ class LocalAgent:
             lines.extend(s.line() for s in steps[-HISTORY:])
         if note:
             lines.append(note)
+        if elements.startswith("Elements"):
+            lines.append("Element list of the focused window:")
+            lines.append(elements)
         lines.append("Here is the screen now. What is the next action?")
         return [
             {"role": "system", "content": SYSTEM_PROMPT},

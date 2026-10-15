@@ -2,6 +2,10 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
+## 2026-10-15 · Local operator: UIA tools and a 95% benchmark (D-068)
+- Owner: the local AI should fully automate the UI with other tools too, at 95% or better. The local operator now gets the window's UI Automation element list each step and can `invoke`/`set_value` by element id. `relay-screen agent-bench` runs 9 fixed desktop and browser tasks with the local model only and checks each from outside the agent (window title, UIA text, file contents); results go to `%LOCALAPPDATA%\Relay\bench`. Recorded as D-068: 95% is a measured target, folded into M1-11.
+- Not run yet: it opens windows, so it waits for the owner to ask. 7 new tests.
+
 ## 2026-10-15 · Local operator: UI tasks without Claude (D-067)
 - Owner: UI automation must work with the local AI alone; nothing worked while their Claude login was expired. Added `relay_screen/agent/`, a screenshot → local VLM → one JSON action loop that runs through the same `Computer` (kill switch, approvals, audit log), and `relay-screen agent "task" [--json]` for the app. Model from `local_ai.agent`/`describe`/`grounding`, else Qwen3-VL-8B-Instruct. 14 new tests with a scripted model and fake hands.
 - Not run on the owner's PC yet (needs Qwen3-VL-8B downloaded). App side, sent via the coordinator to the app thread: route chat to `relay-screen agent --json` when Claude is unavailable.
