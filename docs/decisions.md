@@ -1053,3 +1053,30 @@ Decision:
 
   The prompt orders the ways to act: element ids first, then click_text,
   then position.
+
+## D-074 The browser lane drives the owner's open browser through the Playwright Extension
+*2026-10-15 · accepted · app thread (Relay 0.1.5, #77) · amends D-060*
+
+- By default (`browser.use_own`), relay-browser drives the browser the owner
+  already has open, not a separate Relay profile. It runs Playwright MCP with
+  `--extension --executable-path <browser>` and no user-data-dir, and the
+  owner installs the Playwright Extension (mmlmfjhmonkocbjadbfplnigmagldckm)
+  from the Chrome Web Store.
+- Why: Chromium blocks remote debugging of the everyday profile, and the
+  extension bridges it. The owner keeps their sign-ins and their Brave Origin
+  purchase. Claude works in its own tab group.
+- The extension's token is stored in Windows Credential Manager as
+  relay-browser's `PLAYWRIGHT_MCP_EXTENSION_TOKEN`, and Relay's launcher
+  passes it to Playwright (D-047). With the token, the extension connects
+  without showing its tab picker.
+- Relay's own profile (D-060) remains the option when `use_own` is off.
+
+## D-075 Chat streams Claude's reply as it is written
+*2026-10-15 · accepted · app thread (Relay 0.1.5, #77)*
+
+`claude -p` runs with `--include-partial-messages`, and the chat shows the
+text as it streams.
+
+Not changed: connector lookups (search_, get_ and list_ tools) still go
+through the approval prompt. Skipping them would loosen the gate, so it waits
+for the owner's word, like the "risky" default in D-073.
