@@ -236,3 +236,43 @@ def test_audit_log_records_every_action(owner_displays, tmp_path):
     assert (audit.directory / lines[1]["after"]).exists()
     assert "denied" in lines[2]["error"]
     assert all("duration_ms" in line and "time" in line for line in lines)
+
+
+def _run_prompter(monkeypatch, stdout="", stderr="", returncode=0, raises=None):
+    import subprocess
+    import types
+
+    from relay_screen import win32
+    from relay_screen.safety.approval import PromptRequest, SubprocessPrompter
+
+    fake_user32 = types.SimpleNamespace(GetForegroundWindow=lambda: 0)
+    monkeypatch.setattr(win32, "user32", lambda: fake_user32)
+
+    def run(*args, **kwargs):
+        if raises:
+            raise raises
+        return subprocess.CompletedProcess(args, returncode, stdout, stderr)
+
+    monkeypatch.setattr(subprocess, "run", run)
+    return SubprocessPrompter().ask(PromptRequest(title="t", detail="d"))
+
+
+def test_prompter_returns_the_owners_answer(monkeypatch):
+    assert _run_prompter(monkeypatch, stdout='{"decision": "approve"}') == "approve"
+    assert _run_prompter(monkeypatch, stdout='{"decision": "deny"}') == "deny"
+
+
+def test_prompter_failure_is_not_a_denial(monkeypatch):
+    import subprocess
+
+    from relay_screen.safety.approval import PromptUnavailableError
+
+    crash = "Traceback...\nModuleNotFoundError: No module named 'tkinter'\n"
+    with pytest.raises(PromptUnavailableError, match="tkinter"):
+        _run_prompter(monkeypatch, stderr=crash, returncode=1)
+    with pytest.raises(PromptUnavailableError, match="OSError: boom"):
+        _run_prompter(monkeypatch, stdout='{"decision": "error", "error": "OSError: boom"}')
+    with pytest.raises(PromptUnavailableError, match="could not start"):
+        _run_prompter(monkeypatch, raises=OSError("no python"))
+    timeout = subprocess.TimeoutExpired("python", 1)
+    assert _run_prompter(monkeypatch, raises=timeout) == "timeout"
