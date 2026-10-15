@@ -807,3 +807,33 @@ Windows binaries. With no tag given, relay-screen now reads
 `/releases?per_page=30` and takes the newest release that has a Windows CUDA
 build the driver supports. On the owner's PC that installs b11624 with
 CUDA 13.4.
+
+## D-060 Browser lane for now: a pinned Playwright MCP on Relay's own profile
+*2026-10-15 · accepted · app thread, PR #52 · defers D-035's extension*
+
+The browser lane is a `relay-browser` MCP server: `@playwright/mcp@0.0.83`,
+pinned, started with `--executable-path` set to the Chromium browser chosen
+in Settings > Browser (on auto, Brave Origin). It uses Relay's own profile in
+`%LOCALAPPDATA%\Relay\browser-profile`, because Chromium refuses automation
+on the everyday profile. The owner signs in to sites in that profile once.
+This replaces D-035's extension step for now. The extension can come back
+later if the owner wants Relay to use their everyday logged-in profile.
+
+## D-061 Read-only browser tools run without a prompt
+*2026-10-15 · accepted · app thread, PR #52 · refines D-025*
+
+relay-screen's `approve` tool lets the browser lane's tools that only look
+(snapshot, screenshot, console, network, wait) run without asking. Every
+other browser tool still goes through the approval prompt, the same as
+relay-screen's act tools. `approve` returns one plain text block with no
+`structuredContent`: Claude Code rejected the structured form with
+"Permission prompt tool returned an invalid result".
+
+## D-062 In-app Claude sign-in through the official CLI, out of sight
+*2026-10-15 · accepted · app thread, PR #52 · refines D-045*
+
+Sign-in runs `claude auth login --claudeai` (or `--console`) in a hidden
+pseudo-terminal. The app shows the link from its output, takes the code the
+owner pastes back, and polls `claude auth status` until it reports signed
+in. The token stays inside Claude Code; Relay only reads the signed-in flag
+(D-002).
