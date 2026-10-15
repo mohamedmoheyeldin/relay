@@ -284,20 +284,66 @@ pub fn uninstall_in_place(uninstaller: &str, dir: &str) -> u32 {
     code
 }
 
-/// Windows 11 draws a light 1 px frame around a borderless window that has a shadow.
-/// Turn it off so the window edge is the page's own (Windows 10 has no such frame and
-/// ignores the call).
+/// Make the whole window the page. Tao keeps a non-client frame around an undecorated
+/// window with a shadow (left, right and bottom, about 5 px) so it can be resized.
+/// Relay Setup isn't resizable, so Windows paints that frame as a plain white border.
+/// A subclass answers `WM_NCCALCSIZE` itself so there is no frame at all, and the
+/// Windows 11 1 px DWM outline is turned off too (Windows 10 ignores that call).
 pub fn hide_border(hwnd: isize) {
+    use windows_sys::Win32::Foundation::HWND;
     use windows_sys::Win32::Graphics::Dwm::{
         DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_COLOR_NONE,
     };
+    use windows_sys::Win32::UI::Shell::SetWindowSubclass;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        SetWindowPos, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+    };
+    let hwnd = hwnd as HWND;
     let none: u32 = DWMWA_COLOR_NONE;
     unsafe {
+        SetWindowSubclass(hwnd, Some(no_frame_proc), 1, 0);
+        // Ask Windows to recompute the frame now that the subclass answers for it.
+        SetWindowPos(
+            hwnd,
+            std::ptr::null_mut(),
+            0,
+            0,
+            0,
+            0,
+            SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+        );
         DwmSetWindowAttribute(
-            hwnd as windows_sys::Win32::Foundation::HWND,
+            hwnd,
             DWMWA_BORDER_COLOR as u32,
             (&none as *const u32).cast(),
             std::mem::size_of::<u32>() as u32,
         );
+    }
+}
+
+unsafe extern "system" fn no_frame_proc(
+    hwnd: windows_sys::Win32::Foundation::HWND,
+    msg: u32,
+    wparam: windows_sys::Win32::Foundation::WPARAM,
+    lparam: windows_sys::Win32::Foundation::LPARAM,
+    _id: usize,
+    _data: usize,
+) -> windows_sys::Win32::Foundation::LRESULT {
+    use windows_sys::Win32::UI::Shell::DefSubclassProc;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{HTCLIENT, WM_NCCALCSIZE, WM_NCHITTEST};
+    match msg {
+        // Returning 0 with the proposed rect untouched makes the client area the whole
+        // window: no frame for Windows to paint.
+        WM_NCCALCSIZE if wparam != 0 => 0,
+        // Nothing outside the page to grab or resize.
+        WM_NCHITTEST => {
+            let hit = DefSubclassProc(hwnd, msg, wparam, lparam);
+            if (10..=17).contains(&(hit as u32)) {
+                HTCLIENT as _
+            } else {
+                hit
+            }
+        }
+        _ => DefSubclassProc(hwnd, msg, wparam, lparam),
     }
 }

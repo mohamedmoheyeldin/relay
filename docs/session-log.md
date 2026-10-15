@@ -2,6 +2,9 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
+## 2026-10-15 · 0.1.8: Relay Setup has no white border
+- Owner on 0.1.7: the installer still had white borders. The screenshot shows 5 px of white on the left, right and bottom, none on top: tao keeps a resize frame around an undecorated window with a shadow, and Windows paints it white when the window isn't resizable. `win::hide_border` now subclasses the window so `WM_NCCALCSIZE` leaves no frame, and turns the frame's resize hit-tests into client hits.
+
 ## 2026-10-15 · 0.1.7: no popups, plain-words steps, Relay steps aside
 - Owner (own words, after 0.1.6): no popups, the app should just do what's needed; better messages in chat; white frame around the installer. They said yes to the plan in the thread.
 - Approvals: the default is now "risky" (old settings files with the old "ask" default switch once, `safety.defaults_version`). Claude Code tool calls also follow it: lookups and ordinary tools run; tool names that send, pay, delete, and shell commands that delete, wipe, shut down or push still ask. Questions go to an in-app card (relay-screen `AppPrompter` → the app's localhost listener, token in `approval.json`); injected input to Relay's window is dropped so automation can't answer. The native prompt is only a fallback when the app isn't running. After an answer, focus goes back to the window Relay was working in.
