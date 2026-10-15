@@ -96,6 +96,7 @@ items 2-4 can run in parallel after 1.
 - Compare UI-Venus-1.5-8B, Holo2-8B, Holo2-4B, Qwen3-VL-8B at Q4_K_M and Q8_0: accuracy, latency, VRAM peak, swap time.
 - Also measure both models resident together at Q4/Q5 (D-036).
 - Update D-005/D-036 with the result and set defaults in config.
+- Run `relay-screen agent-bench` per model: the local operator's task success rate against the owner's 95% target (D-068).
 
 **Acceptance:** results table committed under `docs/research/`; D-005 marked accepted with the chosen default(s).
 
