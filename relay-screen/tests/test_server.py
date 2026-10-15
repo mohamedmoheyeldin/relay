@@ -308,3 +308,20 @@ async def test_ui_task_says_when_no_local_model_can_run(owner_displays):
     s.operator = FakeOperator(error=RuntimeUnavailable("No local model is downloaded."))
     result = await call(build_server(s), "ui_task", {"task": "x"})
     assert result.isError and "local operator is unavailable" in text(result)
+
+
+async def test_risky_mode_lets_harmless_browser_calls_through(owner_displays):
+    s, _, prompter = safe_services(owner_displays, "approve")
+    assert s.gate is not None
+    s.gate.mode = "risky"
+    server = build_server(s)
+
+    async def ask(tool: str, params: dict) -> str:
+        args = {"tool_name": f"mcp__relay-browser__{tool}", "input": params}
+        return json.loads(text(await call(server, "approve", args)))["behavior"]
+
+    assert await ask("browser_click", {"element": "Search box", "ref": "e3"}) == "allow"
+    assert await ask("browser_type", {"element": "Search", "text": "turing"}) == "allow"
+    assert prompter.titles == []
+    assert await ask("browser_click", {"element": "Send button", "ref": "e9"}) == "allow"
+    assert prompter.titles == ["Claude wants to use mcp__relay-browser__browser_click"]

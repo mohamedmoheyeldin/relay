@@ -33,6 +33,9 @@ def enable_screen_reader_flag() -> None:
     atexit.register(user32.SystemParametersInfoW, SPI_SETSCREENREADER, 0, None, SPIF_SENDCHANGE)
 
 
+PRESSABLE_DEPTH = 4  # ancestors to look through for the button a click lands on
+
+
 class WinElement:
     def __init__(self, control: Any, auto: Any) -> None:
         self._c = control
@@ -123,6 +126,21 @@ class WinUiaBackend:
 
     def run(self, work: Callable[[], object]) -> object:
         return self._executor.submit(work).result()
+
+    def element_at(self, x: int, y: int) -> WinElement | None:
+        control = self._auto.ControlFromPoint(x, y)
+        if control is None:
+            return None
+        found = WinElement(control, self._auto)
+        current = control
+        for _ in range(PRESSABLE_DEPTH):
+            element = WinElement(current, self._auto)
+            if element.patterns() & {"invoke", "toggle", "select", "expand"}:
+                return element
+            current = current.GetParentControl()
+            if current is None:
+                break
+        return found
 
     def windows(self, title: str | None) -> list[WinElement]:
         auto = self._auto

@@ -48,6 +48,10 @@ class Backend:
     def __init__(self, windows: dict[str, list[El]]) -> None:
         self.by_title = windows
         self.calls = 0
+        self.at: El | None = None
+
+    def element_at(self, x: int, y: int) -> El | None:
+        return self.at
 
     def windows(self, title: str | None) -> Sequence[El]:
         if title is None:
@@ -246,3 +250,28 @@ def test_set_value_is_an_act(owner_displays):
         computer.run("uia_set_value", {"element": "e5", "value": "new text"})
     assert prompter.requests[0].detail == 'Set Document "Text editor" to "new text"'
     assert uia.element("e5").value() == "hello"
+
+
+def test_risky_mode_asks_only_before_irreversible_clicks(owner_displays):
+    window, _, _ = notepad()
+    backend_uia = Backend({"foreground": [window]})
+    send = El("Button", "Send", rect=Rect(100, 100, 80, 30), pats=frozenset({"invoke"}))
+    prompter = Answers("approve")
+    backend = RecordingBackend()
+    computer = Computer(
+        ScreenState(lambda: owner_displays, lambda ds: None),
+        GradientGrabber(),
+        InputDriver(backend),
+        report_changes=False,
+        before_act=[ApprovalGate(prompter, mode="risky").check],
+        sleep=lambda s: None,
+        uia=UiaService(backend_uia),
+    )
+    computer.run("left_click", {"coordinate": [300, 300]})  # UIA sees nothing there
+    backend_uia.at = window.children()[0]
+    computer.run("left_click", {"coordinate": [300, 300]})
+    computer.run("type", {"text": "please send this"})
+    assert prompter.requests == []
+    backend_uia.at = send
+    computer.run("left_click", {"coordinate": [120, 110]})
+    assert [r.detail for r in prompter.requests] == ['Left click at (120, 110) on Button "Send"']
