@@ -14,7 +14,7 @@ import { cx } from "@/utils/cx";
 
 type Item =
     | { kind: "user"; text: string }
-    | { kind: "assistant"; text: string }
+    | { kind: "assistant"; text: string; streaming?: boolean }
     | { kind: "tool"; id: string; name: string; input: string; result?: { ok: boolean; text: string; image: string | null } }
     | { kind: "done"; ok: boolean; text: string; seconds: number | null }
     | { kind: "error"; text: string }
@@ -96,8 +96,18 @@ export const ChatScreen = ({ ready, onSetup, onLocalAi }: { ready: boolean; onSe
             if (!e) return;
             setItems((prev) => {
                 switch (e.type) {
-                    case "text":
-                        return e.text.trim() ? [...prev, { kind: "assistant", text: e.text }] : prev;
+                    case "text_delta": {
+                        const last = prev[prev.length - 1];
+                        if (last?.kind === "assistant" && last.streaming)
+                            return [...prev.slice(0, -1), { ...last, text: last.text + e.text }];
+                        return [...prev, { kind: "assistant", text: e.text, streaming: true }];
+                    }
+                    case "text": {
+                        // The finished text replaces what streamed in.
+                        const last = prev[prev.length - 1];
+                        const rest = last?.kind === "assistant" && last.streaming ? prev.slice(0, -1) : prev;
+                        return e.text.trim() ? [...rest, { kind: "assistant", text: e.text }] : rest;
+                    }
                     case "tool_use":
                         return [...prev, { kind: "tool", id: e.id, name: e.name, input: e.input }];
                     case "tool_result":
