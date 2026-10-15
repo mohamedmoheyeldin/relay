@@ -7,6 +7,7 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 
 def default_home() -> Path:
@@ -40,6 +41,17 @@ def models_folder_setting(path: Path | None) -> Path | None:
     except (OSError, ValueError, AttributeError):
         return None
     return Path(folder) if isinstance(folder, str) and folder else None
+
+
+def local_ai_settings(path: Path | None) -> dict[str, Any]:
+    """The `local_ai` section of settings.json (D-048), or {} if it is missing or unreadable."""
+    if path is None or not path.is_file():
+        return {}
+    try:
+        section = json.loads(path.read_text(encoding="utf-8")).get("local_ai")
+    except (OSError, ValueError, AttributeError):
+        return {}
+    return section if isinstance(section, dict) else {}
 
 
 @dataclass(frozen=True)
