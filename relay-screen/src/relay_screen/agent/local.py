@@ -32,6 +32,9 @@ STUCK_REPEATS = 3  # the same action with no visible change this many times in a
 MAX_TEXT = 2000
 MAX_UIA_CHARS = 5000  # the focused window's UI Automation list, ~1.5k tokens
 UIA_DEPTH = 8
+FEW_ELEMENTS = 6  # with fewer element lines than this, read the screen's text with OCR
+MAX_OCR_LINES = 40
+MAX_APPS_CHARS = 2500
 
 SYSTEM_PROMPT = """\
 You are Relay, an assistant that operates a Windows PC for its owner. You see a \
@@ -54,6 +57,9 @@ name "browser" opens the owner's web browser, and a URL in args opens that page
 list item from the element list
 - {"action": "set_value", "element": "e5", "value": "..."}  fills a text field from the \
 element list in one go
+- {"action": "click_text", "text": "Save"}  clicks text that is visible on the screen \
+(a button, link, tab or menu item), found by Windows OCR. Use it when the element list \
+does not have what you need
 - {"action": "done", "summary": "..."}  the task is finished; say what you did
 - {"action": "fail", "reason": "..."}  you cannot finish; say why
 
@@ -62,7 +68,10 @@ and 1000,1000 the bottom right.
 
 When an element list of the focused window is given, prefer invoke and set_value \
 with its ids over clicking and typing: they are faster and do not miss. Each line is \
-[id] Role "name" ... {what it can do}.
+[id] Role "name" ... {what it can do}. Next best is click_text with words you can \
+read on the screen. Click by position only when neither works.
+
+The installed apps are listed; open them by those names with launch_app.
 
 Rules:
 - Click a field before typing into it. Prefer keyboard shortcuts when they are certain.
@@ -233,12 +242,30 @@ def to_member(action: Mapping[str, Any], frame: Frame, coords: Coords) -> tuple[
         if not isinstance(value, str):
             raise ReplyError("set_value needs a value")
         return "uia_set_value", {"element": element, "value": value[:MAX_TEXT]}
+    if name == "click_text":
+        text = action.get("text")
+        if not isinstance(text, str) or not text.strip():
+            raise ReplyError("click_text needs the text to click")
+        return "click_text", {"text": text.strip()[:200]}
     if name == "wait":
         return "wait", {"duration": min(float(action.get("seconds", 1)), 10.0)}
     raise ReplyError(f"unknown action {name!r}")
 
 
 Event = Callable[[dict[str, Any]], None]
+
+
+@dataclass(frozen=True)
+class Context:
+    """What the model gets besides the screenshot: UIA elements, OCR text, apps."""
+
+    elements: str = ""
+    screen_text: str = ""
+    apps: str = ""
+
+
+def _few(elements: str) -> bool:
+    return not elements.startswith("Elements") or elements.count("\n") < FEW_ELEMENTS
 
 
 class LocalAgent:
@@ -261,10 +288,13 @@ class LocalAgent:
         steps: list[Step] = []
         bad_replies = 0
         note = ""
+        apps = self._apps()
         for n in range(1, self.max_steps + 1):
             frame = Frame.from_png(self._screenshot())
             elements = self._elements()
-            reply = self.model(self._messages(task, steps, frame, note, elements))
+            screen_text = self._screen_text() if _few(elements) else ""
+            context = Context(elements, screen_text, apps)
+            reply = self.model(self._messages(task, steps, frame, note, context))
             note = ""
             try:
                 action = parse_reply(reply)
@@ -309,18 +339,48 @@ class LocalAgent:
             listing = listing[:MAX_UIA_CHARS].rsplit("\n", 1)[0] + "\n… (list cut)"
         return listing
 
+    def _screen_text(self) -> str:
+        """Lines of text on the screen (Windows OCR), for windows UIA can't read."""
+        try:
+            found = self.hands.run("find_text", {}).text or ""
+        except Exception:
+            return ""
+        lines = [m.group(1) for m in re.finditer(r'^"(.*)" center', found, re.MULTILINE)]
+        return "\n".join(lines[:MAX_OCR_LINES])
+
+    def _apps(self) -> str:
+        """Names of the installed apps, once per run."""
+        try:
+            listing = self.hands.run("list_apps", {}).text or ""
+        except Exception:
+            return ""
+        names = listing.splitlines()[1:]
+        text = ", ".join(n for n in names if not n.startswith("..."))
+        return text[:MAX_APPS_CHARS]
+
     def _messages(
-        self, task: str, steps: list[Step], frame: Frame, note: str, elements: str = ""
+        self,
+        task: str,
+        steps: list[Step],
+        frame: Frame,
+        note: str,
+        context: Context | None = None,
     ) -> list[dict[str, Any]]:
+        context = context or Context()
         lines = [f"Task: {task}"]
+        if context.apps:
+            lines.append(f"Installed apps: {context.apps}")
         if steps:
             lines.append("What you did so far:")
             lines.extend(s.line() for s in steps[-HISTORY:])
         if note:
             lines.append(note)
-        if elements.startswith("Elements"):
+        if context.elements.startswith("Elements"):
             lines.append("Element list of the focused window:")
-            lines.append(elements)
+            lines.append(context.elements)
+        if context.screen_text:
+            lines.append("Text on the screen (OCR), usable with click_text:")
+            lines.append(context.screen_text)
         lines.append("Here is the screen now. What is the next action?")
         return [
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -335,7 +395,10 @@ class LocalAgent:
 
     def _act(self, n: int, thought: str, action: dict[str, Any], member: str, params: dict) -> Step:
         try:
-            result = self.hands.run(member, params)
+            if member == "click_text":
+                result = self._click_text(str(params["text"]))
+            else:
+                result = self.hands.run(member, params)
             text, error = result.text or "done", result.is_error
         except (KillSwitchError, ApprovalDeniedError, PromptUnavailableError) as exc:
             text, error = f"STOP: {exc}", True
@@ -352,6 +415,14 @@ class LocalAgent:
             }
         )
         return step
+
+    def _click_text(self, text: str) -> ActionResult:
+        found = self.hands.run("find_text", {"text": text}).text or ""
+        match = re.search(r"center \((\d+), (\d+)\)", found)
+        if match is None:
+            raise ActionError(f"no text like {text!r} on the screen")
+        point = [int(match.group(1)), int(match.group(2))]
+        return self.hands.run("left_click", {"coordinate": point})
 
     @staticmethod
     def _stuck(steps: list[Step]) -> bool:

@@ -1,6 +1,8 @@
-"""Approval gate (D-011, D-019, D-024).
+"""Approval gate (D-011, D-019, D-024, D-073).
 
-In M1 every act needs the owner's approval. Relay asks with its own prompt window,
+Mode "risky" asks only before acts that look irreversible: pressing or
+clicking a control named like send, submit, pay, buy, delete and so on. Mode "ask"
+asks before every act, and "off" never asks. Relay asks with its own prompt window,
 which ignores synthetic input, so Claude can never approve its own actions. In a
 batch the gate asks before each action; the owner may approve the rest of the batch
 in one go.
@@ -10,6 +12,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import subprocess
 import sys
 import threading
@@ -20,7 +23,16 @@ from typing import Any, Literal, Protocol
 from relay_screen.errors import ActionError
 
 Decision = Literal["approve", "approve_batch", "deny", "timeout"]
-Mode = Literal["ask", "off"]
+Mode = Literal["risky", "ask", "off"]
+
+CLICKS = frozenset({"left_click", "right_click", "middle_click", "double_click", "triple_click"})
+# Words on a control that mean the click can't be taken back (D-073).
+RISKY = re.compile(
+    r"\b(send|submit|pay|payment|buy|purchase|order|checkout|check out|delete|remove|"
+    r"erase|uninstall|format|transfer|confirm|publish|post|reply|discard|empty|reset|"
+    r"book|reserve|subscribe|unsubscribe|donate|place|sign|agree|accept|install)\b",
+    re.IGNORECASE,
+)
 
 PROMPT_TIMEOUT = 120.0  # s before an unanswered prompt counts as denied
 TEXT_LIMIT = 300
@@ -92,6 +104,20 @@ def _with(params: Mapping[str, Any]) -> str:
     return f" holding {text}" if text else ""
 
 
+def is_risky(act: ActRequest) -> bool:
+    """Whether an act presses a control whose name says it can't be undone (D-073).
+
+    Clicks are judged by the UI Automation name of the control under the pointer
+    (Computer puts it in the summary); a click where UIA sees nothing is not asked.
+    """
+    if act.name not in CLICKS and act.name != "uia_invoke":
+        return False
+    if not act.summary:
+        return False
+    target = act.summary.split(" on ", 1)[-1] if act.name in CLICKS else act.summary
+    return RISKY.search(target) is not None
+
+
 def describe(name: str, params: Mapping[str, Any]) -> str:
     """One line in plain words, coordinates in screenshot pixels."""
     match name:
@@ -136,6 +162,8 @@ class ApprovalGate:
         """Ask before an act. Returns how it was approved; raises if it was not."""
         if self.mode == "off":
             return "not asked (approval off)"
+        if self.mode == "risky" and not is_risky(act):
+            return "not asked (not risky)"
         in_batch = act.total is not None and act.total > 1
         if act.step in (None, 1):
             self._batch_approved = False
