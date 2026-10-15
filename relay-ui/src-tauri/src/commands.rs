@@ -77,6 +77,16 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
 
 // ---------------------------------------------------------------- app and settings
 
+/// Tells Claude when relay-browser can't open pages, so it says so instead of waiting.
+fn browser_note(s: &Settings) -> Option<String> {
+    let lane = browser::state(s);
+    let problem = lane.problem.filter(|_| lane.enabled)?;
+    Some(format!(
+        "The relay-browser tools can't open pages right now: {problem} If the task needs \
+         the browser, tell the owner this instead of trying them."
+    ))
+}
+
 #[derive(Serialize)]
 struct AppInfo {
     version: String,
@@ -637,6 +647,7 @@ async fn chat_send(app: AppHandle, prompt: String) -> Res<()> {
         resume: st.session.lock().expect("session lock").clone(),
         model: s.claude.model.clone(),
         effort: s.claude.effort.clone(),
+        note: browser_note(&s),
     };
     let events_app = app.clone();
     let (handle, task) = chat::start(&prompt, &opts, move |event| {
