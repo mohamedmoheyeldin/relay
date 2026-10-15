@@ -76,10 +76,10 @@ pub fn relay_screen_spec(python: &Path, settings: &Settings) -> ServerSpec {
     let mut env = BTreeMap::new();
     env.insert(
         "RELAY_APPROVAL".to_string(),
-        if settings.safety.approval_mode == "off" {
-            "off"
-        } else {
-            "ask"
+        match settings.safety.approval_mode.as_str() {
+            "off" => "off",
+            "ask" => "ask",
+            _ => "risky",
         }
         .to_string(),
     );
@@ -132,5 +132,10 @@ mod tests {
             }
             _ => panic!("expected stdio"),
         }
+        let default = relay_screen_spec(Path::new("p"), &Settings::default());
+        let ServerSpec::Stdio { env, .. } = default else {
+            panic!("expected stdio")
+        };
+        assert_eq!(env["RELAY_APPROVAL"], "risky");
     }
 }

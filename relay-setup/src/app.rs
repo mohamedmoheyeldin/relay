@@ -249,6 +249,9 @@ pub fn run() {
             // The page shows the window once it has painted in the right theme; this
             // is the fallback if it never does.
             if let Some(window) = app.get_webview_window("main") {
+                if let Ok(hwnd) = window.hwnd() {
+                    win::hide_border(hwnd.0 as isize);
+                }
                 std::thread::spawn(move || {
                     std::thread::sleep(std::time::Duration::from_millis(1500));
                     let _ = window.show();

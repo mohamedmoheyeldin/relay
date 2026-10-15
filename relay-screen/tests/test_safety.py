@@ -8,6 +8,7 @@ from relay_screen.input.driver import InputDriver
 from relay_screen.input.events import KeyEvent, MouseButton, MouseMove
 from relay_screen.safety.approval import (
     ActRequest,
+    AppPrompter,
     ApprovalDeniedError,
     ApprovalGate,
     Decision,
@@ -304,3 +305,59 @@ def test_risky_mode_asks_for_risky_acts_only():
         "approved"
     )
     assert [r.detail for r in prompter.requests] == ['Activate Button "Pay now"']
+
+
+class _Fallback:
+    def __init__(self) -> None:
+        self.asked = 0
+
+    def ask(self, request: PromptRequest) -> Decision:
+        self.asked += 1
+        return "deny"
+
+
+def _app(answer: dict, seen: list) -> tuple:
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            body = self.rfile.read(int(self.headers["Content-Length"]))
+            seen.append((self.path, self.headers["Authorization"], json.loads(body)))
+            data = json.dumps(answer).encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, *args: object) -> None:
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server, {"port": server.server_address[1], "token": "t0k"}
+
+
+def test_app_prompter_asks_in_the_relay_app() -> None:
+    seen: list = []
+    server, info = _app({"decision": "approve_batch"}, seen)
+    fallback = _Fallback()
+    try:
+        prompter = AppPrompter(fallback=fallback, address=lambda: info)
+        request = PromptRequest(title="Relay wants to act", detail="Click", image=b"png")
+        assert prompter.ask(request) == "approve_batch"
+    finally:
+        server.shutdown()
+    path, auth, body = seen[0]
+    assert path == "/ask" and auth == "Bearer t0k"
+    assert body["detail"] == "Click" and body["image"] == "cG5n"
+    assert fallback.asked == 0
+
+
+def test_app_prompter_falls_back_when_the_app_is_not_running() -> None:
+    fallback = _Fallback()
+    assert (
+        AppPrompter(fallback=fallback, address=lambda: None).ask(PromptRequest("t", "d")) == "deny"
+    )
+    closed = AppPrompter(fallback=fallback, address=lambda: {"port": 1, "token": "x"})
+    assert closed.ask(PromptRequest("t", "d", timeout=1)) == "deny"
+    assert fallback.asked == 2

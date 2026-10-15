@@ -4,9 +4,11 @@
 //! (installs, downloads) report progress as `job` events; chat turns stream as `chat`
 //! events; the sign-in terminal streams as `pty-*` events.
 
+mod approvals;
 mod commands;
 mod jobs;
 mod pty;
+mod stage;
 mod state;
 mod tray;
 
@@ -39,6 +41,7 @@ pub fn run() {
             Some(vec![MINIMIZED_ARG]),
         ))
         .manage(AppState::load())
+        .manage(approvals::Approvals::default())
         .setup(|app| {
             tray::create(app.handle())?;
             let minimized = std::env::args().any(|a| a == MINIMIZED_ARG);
@@ -47,6 +50,7 @@ pub fn run() {
                 show_main(app.handle());
             }
             state::on_start(app.handle().clone());
+            approvals::start(app.handle().clone());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -69,6 +73,11 @@ pub fn run() {
             }
         })
         .invoke_handler(commands::handler())
-        .run(tauri::generate_context!())
-        .expect("error while running Relay");
+        .build(tauri::generate_context!())
+        .expect("error while running Relay")
+        .run(|_, event| {
+            if let tauri::RunEvent::Exit = event {
+                approvals::stop();
+            }
+        });
 }

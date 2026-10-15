@@ -325,3 +325,36 @@ async def test_risky_mode_lets_harmless_browser_calls_through(owner_displays):
     assert prompter.titles == []
     assert await ask("browser_click", {"element": "Send button", "ref": "e9"}) == "allow"
     assert prompter.titles == ["Claude wants to use mcp__relay-browser__browser_click"]
+
+
+async def test_risky_mode_asks_only_before_irreversible_tools(owner_displays):
+    s, _, prompter = safe_services(owner_displays, "approve", "approve", "approve")
+    assert s.gate is not None
+    s.gate.mode = "risky"
+    server = build_server(s)
+
+    async def ask(tool: str, params: dict) -> str:
+        args = {"tool_name": tool, "input": params}
+        return json.loads(text(await call(server, "approve", args)))["behavior"]
+
+    harmless = [
+        ("mcp__claude_ai_Dice__search_jobs", {"keyword": "Forward Deployed Engineer"}),
+        ("PowerShell", {"command": 'Start-Process "https://www.dice.com/jobs?q=x"'}),
+        ("PowerShell", {"command": "Get-Process brave | select Id, MainWindowTitle"}),
+        ("Bash", {"command": "ls -la && git status"}),
+        ("mcp__claude_ai_Gmail__get_message", {"id": "1"}),
+        ("mcp__claude_ai_Gmail__create_draft", {"to": "a@b.c"}),
+        ("WebFetch", {"url": "https://x.y"}),
+        ("Write", {"file_path": "C:/Users/o/Downloads/jobs.csv"}),
+    ]
+    for tool, params in harmless:
+        assert await ask(tool, params) == "allow", tool
+    assert prompter.titles == []
+    assert await ask("mcp__claude_ai_Gmail__send_message", {"to": "a@b.c"}) == "allow"
+    assert await ask("PowerShell", {"command": "Remove-Item -Recurse C:/x"}) == "allow"
+    assert await ask("Bash", {"command": "git push origin main"}) == "allow"
+    assert prompter.titles == [
+        "Claude wants to use mcp__claude_ai_Gmail__send_message",
+        "Claude wants to use PowerShell",
+        "Claude wants to use Bash",
+    ]
