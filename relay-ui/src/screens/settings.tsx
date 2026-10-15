@@ -553,22 +553,22 @@ export const SettingsScreen = ({
     const props = { settings, save, info, rerunSetup };
     return (
         <div className="flex h-full min-h-0">
-            <nav className="hidden w-56 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-secondary px-3 py-6 md:flex">
-                <div className="px-3 pb-3 text-xs font-semibold tracking-wide text-quaternary uppercase">Settings</div>
+            <nav className="hidden w-56 shrink-0 flex-col gap-0.5 overflow-y-auto px-3 pt-12 pb-6 md:flex">
+                <div className="px-3 pb-4 font-serif text-display-xs text-primary">Settings</div>
                 {PAGES.map((p) => (
                     <button
                         key={p.id}
                         onClick={() => setPage(p.id)}
                         aria-current={p.id === current.id ? "page" : undefined}
                         className={cx(
-                            "group flex w-full cursor-pointer items-center gap-3 rounded-md px-3 py-2 text-sm font-semibold transition duration-150 ease-out",
-                            p.id === current.id ? "bg-active text-secondary_hover" : "text-secondary hover:bg-primary_hover",
+                            "group flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm transition duration-150 ease-out outline-focus-ring focus-visible:outline-2",
+                            p.id === current.id ? "bg-tertiary font-medium text-primary" : "text-secondary hover:bg-tertiary/60 hover:text-primary",
                         )}
                     >
                         <p.icon
                             className={cx(
-                                "size-5 shrink-0 transition",
-                                p.id === current.id ? "text-fg-brand-primary" : "text-fg-quaternary group-hover:text-fg-quaternary_hover",
+                                "size-[18px] shrink-0 transition",
+                                p.id === current.id ? "text-fg-secondary" : "text-fg-tertiary group-hover:text-fg-secondary",
                             )}
                         />
                         {p.label}
@@ -576,7 +576,7 @@ export const SettingsScreen = ({
                 ))}
             </nav>
             <div className="min-w-0 flex-1 overflow-y-auto">
-                <div className="sticky top-0 z-10 border-b border-secondary bg-primary/90 px-4 py-3 backdrop-blur md:hidden">
+                <div className="sticky top-0 z-10 bg-primary/90 px-4 py-3 backdrop-blur md:hidden">
                     <Select
                         size="sm"
                         aria-label="Settings page"
@@ -587,7 +587,7 @@ export const SettingsScreen = ({
                         {(item) => <Select.Item id={item.id} label={item.label} icon={item.icon} />}
                     </Select>
                 </div>
-                <div key={current.id} className="@container mx-auto max-w-5xl px-4 py-6 animate-in fade-in slide-in-from-bottom-1 duration-200 sm:px-8">
+                <div key={current.id} className="@container mx-auto max-w-4xl px-4 pt-6 pb-16 animate-in fade-in slide-in-from-bottom-1 duration-300 sm:px-10 md:pt-14">
                     <PageHeader title={current.label} description={current.description} />
                     {current.id === "general" && <GeneralPage {...props} />}
                     {current.id === "claude" && <ClaudePage {...props} />}

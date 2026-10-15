@@ -13,8 +13,8 @@ import { BrowserCheck, LocalAiChecks, SelfTest } from "./setup-checks";
 const Group = ({ icon: Icon, title, description, children }: { icon: typeof Stars01; title: string; description: string; children: ReactNode }) => (
     <section className="flex flex-col gap-3 animate-in fade-in slide-in-from-bottom-2 duration-500 fill-mode-both">
         <div className="flex items-center gap-3">
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary shadow-xs ring-1 ring-secondary ring-inset">
-                <Icon className="size-5 text-fg-secondary" />
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-brand-primary">
+                <Icon className="size-5 text-fg-brand-primary" />
             </div>
             <div className="min-w-0">
                 <h2 className="text-md font-semibold text-primary">{title}</h2>
@@ -34,12 +34,12 @@ export const Wizard = ({ settings, save, onFinish }: { settings: Settings; save:
     };
 
     return (
-        <div className="flex h-full min-h-0 flex-col bg-secondary_alt">
+        <div className="flex h-full min-h-0 flex-col bg-primary">
             <main className="min-h-0 flex-1 overflow-y-auto">
-                <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 py-8 sm:px-8 sm:py-12">
+                <div className="mx-auto flex w-full max-w-3xl flex-col gap-10 px-4 py-10 sm:px-8 sm:py-16">
                     <header className="flex flex-col gap-2 animate-in fade-in duration-500">
-                        <span className="text-sm font-semibold text-brand-secondary">Set up Relay</span>
-                        <h1 className="text-display-xs font-semibold text-primary sm:text-display-sm">Let's get Relay ready</h1>
+                        <span className="text-sm font-medium text-brand-secondary">Set up Relay</span>
+                        <h1 className="font-serif text-display-sm font-normal tracking-tight text-primary sm:text-display-md">Let's get Relay ready</h1>
                         <p className="max-w-xl text-md text-tertiary">
                             Relay checks everything on its own. You only need to step in where a button shows up, and you can change any of it later in
                             Settings.
@@ -60,7 +60,7 @@ export const Wizard = ({ settings, save, onFinish }: { settings: Settings; save:
                     </Group>
                 </div>
             </main>
-            <footer className="border-t border-secondary bg-primary">
+            <footer className="border-t border-secondary bg-secondary">
                 <div className="mx-auto flex w-full max-w-3xl flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-8">
                     <p className="text-sm text-tertiary">
                         {ready ? "Claude is connected. Downloads can keep going in the background." : "Relay needs Claude before it can do tasks."}
