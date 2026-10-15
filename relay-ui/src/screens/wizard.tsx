@@ -49,8 +49,8 @@ export const Wizard = ({ settings, save, onFinish }: { settings: Settings; save:
                     <Group icon={Stars01} title="Claude" description="Relay thinks with Claude Code and your own Claude subscription.">
                         <ClaudeChecks autoSignIn />
                     </Group>
-                    <Group icon={CpuChip01} title="Local AI" description="A small vision model on your GPU helps Relay find things on screen quickly.">
-                        <LocalAiChecks />
+                    <Group icon={CpuChip01} title="Local AI" description="A vision model on your GPU helps Relay find things on screen, and runs tasks on its own when Claude can't.">
+                        <LocalAiChecks autoDownload />
                     </Group>
                     <Group icon={Globe01} title="Browser" description="For web tasks Claude drives your browser through its page structure.">
                         <BrowserCheck settings={settings} save={save} />

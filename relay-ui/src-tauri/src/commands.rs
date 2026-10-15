@@ -1,6 +1,8 @@
 //! Commands the UI calls. Errors come back as plain sentences for the UI to show.
 
 use std::path::PathBuf;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -9,7 +11,7 @@ use tauri_plugin_opener::OpenerExt;
 
 use relay_core::settings::{ActiveModel, Settings};
 use relay_core::{
-    browser, catalog, chat, claude, doctor, gpu, local_ai, mcp, paths, system, updates,
+    browser, catalog, chat, claude, doctor, gpu, local_agent, local_ai, mcp, paths, system, updates,
 };
 
 use crate::jobs;
@@ -635,6 +637,19 @@ struct ChatPayload {
     finished: bool,
 }
 
+fn emit_chat(app: &AppHandle, event: Option<chat::ChatEvent>) {
+    let finished = event.is_none();
+    let _ = app.emit("chat", ChatPayload { event, finished });
+}
+
+/// What a Claude turn showed about whether Claude could run at all.
+#[derive(Default)]
+struct ClaudeOutcome {
+    tool_ran: bool,
+    auth_text: bool,
+    unavailable: bool,
+}
+
 #[tauri::command]
 async fn chat_send(app: AppHandle, prompt: String) -> Res<()> {
     let st = app.state::<AppState>();
@@ -642,6 +657,7 @@ async fn chat_send(app: AppHandle, prompt: String) -> Res<()> {
     if turn.is_some() {
         return Err("Relay is still working on the last message.".into());
     }
+    st.stopped.store(false, Ordering::SeqCst);
     let s = st.settings();
     let opts = chat::TurnOptions {
         resume: st.session.lock().expect("session lock").clone(),
@@ -649,8 +665,28 @@ async fn chat_send(app: AppHandle, prompt: String) -> Res<()> {
         effort: s.claude.effort.clone(),
         note: browser_note(&s),
     };
+    let outcome = Arc::new(std::sync::Mutex::new(ClaudeOutcome::default()));
+    let seen = outcome.clone();
     let events_app = app.clone();
-    let (handle, task) = chat::start(&prompt, &opts, move |event| {
+    let started = chat::start(&prompt, &opts, move |event| {
+        {
+            let mut o = seen.lock().expect("outcome lock");
+            match &event {
+                chat::ChatEvent::ToolUse { .. } => o.tool_ran = true,
+                chat::ChatEvent::Text { text } => {
+                    o.auth_text |= local_agent::claude_unavailable(text)
+                }
+                chat::ChatEvent::Done {
+                    is_error: true,
+                    result,
+                    ..
+                } => o.unavailable |= o.auth_text || local_agent::claude_unavailable(result),
+                chat::ChatEvent::Error { message } => {
+                    o.unavailable |= local_agent::claude_unavailable(message)
+                }
+                _ => {}
+            }
+        }
         if let chat::ChatEvent::Started { session_id, .. } = &event {
             if !session_id.is_empty() {
                 *events_app
@@ -660,35 +696,82 @@ async fn chat_send(app: AppHandle, prompt: String) -> Res<()> {
                     .expect("session lock") = Some(session_id.clone());
             }
         }
-        let _ = events_app.emit(
-            "chat",
-            ChatPayload {
-                event: Some(event),
-                finished: false,
-            },
-        );
+        emit_chat(&events_app, Some(event));
     })
-    .await
-    .map_err(anyhow_err)?;
-    *turn = Some(handle);
+    .await;
+    let claude_task = match started {
+        Ok((handle, task)) => {
+            *turn = Some(handle);
+            Some(task)
+        }
+        // Claude Code isn't installed: the local AI takes the task straight away.
+        Err(_) => None,
+    };
     drop(turn);
     let done_app = app.clone();
     tauri::async_runtime::spawn(async move {
-        let _ = task.await;
-        *done_app.state::<AppState>().turn.lock().await = None;
-        let _ = done_app.emit(
-            "chat",
-            ChatPayload {
-                event: None,
-                finished: true,
-            },
-        );
+        let reason = match claude_task {
+            None => Some("Claude Code isn't installed".to_string()),
+            Some(task) => {
+                let _ = task.await;
+                let o = outcome.lock().expect("outcome lock");
+                (o.unavailable && !o.tool_ran)
+                    .then(|| "Claude can't run right now (signed out or offline)".to_string())
+            }
+        };
+        let st = done_app.state::<AppState>();
+        if let Some(reason) = reason.filter(|_| !st.stopped.load(Ordering::SeqCst)) {
+            run_local(&done_app, &prompt, reason).await;
+        }
+        *st.turn.lock().await = None;
+        emit_chat(&done_app, None);
     });
     Ok(())
 }
 
+/// Hand the task to the local operator (D-067) and wait for it to finish.
+async fn run_local(app: &AppHandle, prompt: &str, reason: String) {
+    emit_chat(app, Some(chat::ChatEvent::Fallback { reason }));
+    let Some(python) = state::python_path(app) else {
+        emit_chat(
+            app,
+            Some(chat::ChatEvent::Error {
+                message:
+                    "Relay's Python runtime is missing, so the local AI can't run. Reinstall Relay."
+                        .into(),
+            }),
+        );
+        return;
+    };
+    let st = app.state::<AppState>();
+    let s = st.settings();
+    let events_app = app.clone();
+    let mut turn = st.turn.lock().await;
+    if st.stopped.load(Ordering::SeqCst) {
+        return;
+    }
+    match local_agent::start(&python, &s, prompt, move |event| {
+        emit_chat(&events_app, Some(event))
+    })
+    .await
+    {
+        Ok((handle, task)) => {
+            *turn = Some(handle);
+            drop(turn);
+            let _ = task.await;
+        }
+        Err(e) => emit_chat(
+            app,
+            Some(chat::ChatEvent::Error {
+                message: format!("{e:#}"),
+            }),
+        ),
+    }
+}
+
 #[tauri::command]
 async fn chat_stop(state: State<'_, AppState>) -> Res<()> {
+    state.stopped.store(true, Ordering::SeqCst);
     if let Some(turn) = state.turn.lock().await.as_mut() {
         turn.stop().await;
     }

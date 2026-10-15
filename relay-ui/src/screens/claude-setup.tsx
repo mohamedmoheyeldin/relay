@@ -4,7 +4,7 @@ import { Download01, LogIn01, RefreshCw01 } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
 import { CheckRow, type CheckStatus, JobProgress, LogLines, Notice } from "@/components/relay/ui";
 import { api, errorText } from "@/lib/api";
-import { useClaude } from "@/lib/claude";
+import { isAuthError, useClaude } from "@/lib/claude";
 import { clearJob, useJobs, waitForJob } from "@/lib/jobs";
 import { SignIn } from "./sign-in";
 
@@ -45,7 +45,10 @@ export const ClaudeChecks = ({ autoSignIn = false }: { autoSignIn?: boolean }) =
     const updating = updateJob?.state === "running";
 
     const installed: CheckStatus = !state ? "running" : installing ? "running" : state.installed ? "ok" : "error";
-    const auth: CheckStatus = !state?.installed ? "waiting" : signingIn ? "running" : state.auth.loggedIn ? "ok" : "warn";
+    // `claude auth status` can still say "signed in" after the session expired; the
+    // test message is what notices.
+    const expired = !!state?.auth.loggedIn && check.status === "error" && isAuthError(check.text);
+    const auth: CheckStatus = !state?.installed ? "waiting" : signingIn ? "running" : state.auth.loggedIn && !expired ? "ok" : "warn";
     const answers: CheckStatus = !signedIn
         ? "waiting"
         : check.status === "running" || check.status === "idle"
@@ -96,22 +99,32 @@ export const ClaudeChecks = ({ autoSignIn = false }: { autoSignIn?: boolean }) =
                 detail={
                     !state?.installed
                         ? "After Claude Code is installed."
-                        : state.auth.loggedIn
-                          ? [state.auth.email, state.auth.subscriptionType && `${state.auth.subscriptionType} plan`].filter(Boolean).join(" · ") || "Signed in"
-                          : signingIn
-                            ? "Waiting for you in your browser…"
-                            : "Use your Claude subscription. Relay never sees your password or token."
+                        : signingIn
+                          ? "Waiting for you in your browser…"
+                          : expired
+                            ? "Your sign-in expired. Sign in again to keep using Claude."
+                              : state.auth.loggedIn
+                              ? [state.auth.email, state.auth.subscriptionType && `${state.auth.subscriptionType} plan`].filter(Boolean).join(" · ") || "Signed in"
+                              : "Use your Claude subscription. Relay never sees your password or token."
                 }
                 action={
                     state?.installed &&
                     !signingIn && (
-                        <Button size="sm" color={state.auth.loggedIn ? "secondary" : "primary"} iconLeading={LogIn01} onClick={() => setSigningIn(true)}>
-                            {state.auth.loggedIn ? "Switch account" : "Sign in"}
+                        <Button size="sm" color={state.auth.loggedIn && !expired ? "secondary" : "primary"} iconLeading={LogIn01} onClick={() => setSigningIn(true)}>
+                            {expired ? "Sign in again" : state.auth.loggedIn ? "Switch account" : "Sign in"}
                         </Button>
                     )
                 }
             >
-                {signingIn && <SignIn onDone={() => setSigningIn(false)} onCancel={() => setSigningIn(false)} />}
+                {signingIn && (
+                    <SignIn
+                        onDone={() => {
+                            setSigningIn(false);
+                            if (expired) runCheck();
+                        }}
+                        onCancel={() => setSigningIn(false)}
+                    />
+                )}
             </CheckRow>
             <CheckRow
                 status={answers}

@@ -72,12 +72,20 @@ pub struct ActiveModel {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AgentModel {
+    pub model_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct LocalAi {
     /// "Where is it" model (D-036: UI-Venus-1.5-8B by default once downloaded).
     pub grounding: Option<ActiveModel>,
     /// "Check / describe" model (D-036: Qwen3-VL-8B-Instruct by default).
     pub describe: Option<ActiveModel>,
+    /// The local operator that runs tasks when Claude can't (D-067). None picks
+    /// the describe model, then the grounding model, then the first downloaded planner.
+    pub agent: Option<AgentModel>,
     /// Models unload this many seconds after a task ends (D-042).
     pub idle_unload_secs: u32,
     /// None means the default `%LOCALAPPDATA%\Relay\models`. relay-screen reads it too.
@@ -89,6 +97,7 @@ impl Default for LocalAi {
         Self {
             grounding: None,
             describe: None,
+            agent: None,
             idle_unload_secs: 60,
             models_dir: None,
         }
