@@ -15,7 +15,7 @@ Short entries so later sessions can pick up where earlier ones stopped. Newest f
 - The browser lane now drives the browser the owner already has open by default (`browser.use_own`), through Playwright MCP's `--extension` mode and the Playwright Extension. Chromium refuses remote debugging of the everyday profile; the extension bridges it, and Claude works in its own tab group with the owner's sign-ins. The extension's token sits in Credential Manager and reaches Playwright through Relay's launcher, so no tab picker shows. Settings > Browser and the wizard show the two one-time steps (add the extension, paste the token); the old Relay-profile mode is a toggle away.
 - Claude's text now streams into the chat as it is written (`--include-partial-messages`); before, a long answer only appeared when finished.
 - Not changed: lookups through connectors still ask for approval. Letting `search_`/`get_`/`list_` tools run without asking loosens the approval gate, so it was left for the owner to decide.
-- Not run end to end on the PC: the extension has to be added and its token pasted by the owner.
+- Not run end to end on the PC: the extension has to be added and its token pasted by the owner. Recorded as D-074 (browser lane via the Playwright Extension) and D-075 (streaming replies).
 
 ## 2026-10-15 · 0.1.4: Claude sign-in fixed, chat falls back to the local AI
 - Sign-in never printed anything: portable-pty's ConPTY (PSEUDOCONSOLE_INHERIT_CURSOR) sends `ESC[6n` and blocks until it gets a cursor report. `pty.rs` now answers `ESC[1;1R` (verified on the owner's PC: `claude --version` printed only `ESC[6n` before, the version after). An expired sign-in now shows "Sign in again" in chat and on the Claude page.
