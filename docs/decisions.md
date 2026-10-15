@@ -914,3 +914,33 @@ Decision:
 
 This changes D-001's split for the no-Claude case only. With Claude
 available, the local model is still hands and eyes (D-008 layering, D-036).
+
+## D-068 The local operator's target is 95% task success, measured on a fixed benchmark
+*2026-10-15 · accepted · owner request · extends D-067 and M1-11*
+
+The owner: Relay should fully automate the UI with the local AI and other
+tools, and succeed at least 95% of the time.
+
+Decision:
+- 95% is a measured target, not a claim. `relay-screen agent-bench` runs a
+  fixed task set (`relay_screen/agent/bench_tasks.json`: Notepad typing,
+  saving and replace, Calculator, opening a site and searching in the
+  browser, File Explorer, Windows Settings) with the local model only.
+- A task passes only when a check from outside the agent passes: a window
+  title, text found in a window's UI Automation tree, or a file's contents.
+  The model saying "done" does not count. A run the owner stops counts as a
+  failure and ends the benchmark.
+- After each task the benchmark closes the windows it opened (WM_CLOSE) and
+  deletes the files it created in Downloads. Results go to
+  `%LOCALAPPDATA%\Relay\bench\<time>.json`, never the repo. Exit code 0 means
+  the rate met the target.
+- The benchmark opens windows and moves the mouse, so it runs only when the
+  owner asks (D-049). Until then Relay reports no success rate.
+- "Other tools": each step the local operator also gets the foreground
+  window's UI Automation element list (depth 8, at most 5000 characters) and
+  can answer `invoke` or `set_value` with an element id, which run as
+  `uia_invoke` and `uia_set_value`. Pixel clicks stay for anything UIA can't
+  see. Apps open by name through `launch_app` (D-030).
+- The task set grows into M1-11: the model comparison there reports this
+  rate per model, and the default local operator model is the one that meets
+  the target, or the best one if none does yet.

@@ -550,6 +550,10 @@ def main() -> None:
         from relay_screen.agent import cli as agent_cli
 
         sys.exit(agent_cli.main(sys.argv[2:]))
+    if len(sys.argv) > 1 and sys.argv[1] == "agent-bench":
+        from relay_screen.agent import cli as agent_cli
+
+        sys.exit(agent_cli.bench_main(sys.argv[2:]))
     # DPI awareness must be set before anything captures the screen or reads geometry.
     from relay_screen.dpi import set_dpi_awareness
 
