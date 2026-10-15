@@ -1142,3 +1142,41 @@ Brave's windows.
     click taskbar buttons to switch programs, never act on Relay's window.
 - Keeping Relay's own window out of the way while a task runs (and the
   no-popups ask) belongs to the app thread.
+
+## D-079 Screen first: "go to" happens on screen, and the operator sets itself up
+*2026-10-15 · accepted · owner request · extends D-069, D-072, D-078*
+
+The owner asked Relay to "go to https://www.dice.com/ and search for fde jobs".
+Claude answered with a table from the Dice connector, because the browser
+extension was missing, and told the owner to add it in Settings. The owner
+wants Relay to act on the screen end to end like a person at the PC, set up
+whatever it needs by itself, and never stop to ask for setup.
+
+- **open_url.** A new act member, `open_url(url)`, opens a page in the owner's
+  own browser and brings it to the front. In a running browser that is a new
+  tab. It uses the same launch path as `launch_app("browser", [url])`, so it
+  needs no extension.
+  - A bare "dice.com" gets `https://`.
+  - Only http and https are accepted.
+  - The approval summary is `Open <url> in <browser>`.
+- **Claude's instructions.** When the owner says go to, open, search on or use
+  a site or app, Claude does it on screen (`open_url`, then `ui_task` or the
+  direct tools). A connector that fetches the same data is not a substitute.
+  The screen tools need no setup, so Claude never stops to ask for any.
+- **The local operator:**
+  - has an `open_url` action, with a rule to use it instead of typing in the
+    address bar;
+  - before its first step, opens a web address the task names ("go to
+    dice.com and ...", full URLs, `www.`). Bare domains count only with common
+    web endings, so "open notes.txt" stays a file.
+- **Self-setup.** When `ui_task` finds no llama.cpp runtime or no model, it
+  starts downloading them in the background: the runtime, then
+  qwen3-vl-8b-instruct (D-072's default). It answers that Relay is
+  downloading them, and tells Claude to do the task with the direct tools
+  meanwhile.
+  - Only one download runs at a time.
+  - A failure is reported on the next `ui_task` and retried then.
+- Owned elsewhere: the app thread installs the browser extension without
+  stopping the work and fixes the installer border. A reference video the
+  owner sent could not be fetched from the cloud session; its review is still
+  pending.

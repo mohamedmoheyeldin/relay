@@ -131,6 +131,7 @@ Relay-only additions:
 | `find_text` | Windows OCR: locate visible text, return boxes in screenshot pixels |
 | `list_apps`, `launch_app` | Installed apps found at run time (Start menu, App Paths, browsers); open one by name and get its window (D-030) |
 | `list_windows`, `focus_window` | Open windows, topmost first, with Relay's own marked; bring one to the front by title or program (D-078) |
+| `open_url` | Open a web page on screen in the owner's own browser, no extension needed (D-079) |
 | `locate` | Local VLM grounding: "the Submit button" -> coordinate |
 | `describe`, `verify` | Local VLM: summarize a region; check an expectation after an action |
 | `playbook_list`, `playbook_load`, `playbook_save` | Markdown playbooks |
