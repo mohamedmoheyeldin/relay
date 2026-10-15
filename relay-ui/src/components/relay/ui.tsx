@@ -51,13 +51,13 @@ export const CheckRow = ({
     action?: ReactNode;
     children?: ReactNode;
 }) => (
-    <div className="flex flex-col gap-3 border-b border-secondary px-4 py-3.5 last:border-b-0 sm:px-5">
+    <div className="flex flex-col gap-3 border-b border-secondary px-4 py-4 transition-colors duration-200 last:border-b-0 sm:px-5">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             <div className="flex min-w-0 flex-1 items-center gap-3">
                 {checkIcon(status)}
                 <div className="min-w-0">
-                    <div className={cx("text-sm font-semibold", status === "waiting" ? "text-quaternary" : "text-primary")}>{title}</div>
-                    {detail && <div className="text-sm break-words text-tertiary">{detail}</div>}
+                    <div className={cx("text-sm font-medium transition-colors duration-200", status === "waiting" ? "text-quaternary" : "text-primary")}>{title}</div>
+                    {detail && <div className="mt-0.5 text-sm break-words text-tertiary">{detail}</div>}
                 </div>
             </div>
             {action && <div className="flex shrink-0 flex-wrap gap-2 pl-8 sm:pl-0">{action}</div>}
@@ -67,27 +67,27 @@ export const CheckRow = ({
 );
 
 export const PageHeader = ({ title, description, actions }: { title: string; description?: ReactNode; actions?: ReactNode }) => (
-    <div className="flex flex-wrap items-start justify-between gap-4 border-b border-secondary pb-5">
+    <div className="flex flex-wrap items-start justify-between gap-4 pb-3">
         <div className="min-w-0">
-            <h1 className="text-display-xs font-semibold text-primary">{title}</h1>
-            {description && <p className="mt-1 text-md text-tertiary">{description}</p>}
+            <h1 className="text-xl font-semibold tracking-tight text-primary">{title}</h1>
+            {description && <p className="mt-1 text-sm text-tertiary">{description}</p>}
         </div>
         {actions && <div className="flex shrink-0 flex-wrap gap-3">{actions}</div>}
     </div>
 );
 
 export const Section = ({ title, description, children }: { title: string; description?: ReactNode; children: ReactNode }) => (
-    <section className="grid grid-cols-1 gap-4 border-b border-secondary py-6 last:border-b-0 @3xl:grid-cols-[minmax(180px,240px)_1fr] @3xl:gap-8">
+    <section className="grid grid-cols-1 gap-4 border-b border-secondary py-7 last:border-b-0 @3xl:grid-cols-[minmax(180px,240px)_1fr] @3xl:gap-10">
         <div>
-            <h2 className="text-sm font-semibold text-secondary">{title}</h2>
-            {description && <p className="mt-1 text-sm text-tertiary">{description}</p>}
+            <h2 className="text-md font-semibold text-primary">{title}</h2>
+            {description && <p className="mt-1 text-sm leading-relaxed text-tertiary">{description}</p>}
         </div>
         <div className="flex min-w-0 flex-col gap-4">{children}</div>
     </section>
 );
 
 export const Card = ({ children, className }: { children: ReactNode; className?: string }) => (
-    <div className={cx("rounded-xl bg-primary p-4 shadow-xs ring-1 ring-secondary ring-inset", className)}>{children}</div>
+    <div className={cx("rounded-2xl bg-primary_alt p-5 ring-1 ring-secondary ring-inset", className)}>{children}</div>
 );
 
 export const KeyValue = ({ label, value }: { label: string; value: ReactNode }) => (
@@ -102,10 +102,10 @@ export const Notice = ({ tone = "warning", children }: { tone?: "warning" | "err
     return (
         <div
             className={cx(
-                "flex gap-3 rounded-lg p-3 text-sm ring-1 ring-inset",
-                tone === "success" && "bg-success-primary text-success-primary ring-secondary",
-                tone === "warning" && "bg-warning-primary text-warning-primary ring-secondary",
-                tone === "error" && "bg-error-primary text-error-primary ring-error_subtle",
+                "flex gap-3 rounded-xl px-4 py-3 text-sm leading-relaxed ring-1 ring-inset animate-in fade-in duration-300",
+                tone === "success" && "bg-success-primary text-success-primary ring-current/15",
+                tone === "warning" && "bg-warning-primary text-warning-primary ring-current/15",
+                tone === "error" && "bg-error-primary text-error-primary ring-current/20",
             )}
         >
             <Icon className="mt-0.5 size-4 shrink-0" />
@@ -143,7 +143,7 @@ export const JobProgress = ({ job, onCancel, label }: { job?: JobState; onCancel
 
 export const LogLines = ({ lines }: { lines: string[] }) =>
     lines.length === 0 ? null : (
-        <pre className="max-h-48 overflow-auto rounded-lg bg-secondary p-3 font-mono text-xs whitespace-pre-wrap text-secondary">
+        <pre className="max-h-48 overflow-auto rounded-xl bg-secondary p-3.5 font-mono text-xs leading-relaxed whitespace-pre-wrap text-secondary ring-1 ring-secondary">
             {lines.slice(-60).join("\n")}
         </pre>
     );

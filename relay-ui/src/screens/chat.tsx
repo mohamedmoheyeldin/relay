@@ -1,10 +1,9 @@
 // The chat window: one conversation with Claude, with Relay's activity shown inline.
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { CheckCircle, CpuChip01, MessageChatCircle, Plus, Send01, StopCircle, Tool01, XCircle } from "@untitledui/icons";
+import { ArrowUp, CheckCircle, ChevronRight, CpuChip01, Plus, Stars02, StopSquare, Tool01, XCircle } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
 import { TextAreaBase } from "@/components/base/textarea/textarea";
-import { FeaturedIcon } from "@/components/foundations/featured-icon/featured-icon";
 import { Markdown } from "@/components/relay/markdown";
 import { Notice, Spinner } from "@/components/relay/ui";
 import { type ChatEvent, api, errorText } from "@/lib/api";
@@ -29,47 +28,121 @@ const toolLabel = (name: string) => {
     return short.replace(/_/g, " ");
 };
 
+// A quiet, one-line activity row (a tool call or a local-AI step) that opens to show details.
+const ActivityRow = ({
+    icon,
+    title,
+    summary,
+    mono,
+    expandable,
+    open,
+    onToggle,
+    children,
+}: {
+    icon: ReactNode;
+    title: ReactNode;
+    summary?: ReactNode;
+    mono?: boolean;
+    expandable: boolean;
+    open: boolean;
+    onToggle: () => void;
+    children?: ReactNode;
+}) => (
+    <div className="-mx-2 -my-1.5 text-sm animate-in fade-in slide-in-from-bottom-1 duration-300">
+        <button
+            className={cx(
+                "group flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition duration-150 outline-focus-ring focus-visible:outline-2",
+                expandable ? "cursor-pointer hover:bg-tertiary/60" : "cursor-default",
+            )}
+            onClick={onToggle}
+            aria-expanded={expandable ? open : undefined}
+        >
+            {icon}
+            <span className="shrink-0 font-medium text-secondary">{title}</span>
+            {summary && <span className={cx("min-w-0 truncate text-tertiary", mono && "font-mono text-xs")}>{summary}</span>}
+            {expandable && (
+                <ChevronRight
+                    className={cx(
+                        "ml-auto size-4 shrink-0 text-fg-quaternary opacity-0 transition duration-200 group-hover:opacity-100",
+                        open && "rotate-90 opacity-100",
+                    )}
+                />
+            )}
+        </button>
+        {children}
+    </div>
+);
+
 const ToolItem = ({ item }: { item: Extract<Item, { kind: "tool" }> }) => {
     const [open, setOpen] = useState(false);
     return (
-        <div className="rounded-lg bg-secondary px-3 py-2 text-sm animate-in fade-in duration-200">
-            <button className="flex w-full cursor-pointer items-center gap-2 text-left" onClick={() => setOpen(!open)}>
-                {item.result ? (
+        <ActivityRow
+            icon={
+                item.result ? (
                     item.result.ok ? (
-                        <CheckCircle className="size-4 shrink-0 text-fg-success-primary" />
+                        <CheckCircle className="size-4 shrink-0 text-fg-quaternary" />
                     ) : (
                         <XCircle className="size-4 shrink-0 text-fg-error-primary" />
                     )
                 ) : (
-                    <Tool01 className="size-4 shrink-0 animate-pulse text-fg-quaternary" />
-                )}
-                <span className="font-medium text-secondary">{toolLabel(item.name)}</span>
-                <span className="truncate text-tertiary">{item.input}</span>
-            </button>
-            {open && item.result?.text && <pre className="mt-2 max-h-48 overflow-auto font-mono text-xs whitespace-pre-wrap text-tertiary">{item.result.text}</pre>}
-            {item.result?.image && <img src={item.result.image} alt="Screenshot from Relay" className="mt-2 max-h-72 rounded-md ring-1 ring-secondary" />}
-        </div>
+                    <Tool01 className="size-4 shrink-0 animate-pulse text-fg-brand-primary" />
+                )
+            }
+            title={toolLabel(item.name)}
+            summary={item.input}
+            expandable={!!item.result?.text}
+            open={open}
+            onToggle={() => setOpen(!open)}
+        >
+            {open && item.result?.text && (
+                <pre className="mt-1 mb-1 ml-4 max-h-48 overflow-auto border-l border-secondary pl-4 font-mono text-xs whitespace-pre-wrap text-tertiary animate-in fade-in slide-in-from-top-1 duration-200">
+                    {item.result.text}
+                </pre>
+            )}
+            {item.result?.image && (
+                <img src={item.result.image} alt="Screenshot from Relay" className="mt-1 mb-2 ml-2 max-h-72 rounded-xl ring-1 ring-secondary animate-in fade-in duration-300" />
+            )}
+        </ActivityRow>
     );
 };
 
 const LocalStep = ({ item }: { item: Extract<Item, { kind: "step" }> }) => {
     const failed = /^(error|failed|denied|blocked|not run)/i.test(item.result);
+    const [open, setOpen] = useState(false);
     return (
-        <div className="rounded-lg bg-secondary px-3 py-2 text-sm animate-in fade-in duration-200">
-            <div className="flex items-center gap-2">
-                {failed ? <XCircle className="size-4 shrink-0 text-fg-error-primary" /> : <CheckCircle className="size-4 shrink-0 text-fg-success-primary" />}
-                <span className="font-medium text-secondary">Step {item.step}</span>
-                <span className="truncate font-mono text-xs text-tertiary">{item.action}</span>
-            </div>
-            {item.thought && <p className="mt-1 text-tertiary">{item.thought}</p>}
-            {item.result && <p className="mt-1 truncate text-xs text-quaternary">{item.result}</p>}
-        </div>
+        <ActivityRow
+            icon={failed ? <XCircle className="size-4 shrink-0 text-fg-error-primary" /> : <CheckCircle className="size-4 shrink-0 text-fg-quaternary" />}
+            title={`Step ${item.step}`}
+            summary={item.action}
+            mono
+            expandable={!!(item.thought || item.result)}
+            open={open}
+            onToggle={() => setOpen(!open)}
+        >
+            {open && (
+                <div className="mt-1 mb-1 ml-4 flex flex-col gap-1 border-l border-secondary pl-4 animate-in fade-in slide-in-from-top-1 duration-200">
+                    {item.thought && <p className="text-tertiary">{item.thought}</p>}
+                    {item.result && <p className="text-xs break-words text-quaternary">{item.result}</p>}
+                </div>
+            )}
+        </ActivityRow>
     );
 };
 
 const LOCAL_MODEL_MISSING = /Settings > Local AI/;
 
-export const ChatScreen = ({ ready, onSetup, onLocalAi }: { ready: boolean; onSetup: () => void; onLocalAi: () => void }) => {
+export const ChatScreen = ({
+    ready,
+    onSetup,
+    onLocalAi,
+    newChatRequest = 0,
+}: {
+    ready: boolean;
+    onSetup: () => void;
+    onLocalAi: () => void;
+    /** Bumped by the sidebar's "New chat" button. */
+    newChatRequest?: number;
+}) => {
     const [items, setItems] = useState<Item[]>([]);
     const [input, setInput] = useState("");
     const [busy, setBusy] = useState(false);
@@ -159,16 +232,66 @@ export const ChatScreen = ({ ready, onSetup, onLocalAi }: { ready: boolean; onSe
         setItems([]);
     };
 
+    // The sidebar's "New chat" button; ignored while Relay is still working.
+    useEffect(() => {
+        if (newChatRequest > 0 && !busy) newChat();
+    }, [newChatRequest]);
+
+    const empty = items.length === 0;
+    const composer = (
+        <div className="rounded-3xl bg-primary_alt p-2.5 shadow-[0_0.25rem_1.25rem_rgb(0_0_0/0.035)] ring-1 ring-secondary transition duration-200 focus-within:shadow-[0_0.25rem_1.5rem_rgb(0_0_0/0.07)] focus-within:ring-primary dark:shadow-[0_0.25rem_1.25rem_rgb(0_0_0/0.25)]">
+            <TextAreaBase
+                aria-label="Message"
+                placeholder={empty ? "How can Relay help today?" : "Reply to Relay…"}
+                rows={empty ? 2 : 1}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        send();
+                    }
+                }}
+                className="max-h-60 min-h-11 resize-none rounded-none bg-transparent px-2.5 pt-2 pb-1 text-md shadow-none ring-0 focus:ring-0"
+            />
+            <div className="flex items-center justify-between gap-3 pl-2.5">
+                <span className="truncate text-xs text-quaternary">Relay asks before it clicks or types.</span>
+                {busy ? (
+                    <button
+                        aria-label="Stop"
+                        title="Stop"
+                        onClick={() => api.chatStop()}
+                        className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-primary-solid text-white transition duration-150 outline-focus-ring animate-in fade-in zoom-in-75 hover:opacity-85 focus-visible:outline-2 focus-visible:outline-offset-2 dark:bg-neutral-100 dark:text-neutral-900"
+                    >
+                        <StopSquare className="size-4" />
+                    </button>
+                ) : (
+                    <button
+                        aria-label="Send"
+                        title="Send"
+                        onClick={send}
+                        disabled={!input.trim()}
+                        className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-brand-solid text-white transition duration-150 outline-focus-ring animate-in fade-in zoom-in-75 hover:bg-brand-solid_hover focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-brand-solid"
+                    >
+                        <ArrowUp className="size-[18px]" />
+                    </button>
+                )}
+            </div>
+        </div>
+    );
+
     return (
         <div className="flex h-full min-h-0 flex-col">
-            <div className="flex items-center justify-between gap-3 border-b border-secondary px-4 py-3 sm:px-6">
-                <span className="text-md font-semibold text-primary">Chat</span>
-                <Button size="sm" color="secondary" iconLeading={Plus} onClick={newChat} isDisabled={busy}>
-                    New chat
-                </Button>
+            <div className="flex h-12 shrink-0 items-center justify-between gap-3 px-4 sm:px-6">
+                <span className="text-sm font-medium text-tertiary">{empty ? "" : "Chat"}</span>
+                {!empty && (
+                    <Button size="sm" color="tertiary" iconLeading={Plus} onClick={newChat} isDisabled={busy}>
+                        New chat
+                    </Button>
+                )}
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6">
-                <div className="mx-auto flex max-w-3xl flex-col gap-4">
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6 sm:px-6">
+                <div className={cx("mx-auto flex w-full max-w-3xl flex-col gap-5", empty && "min-h-full justify-center pb-16")}>
                     {!ready && (
                         <Notice>
                             Claude isn't signed in, so tasks run on the local AI alone.{" "}
@@ -179,16 +302,20 @@ export const ChatScreen = ({ ready, onSetup, onLocalAi }: { ready: boolean; onSe
                         </Notice>
                     )}
                     {items.length === 0 && (
-                        <div className="flex flex-col items-center py-12 text-center animate-in fade-in slide-in-from-bottom-2 duration-500 sm:py-20">
-                            <FeaturedIcon icon={MessageChatCircle} color="brand" theme="light" size="lg" />
-                            <h2 className="mt-5 text-display-xs font-semibold text-primary">What should Relay do?</h2>
-                            <p className="mt-2 max-w-md text-md text-tertiary">Ask for a task on this PC. Relay asks before it clicks or types.</p>
-                            <div className="mt-6 flex max-w-xl flex-wrap justify-center gap-2">
-                                {SUGGESTIONS.map((t) => (
+                        <div className="flex flex-col items-center text-center animate-in fade-in slide-in-from-bottom-3 duration-700">
+                            <div className="flex items-center gap-3">
+                                <Stars02 className="size-7 shrink-0 text-fg-brand-primary" />
+                                <h2 className="font-serif text-display-sm font-normal tracking-tight text-primary sm:text-display-md">What should Relay do?</h2>
+                            </div>
+                            <p className="mt-3 max-w-lg text-md text-tertiary">Ask for a task on this PC, and Relay works it through on screen.</p>
+                            <div className="mt-8 w-full text-left">{composer}</div>
+                            <div className="mt-4 flex max-w-2xl flex-wrap justify-center gap-2">
+                                {SUGGESTIONS.map((t, n) => (
                                     <button
                                         key={t}
                                         onClick={() => setInput(t)}
-                                        className="cursor-pointer rounded-full bg-primary px-3.5 py-2 text-sm font-medium text-secondary shadow-xs ring-1 ring-primary transition duration-150 ring-inset hover:bg-primary_hover hover:text-secondary_hover"
+                                        style={{ animationDelay: `${150 + n * 60}ms` }}
+                                        className="cursor-pointer rounded-xl bg-primary px-3 py-1.5 text-sm text-secondary ring-1 ring-secondary transition duration-150 ring-inset animate-in fade-in slide-in-from-bottom-1 fill-mode-both hover:bg-secondary hover:text-primary"
                                     >
                                         {t}
                                     </button>
@@ -201,7 +328,7 @@ export const ChatScreen = ({ ready, onSetup, onLocalAi }: { ready: boolean; onSe
                             return (
                                 <div
                                     key={i}
-                                    className="ml-auto max-w-[85%] rounded-2xl rounded-tr-sm bg-brand-solid px-4 py-2.5 text-md break-words whitespace-pre-wrap text-white animate-in fade-in slide-in-from-bottom-1 duration-200"
+                                    className="ml-auto max-w-[85%] rounded-2xl bg-tertiary px-4 py-2.5 text-md break-words whitespace-pre-wrap text-primary animate-in fade-in slide-in-from-bottom-2 duration-300 dark:bg-neutral-950"
                                 >
                                     {it.text}
                                 </div>
@@ -209,29 +336,29 @@ export const ChatScreen = ({ ready, onSetup, onLocalAi }: { ready: boolean; onSe
                         if (it.kind === "assistant" && isAuthError(it.text) && items[i + 1]?.kind === "done") return null;
                         if (it.kind === "assistant")
                             return (
-                                <div key={i} className="max-w-[92%] text-md break-words text-primary animate-in fade-in duration-300">
+                                <div key={i} className="font-serif text-[16.5px] leading-[1.7] break-words text-primary animate-in fade-in slide-in-from-bottom-1 duration-500">
                                     <Markdown text={it.text} />
                                 </div>
                             );
                         if (it.kind === "tool") return <ToolItem key={i} item={it} />;
                         if (it.kind === "fallback")
                             return (
-                                <div key={i} className="flex items-center gap-2 pt-2 text-sm font-semibold text-brand-secondary animate-in fade-in duration-300">
-                                    <CpuChip01 className="size-4" />
+                                <div key={i} className="flex items-center gap-2 pt-1 text-sm font-medium text-brand-secondary animate-in fade-in duration-300">
+                                    <CpuChip01 className="size-4 shrink-0" />
                                     Local AI (Claude unavailable)
                                     <span className="font-normal text-tertiary">· {it.reason}</span>
                                 </div>
                             );
                         if (it.kind === "note")
                             return (
-                                <div key={i} className="text-xs text-tertiary">
+                                <div key={i} className="text-xs text-tertiary animate-in fade-in duration-300">
                                     {it.text}
                                 </div>
                             );
                         if (it.kind === "step") return <LocalStep key={i} item={it} />;
                         if (it.kind === "done")
                             return (
-                                <div key={i} className={cx("text-xs", it.ok ? "text-quaternary" : "text-error-primary")}>
+                                <div key={i} className={cx("text-xs animate-in fade-in duration-300", it.ok ? "text-quaternary" : "text-error-primary")}>
                                     {it.ok ? `Done${it.seconds ? ` in ${it.seconds.toFixed(1)} s` : ""}` : it.text}
                                 </div>
                             );
@@ -269,41 +396,19 @@ export const ChatScreen = ({ ready, onSetup, onLocalAi }: { ready: boolean; onSe
                             </Notice>
                         ))}
                     {busy && (
-                        <div className="flex items-center gap-2 text-sm text-tertiary animate-in fade-in duration-300">
+                        <div className="flex items-center gap-2.5 text-sm text-tertiary animate-in fade-in duration-500">
                             <Spinner />
-                            Working…
+                            <span className="animate-pulse">Working…</span>
                         </div>
                     )}
                     <div ref={bottom} />
                 </div>
             </div>
-            <div className="px-4 pt-2 pb-4 sm:px-6">
-                <div className="mx-auto flex max-w-3xl items-end gap-2 rounded-2xl bg-primary p-2 shadow-sm ring-1 ring-primary transition ring-inset focus-within:ring-2 focus-within:ring-brand">
-                    <TextAreaBase
-                        aria-label="Message"
-                        placeholder="Ask Relay to do something…"
-                        rows={2}
-                        value={input}
-                        onChange={(e) => setInput(e.target.value)}
-                        onKeyDown={(e) => {
-                            if (e.key === "Enter" && !e.shiftKey) {
-                                e.preventDefault();
-                                send();
-                            }
-                        }}
-                        className="max-h-48 min-h-11 flex-1 resize-none bg-transparent shadow-none ring-0 focus:ring-0"
-                    />
-                    {busy ? (
-                        <Button color="secondary" iconLeading={StopCircle} onClick={() => api.chatStop()}>
-                            Stop
-                        </Button>
-                    ) : (
-                        <Button iconLeading={Send01} onClick={send} isDisabled={!input.trim()}>
-                            Send
-                        </Button>
-                    )}
+            {!empty && (
+                <div className="px-4 pt-1 pb-4 sm:px-6">
+                    <div className="mx-auto max-w-3xl animate-in fade-in slide-in-from-bottom-2 duration-300">{composer}</div>
                 </div>
-            </div>
+            )}
         </div>
     );
 };

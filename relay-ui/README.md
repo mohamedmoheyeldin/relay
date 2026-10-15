@@ -43,7 +43,9 @@ From the repo root:
 uv run python scripts/build_installer.py
 ```
 
-It bundles Python + relay-screen, builds the NSIS installer and writes
-`dist/Relay-Setup.exe`. On Windows it uses the MSVC target; on Linux it cross-builds
+It bundles Python + relay-screen, builds the NSIS installer, embeds it in Relay Setup
+(`relay-setup/`, the small installer app with Relay's look) and writes
+`dist/Relay-Setup.exe`, plus the raw NSIS installer as
+`dist/Relay-Setup-nsis-<ver>.exe` for silent installs (`/S`). On Windows it uses the MSVC target; on Linux it cross-builds
 with `x86_64-pc-windows-gnu` (needs mingw-w64, nsis and libayatana-appindicator3-dev).
 The installer is unsigned for now, so SmartScreen warns on first run.
