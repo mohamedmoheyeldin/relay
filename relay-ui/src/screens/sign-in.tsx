@@ -46,8 +46,16 @@ export const SignIn = ({ onDone, onCancel }: { onDone: () => void; onCancel: () 
         setFailed(null);
         idRef.current = null;
 
-        const finish = async () => {
+        // When Claude Code already counts as signed in (switching account, or a session
+        // that expired but is still on disk), polling can't tell a new sign-in apart,
+        // so only the login finishing counts.
+        let wasIn: boolean | null = null;
+        refreshClaude()
+            .then((s) => (wasIn = s.auth.loggedIn))
+            .catch(() => (wasIn = false));
+        const finish = async (exited = false) => {
             if (finished) return true;
+            if (!exited && wasIn !== false) return false;
             const state = await refreshClaude().catch(() => null);
             if (!state?.auth.loggedIn || cancelled) return false;
             finished = true;
@@ -56,25 +64,40 @@ export const SignIn = ({ onDone, onCancel }: { onDone: () => void; onCancel: () 
             return true;
         };
 
+        // Output can arrive before ptyStart has told us the terminal's id, so it is
+        // held per id until then instead of being dropped.
+        const early = new Map<number, number[][]>();
+        const exited = new Set<number>();
+        const take = (data: number[]) => {
+            raw += decoder.decode(new Uint8Array(data), { stream: true });
+            setOutput(plainText(raw));
+        };
+        const onExit = async () => {
+            if (cancelled) return;
+            if (!(await finish(true)) && !cancelled) setFailed("The sign-in stopped before you were signed in.");
+        };
         const subs = [
             listen<{ id: number; data: number[] }>("pty-data", ({ payload }) => {
-                if (payload.id !== idRef.current) return;
-                raw += decoder.decode(new Uint8Array(payload.data), { stream: true });
-                setOutput(plainText(raw));
+                if (idRef.current === null) early.set(payload.id, [...(early.get(payload.id) ?? []), payload.data]);
+                else if (payload.id === idRef.current) take(payload.data);
             }),
-            listen<number>("pty-exit", async ({ payload }) => {
-                if (payload !== idRef.current || cancelled) return;
-                if (!(await finish()) && !cancelled) setFailed("The sign-in stopped before you were signed in.");
+            listen<number>("pty-exit", ({ payload }) => {
+                if (idRef.current === null) exited.add(payload);
+                else if (payload === idRef.current) onExit();
             }),
         ];
         // Wide enough that the long sign-in link is never wrapped across lines.
-        api.ptyStart(kind, 2000, 40)
+        Promise.all(subs)
+            .then(() => api.ptyStart(kind, 2000, 40))
             .then((id) => {
-                if (cancelled) api.ptyKill(id).catch(() => {});
-                else idRef.current = id;
+                if (cancelled) return void api.ptyKill(id).catch(() => {});
+                idRef.current = id;
+                early.get(id)?.forEach(take);
+                early.clear();
+                if (exited.has(id)) onExit();
             })
             .catch((e) => !cancelled && setFailed(errorText(e)));
-        const poll = window.setInterval(finish, 2000);
+        const poll = window.setInterval(() => finish(), 2000);
 
         return () => {
             cancelled = true;
