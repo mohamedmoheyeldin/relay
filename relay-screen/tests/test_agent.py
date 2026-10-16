@@ -86,6 +86,8 @@ def run(hands: FakeHands, model: Script, task: str = "write hello", **kw: Any):
         if event["event"] != "seen":  # what the model was shown, every step
             events.append(event)
 
+    # Ignore the owner's real input, which would add "Waiting for you to pause" notes.
+    kw.setdefault("idle", lambda: None)
     outcome = LocalAgent(hands, model, on_event=keep, **kw).run(task)
     return outcome, events
 
@@ -1006,7 +1008,9 @@ def test_save_target_joins_the_file_name_and_the_folder(tmp_path: Path) -> None:
     assert save_target(task, "The owner answered: Downloads", tmp_path) == str(
         tmp_path / "Downloads" / "relay-diag-1.txt"
     )
-    assert save_target(task + " on my Desktop", "", tmp_path).endswith("Desktop/relay-diag-1.txt")
+    assert save_target(task + " on my Desktop", "", tmp_path) == str(
+        tmp_path / "Desktop" / "relay-diag-1.txt"
+    )
     assert save_target(r"save it as C:\Temp\a.txt") == r"C:\Temp\a.txt"
     assert save_target(task, "", tmp_path) == "" and save_target("save it", "Downloads") == ""
 

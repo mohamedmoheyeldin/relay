@@ -1,0 +1,3 @@
+# pnpm 10+ reads settings here; newer pnpm ignores the "pnpm" field in package.json.
+overrides:
+  postcss-selector-parser: ^7.1.6
