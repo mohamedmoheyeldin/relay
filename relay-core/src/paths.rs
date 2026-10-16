@@ -55,7 +55,7 @@ pub fn playbooks_dir() -> PathBuf {
     config_dir().join("playbooks")
 }
 
-/// The folder `claude -p` runs in for chat tasks, so Claude Code never sees a project.
+/// The folder `cloud-cli -p` runs in for chat tasks, so Cloud AI never sees a project.
 pub fn work_dir() -> PathBuf {
     data_dir().join("work")
 }

@@ -7,10 +7,10 @@ from typing import Any
 from relay_screen.diagnostics import app
 from relay_screen.diagnostics import run as diag
 
-from .test_diagnostics import FakeClaude, FakeLink, tools
+from .test_diagnostics import FakeCloud, FakeLink, tools
 
 PICKS = {
-    "DefaultClaude Code's choice": ("model", ""),
+    "DefaultCloud AI's choice": ("model", ""),
     "OpusMost capable": ("model", "opus"),
     "SonnetFast and smart": ("model", "sonnet"),
     "Default": ("effort", ""),
@@ -145,7 +145,7 @@ class FakeRelay:
         elif hit == "Model and effort":
             self.menu = "picker" if self.picker_works else None
         elif menu == "picker":
-            self.put("claude", *PICKS[hit])
+            self.put("cloud", *PICKS[hit])
         elif hit.startswith("Options for "):
             self.menu = hit.removeprefix("Options for ")
         elif menu and hit in ("Pin", "Unpin", "Rename", "Delete"):
@@ -226,7 +226,7 @@ class FakeRelay:
 
 
 START = {
-    "claude": {"model": "opus", "effort": ""},
+    "cloud": {"model": "opus", "effort": ""},
     "general": {"start_at_login": True},
     "safety": {"phone_approvals": False},
     "updates": {"check_on_start": True},
@@ -237,7 +237,7 @@ def app_tools(tmp_path: Path, **kw: Any) -> tuple[diag.Tools, FakeRelay, Path]:
     settings = tmp_path / "settings.json"
     settings.write_text(json.dumps(START))
     relay = FakeRelay(settings, **kw)
-    t = tools(FakeLink(), claude=FakeClaude())
+    t = tools(FakeLink(), cloud=FakeCloud())
     t.app, t.settings_file, t.stamp = relay, settings, "123456"
     return t, relay, settings
 

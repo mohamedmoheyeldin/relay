@@ -1,4 +1,4 @@
-"""`relay-screen doctor`: is this PC ready to run Relay's local models and Claude Code?"""
+"""`relay-screen doctor`: is this PC ready to run Relay's local models and Cloud AI?"""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal
 
+from relay_screen import cli_names
 from relay_screen.runtime import catalog, gpu
 from relay_screen.runtime.download import free_space
 from relay_screen.runtime.gpu import Gpu
@@ -109,7 +110,7 @@ def checks(store: Store, gpu_info: Gpu | None, run_command: Run = run) -> list[C
             )
         )
 
-    out.extend(_claude(run_command))
+    out.extend(_cloud(run_command))
     return out
 
 
@@ -126,25 +127,27 @@ def _model_check(store: Store, model_id: str, name: str, gpu_info: Gpu | None) -
     return Check(label, "ok", detail)
 
 
-def _claude(run_command: Run) -> list[Check]:
-    version = run_command(["claude", "--version"])
+def _cloud(run_command: Run) -> list[Check]:
+    version = run_command([cli_names.COMMAND, "--version"])
     if version is None:
-        return [Check("Claude Code", "fail", "the claude command was not found")]
-    out = [Check("Claude Code", "ok", version.strip().splitlines()[0])]
+        return [Check("Cloud AI", "fail", "the Cloud AI command was not found")]
+    out = [Check("Cloud AI", "ok", version.strip().splitlines()[0])]
     # Only the logged-in flag and method are read; Relay never touches tokens (D-002).
-    status = run_command(["claude", "auth", "status"])
+    status = run_command([cli_names.COMMAND, "auth", "status"])
     try:
         data = json.loads(status or "")
     except ValueError:
         data = None
     if not isinstance(data, dict):
-        out.append(Check("Claude sign-in", "warn", "could not read the sign-in state"))
+        out.append(Check("Cloud AI sign-in", "warn", "could not read the sign-in state"))
     elif data.get("loggedIn"):
         method = str(data.get("authMethod", "")).replace("_", " ")
         detail = f"signed in ({method})" if method else "signed in"
-        out.append(Check("Claude sign-in", "ok", detail))
+        out.append(Check("Cloud AI sign-in", "ok", detail))
     else:
-        out.append(Check("Claude sign-in", "fail", "not signed in (run: claude auth login)"))
+        out.append(
+            Check("Cloud AI sign-in", "fail", "not signed in (sign in from Relay's Settings)")
+        )
     return out
 
 

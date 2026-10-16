@@ -5,7 +5,7 @@ Reads a JSON request on stdin, shows a small always-on-top window, and prints
 synthetic mouse and keyboard input aimed at it is dropped by low-level hooks
 (D-019), so only the owner's real mouse and keyboard can answer it. Afterwards the
 previously active window gets the focus back, so Relay's next keystrokes land where
-Claude expects.
+Cloud AI expects.
 
 The window is plain Win32 through ctypes: the Python bundled with Relay has no
 tkinter. ``--check`` builds the window without showing it and prints ``{"ok": true}``,
@@ -574,7 +574,7 @@ def main() -> None:
         base64.b64decode(request["image"], validate=True)  # reject garbage early
     try:
         decision = show(request)
-    except Exception as exc:  # report it; the gate tells Claude the prompt failed
+    except Exception as exc:  # report it; the gate tells Cloud AI the prompt failed
         print(json.dumps({"decision": "error", "error": f"{type(exc).__name__}: {exc}"}))
         return
     print(json.dumps({"decision": decision}))

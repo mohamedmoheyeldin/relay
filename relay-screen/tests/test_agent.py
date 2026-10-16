@@ -81,7 +81,12 @@ class Script:
 
 def run(hands: FakeHands, model: Script, **kw: Any):
     events: list[dict[str, Any]] = []
-    outcome = LocalAgent(hands, model, on_event=events.append, **kw).run("write hello")
+
+    def keep(event: dict[str, Any]) -> None:
+        if event["event"] != "seen":  # what the model was shown, every step
+            events.append(event)
+
+    outcome = LocalAgent(hands, model, on_event=keep, **kw).run("write hello")
     return outcome, events
 
 
@@ -203,6 +208,30 @@ def test_stops_when_the_same_action_keeps_changing_nothing() -> None:
     assert len(hands.acts()) == 3
 
 
+def test_clicking_the_same_spot_twice_gets_a_note_to_type_or_change_course() -> None:
+    hands = FakeHands({"left_click": "OK · target changed"})
+    click = {"action": "click", "x": 10, "y": 10}
+    done = {"action": "done", "summary": "ok"}
+    model = Script(click, click, {"action": "type", "text": "Downloads"}, done)
+    run(hands, model)
+    assert "clicked the same spot twice" in model.prompt(2)
+    assert "clicked the same spot twice" not in model.prompt(1)
+
+
+def test_typing_that_went_nowhere_goes_into_the_only_empty_box() -> None:
+    tree = (
+        "Elements:\n"
+        "[e1] Edit \"Address and search bar\" value='x' {value} center (5, 5)\n"
+        '  [e2] Edit "Search the catalogue" {value} center (50, 50)'
+    )
+    hands = FakeHands({"uia_tree": tree, "type": "OK · no visible change"})
+    model = Script({"action": "type", "text": "Dune"}, {"action": "done", "summary": "ok"})
+    _, events = run(hands, model)
+    assert ("uia_set_value", {"element": "e2", "value": "Dune"}) in hands.acts()
+    step = next(e for e in events if e["event"] == "step")
+    assert '"Search the catalogue"' in step["result"]
+
+
 def test_focusing_the_same_window_again_and_again_is_stuck() -> None:
     # Notepad in round 6: seven focus_window steps in a row, each "is in front" (D-106).
     hands = FakeHands({"focus_window": '"Untitled - Notepad" is in front'})
@@ -253,6 +282,10 @@ def test_uses_the_element_list_when_ui_automation_can_read_the_window() -> None:
     assert any(e["event"] == "bad_reply" and "e9" in e["error"] for e in events)
     assert '[e5] Document "Text editor"' in model.prompt(0)
     assert events[0]["action"] == 'set_value e5 = "hello"'
+    seen = LocalAgent(hands, Script(done()), on_event=events.append)
+    events.clear()
+    seen.run("write hello")
+    assert events[0]["event"] == "seen" and "[e5]" in events[0]["elements"]
     with pytest.raises(ReplyError, match="element id"):
         to_member({"action": "invoke", "element": "Save"}, Frame.from_png(png()), "rel1000")
 
@@ -479,7 +512,7 @@ def test_reply_schema_lists_only_actions_relay_runs() -> None:
     from relay_screen.agent.local import ACTION_NAMES, REPLY_SCHEMA
 
     frame = Frame.from_png(png())
-    special = {"look", "done", "fail", "ask_claude", "plan"}
+    special = {"look", "done", "fail", "ask_cloud", "plan"}
     for name in set(ACTION_NAMES) - special:
         action = {"action": name, "x": 1, "y": 1, "text": "a", "keys": "a", "name": "a"}
         action |= {"url": "a.com", "window": "a", "element": "e1", "value": "v"}
@@ -569,6 +602,34 @@ def test_instant_tasks_need_no_model() -> None:
         ("launch_app", {"name": "Notepad"}),
     ]
     assert events[-1]["event"] == "done" and "instant_ms" in events[-1]
+
+
+@pytest.mark.parametrize(
+    ("task", "entry"),
+    [
+        ("Open Calculator and work out 12 times 34.", "12*34="),
+        ("open calculator and calculate 1,200 divided by 4", "1200/4="),
+        ("work out 3 plus 4 in Calculator", "3+4="),
+        ("Open Calculator and work out the tip", None),
+        ("Open Notepad and work out 2 times 3", None),
+    ],
+)
+def test_calculator_sums_are_typed_whole(task: str, entry: str | None) -> None:
+    from relay_screen.agent.local import calc_entry
+
+    assert calc_entry(task) == entry
+
+
+def test_a_calculator_sum_needs_no_model() -> None:
+    hands = FakeHands({"focus_window": ActionError("no open window matches 'Calculator'")})
+    model = Script()
+    outcome = LocalAgent(hands, model).run("Open Calculator and work out 12 times 34.")
+    assert outcome.status == "done" and model.seen == []
+    assert hands.acts() == [
+        ("focus_window", {"window": "Calculator"}),
+        ("launch_app", {"name": "Calculator"}),
+        ("type", {"text": "12*34="}),
+    ]
 
 
 def test_an_instant_move_that_fails_goes_to_the_model() -> None:
@@ -688,6 +749,11 @@ def test_a_thinking_block_before_the_json_is_ignored() -> None:
         ("find the invoice pdf in my downloads", None),
         ("go to dice.com and search for fde jobs", None),
         ("find the cat note in notepad", None),  # an open program is named
+        (
+            "Open a new tab in the web browser and search the web for relay diagnostics 1",
+            "relay+diagnostics+1",
+        ),
+        ("open the browser and then search for brave news", "brave+news"),
     ],
 )
 def test_web_search_first_for_find_tasks(task: str, found: str | None) -> None:
@@ -785,13 +851,13 @@ def test_stop_ends_a_slow_model_call_at_once() -> None:
     assert time.perf_counter() - started < 3  # the model call alone would take 5 s
 
 
-def test_claude_signed_out_leaves_the_local_ai_going() -> None:
+def test_cloud_signed_out_leaves_the_local_ai_going() -> None:
     def ask(question: str) -> str:
         raise RuntimeError("Invalid API key · Please run /login")
 
     hands = FakeHands()
     model = Script(
-        {"thought": "", "action": "ask_claude", "question": "what to write?"},
+        {"thought": "", "action": "ask_cloud", "question": "what to write?"},
         {"thought": "", "action": "done", "summary": "wrote it myself"},
     )
     events: list[dict[str, Any]] = []
@@ -1111,3 +1177,115 @@ def test_three_failed_steps_in_a_row_tell_the_model_to_change_approach() -> None
     run(hands, model)
     assert "Stop clicking by position" in model.prompt(3)
     assert "Stop clicking by position" not in model.prompt(2)
+
+
+def test_a_launch_app_with_no_name_opens_the_planned_program() -> None:
+    # Round 9: Holo sent a bare {"action": "launch_app"} three times (D-106).
+    plan = {"action": "plan", "goal": "type", "app": "Notepad", "steps": ["Open Notepad"]}
+    hands = FakeHands({"launch_app": "Opened Notepad"})
+    run(hands, Script({"action": "launch_app"}, done(), plan=plan))
+    assert ("launch_app", {"name": "Notepad", "args": []}) in hands.acts()
+
+
+def test_a_dropdown_option_is_picked_by_typing_its_name() -> None:
+    # Round 10: invoking "Blue" under the Colour box said OK and left it unpicked (D-106).
+    page = (
+        'Elements (ids ...):\n[e1] Document "Relay form" center (500, 300)\n'
+        '  [e4] ComboBox "Colour" {expand} center (870, 145) box [850, 137, 898, 154]\n'
+        "    [e5] List center (870, 170)\n"
+        '      [e6] ListItem "Blue" {select} center (870, 180)\n'
+        '  [e7] ListItem "Loose" {select} center (10, 10)'
+    )
+    hands = FakeHands({"uia_tree": page})
+    model = Script(
+        {"action": "invoke", "element": "e6"},
+        {"action": "invoke", "element": "e7"},
+        done(),
+    )
+    run(hands, model)
+    assert hands.acts() == [
+        ("key", {"text": "Escape"}),
+        ("left_click", {"coordinate": [870, 145]}),
+        ("type", {"text": "Blue"}),
+        ("key", {"text": "Return"}),
+        ("uia_invoke", {"element": "e7"}),  # not in a dropdown: invoked as before
+    ]
+
+
+def test_switching_windows_back_and_forth_gets_a_note_then_stops() -> None:
+    # Round 10: Brave, Notepad, Brave, Notepad... until the step limit (D-106).
+    a, b = {"action": "focus_window", "window": "Brave"}, {"action": "focus_window", "window": "N"}
+    model = Script(*([a, b] * 6))
+    outcome, _ = run(FakeHands(), model)
+    assert "switched windows 4 times" in model.prompt(4)
+    assert outcome.status == "failed" and len(model.seen) == 8
+
+
+def test_plans_lose_save_steps_the_task_never_asked_for() -> None:
+    plan = {
+        "action": "plan",
+        "goal": "copy",
+        "app": "Notepad",
+        "steps": ["Open Notepad", "Type the price", "Save the file"],
+    }
+    model = Script(done(), done(), plan=plan)
+    LocalAgent(FakeHands(), model, instant=False).run("open Notepad and write the price")
+    assert "Save the file" not in model.prompt(0) and "Type the price" in model.prompt(0)
+
+
+JOB_PAGE = (
+    'Elements (ids ...):\n[e1] Document "Job" center (1100, 300) box [800, 50, 1560, 650]\n'
+    "  [e5] Edit \"Email\" value='alex@example.com' center (895, 144) box [845, 136, 945, 153]\n"
+    '  [e6] Edit "Phone" center (898, 170) box [848, 162, 948, 179]\n'
+    '  [e7] Edit "Full name" center (911, 118) box [861, 110, 961, 127]'
+)
+
+
+def test_a_click_beside_the_window_goes_to_the_control_the_thought_names() -> None:
+    # Round 11: "click on the Full name field" landed at x=560, in another program.
+    class Hands(FakeHands):
+        def outside_front(self, coordinate: Any) -> str | None:
+            return "Job - Brave" if coordinate[0] < 800 else None
+
+    hands = Hands({"uia_tree": JOB_PAGE})
+    hands.shot = png(1280, 544)
+    model = Script(
+        {"thought": "I'll click on the Full name field.", "action": "click", "x": 560, "y": 178},
+        {"thought": "Click somewhere.", "action": "click", "x": 560, "y": 178},
+        done(),
+    )
+    run(hands, model)
+    clicks = [a for a in hands.acts() if a[0] == "left_click"]
+    assert clicks == [("left_click", {"coordinate": [911, 118]})]
+
+
+def test_typing_twice_in_a_row_goes_to_the_empty_field_the_thought_names() -> None:
+    # Round 11: the phone number was typed straight after the email, into Email.
+    hands = FakeHands({"uia_tree": JOB_PAGE})
+    model = Script(
+        {"thought": "Type the email.", "action": "type", "text": "alex@example.com"},
+        {"thought": "Now the Phone field, after Email.", "action": "type", "text": "555 0100"},
+        done(),
+    )
+    run(hands, model)
+    assert hands.acts()[-1] == ("uia_set_value", {"element": "e6", "value": "555 0100"})
+
+
+def test_click_text_falls_back_to_a_listed_control_ocr_cannot_see() -> None:
+    # Round 11: the Explorer window was on the other monitor, so OCR never saw it.
+    tree = (
+        'Elements (ids ...):\n[e1] Window "relay-explorer-test"\n  [e4] ListItem "incoming" center'
+    )
+    hands = FakeHands({"uia_tree": tree, "find_text": "No text like that."})
+    run(hands, Script({"action": "click_text", "text": "Incoming"}, done()))
+    assert ("uia_invoke", {"element": "e4"}) in hands.acts()
+
+
+def test_an_unexpected_error_fails_one_step_not_the_task() -> None:
+    class COMError(Exception):
+        pass
+
+    hands = FakeHands({"key": COMError("(-2146233079, None)")})
+    outcome, events = run(hands, Script({"action": "key", "keys": "ctrl+a"}, done()))
+    assert outcome.status == "done"
+    assert next(e for e in events if e["event"] == "step")["result"].startswith("failed: COMError")

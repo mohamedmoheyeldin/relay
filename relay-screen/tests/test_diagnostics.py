@@ -6,6 +6,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from relay_screen import cli_names
 from relay_screen.actions import ActionResult
 from relay_screen.agent.service import OperatorService, serve_port
 from relay_screen.diagnostics import cli
@@ -42,7 +43,7 @@ class FakeLink:
             on_event(event)
 
 
-class FakeClaude:
+class FakeCloud:
     def __init__(self, logged_in: bool = True, answer: str = "READY") -> None:
         self.logged_in = logged_in
         self.answer = answer
@@ -76,7 +77,7 @@ def tools(link: Any, hands: FakeHands | None = None, **kw: Any) -> diag.Tools:
         hands=hands,
         desktop=desktop,
         link=link,
-        claude=kw.pop("claude", None),
+        cloud=kw.pop("cloud", None),
         capture=lambda: b"jpeg",
         clock=Clock(),
         sleep=lambda s: None,
@@ -217,27 +218,27 @@ def test_routing_is_checked(tmp_path: Path) -> None:
     assert len(result.details["routes"]) == len(diag.ROUTES)
 
 
-def test_claude_scenarios(tmp_path: Path) -> None:
-    claude = FakeClaude()
+def test_cloud_scenarios(tmp_path: Path) -> None:
+    cloud = FakeCloud()
     chosen = [
-        diag.Scenario("claude-text", "Text", "claude-text"),
+        diag.Scenario("cloud-text", "Text", "cloud-text"),
         diag.Scenario(
-            "claude-ui",
+            "cloud-ui",
             "UI",
-            "claude-ui",
-            "Open Notepad and type: Claude sent this 1",
-            ({"uia_text": {"window": "Notepad", "contains": "Claude sent this 1"}},),
+            "cloud-ui",
+            "Open Notepad and type: Cloud AI sent this 1",
+            ({"uia_text": {"window": "Notepad", "contains": "Cloud AI sent this 1"}},),
         ),
     ]
-    hands = FakeHands({"uia_tree": "Elements:\n[e1] Edit 'Claude sent this 1'"})
-    results = diag.run_all(chosen, tools(None, hands, claude=claude), tmp_path, lambda e: None)
+    hands = FakeHands({"uia_tree": "Elements:\n[e1] Edit 'Cloud AI sent this 1'"})
+    results = diag.run_all(chosen, tools(None, hands, cloud=cloud), tmp_path, lambda e: None)
     assert [r.status for r in results] == ["passed", "passed"]
-    assert "ui_task" in claude.prompts[0] and results[1].timings["claude_ms"] == 900
-    out = diag.run_all(chosen, tools(None, claude=FakeClaude(False)), tmp_path, lambda e: None)
+    assert "ui_task" in cloud.prompts[0] and results[1].timings["cloud_ms"] == 900
+    out = diag.run_all(chosen, tools(None, cloud=FakeCloud(False)), tmp_path, lambda e: None)
     assert [r.status for r in out] == ["skipped", "skipped"]
 
 
-def test_claude_stream_lines_are_read() -> None:
+def test_cloud_stream_lines_are_read() -> None:
     found: dict[str, Any] = {"tools": []}
     seen: list[dict[str, Any]] = []
     lines = [
@@ -255,10 +256,10 @@ def test_claude_stream_lines_are_read() -> None:
         {"type": "result", "is_error": False, "duration_ms": 5, "num_turns": 2, "result": "DONE"},
     ]
     for n, line in enumerate(lines):
-        diag.parse_claude_line(line, found, float(n), seen.append)
+        diag.parse_cloud_line(line, found, float(n), seen.append)
     assert found["tools"] == ["mcp__relay-screen__ui_task"] and found["first_tool_s"] == 1.0
     assert found["result"] == "DONE" and found["model"] == "m"
-    assert [e["event"] for e in seen] == ["claude_init", "tool_use", "tool_result", "claude_result"]
+    assert [e["event"] for e in seen] == ["cloud_init", "tool_use", "tool_result", "cloud_result"]
 
 
 def test_the_summary_report_and_latest(tmp_path: Path) -> None:
@@ -289,9 +290,9 @@ def test_the_cli_lists_and_reads_the_latest(tmp_path: Path, capsys: Any) -> None
 def test_the_scenarios_cover_the_owners_ask() -> None:
     chosen = diag.scenarios("1", "http://127.0.0.1:1")
     kinds = {s.kind for s in chosen}
-    assert kinds == {"operator", "displays", "route", "claude-text", "claude-ui", "app"}
+    assert kinds == {"operator", "displays", "route", "cloud-text", "cloud-ui", "app"}
     assert any(s.offline for s in chosen) and len({s.id for s in chosen}) == len(chosen)
-    # One run covers every area, in order: the app, real tasks, Claude, the system.
+    # One run covers every area, in order: the app, real tasks, Cloud AI, the system.
     areas = [diag.area_of(s) for s in chosen]
     assert list(dict.fromkeys(areas)) == list(diag.AREAS)
     assert diag.area_of(next(s for s in chosen if s.id == "local-only")) == diag.AREAS[2]
@@ -422,16 +423,16 @@ def test_resources_are_grouped_by_role_and_checked_against_the_budget(tmp_path: 
     assert out["peak_relay_ram_mb"] == 1600 and out["over_budget"][0].startswith("Relay used 1600")
     summary = diag.summarize([], {}, tmp_path, "now", 1.0, out)
     assert summary["problems"] == out["over_budget"]
-    # Another program's Python under the Claude desktop app is not Relay's.
+    # Another program's Python under the reference chat app is not Relay's.
     relay_py = "C:\\Program Files\\Relay\\python\\python.exe"
     other_py = "C:\\Users\\me\\uv\\python.exe"
     mixed = [
-        {"pid": 40, "parent": 1, "name": "claude.exe", "ram": 0, "private": 0},
+        {"pid": 40, "parent": 1, "name": cli_names.WINDOWS_EXE, "ram": 0, "private": 0},
         {"pid": 41, "parent": 40, "name": "python.exe", "ram": 70 * mb, "path": other_py},
         {"pid": 42, "parent": 40, "name": "python.exe", "ram": 60 * mb, "path": relay_py},
     ]
     found = diag.group_processes(mixed, {}, me=99, python_dir="C:\\Program Files\\Relay\\python")
-    assert found["relay-screen for Claude"] == {
+    assert found["relay-screen for Cloud AI"] == {
         "processes": 1, "ram_mb": 60, "private_mb": 0, "vram_mb": 0,
     }  # fmt: skip
 
@@ -443,3 +444,56 @@ def test_an_unanswered_approval_fails_one_scenario_not_the_run(tmp_path: Path) -
     results = diag.run_all(chosen, tools(link), tmp_path, lambda e: None)
     assert [r.id for r in results] == ["a", "b"]
     assert all(r.status == "failed" for r in results)
+
+
+def test_notepad_tabs_from_test_runs_are_closed_without_saving(tmp_path: Path) -> None:
+    desktop: Any = None
+    front = [""]
+
+    def ctrl_w(params: dict[str, Any]) -> str:
+        if params["text"] == "ctrl+w":  # the active tab closes; its title goes
+            desktop.open.pop(next(h for h, t in desktop.open.items() if t == front[0]))
+        return "OK"
+
+    def focus(params: dict[str, Any]) -> str:
+        front[0] = params["window"]
+        return "OK"
+
+    hands = FakeHands(
+        {
+            "key": ctrl_w,
+            "focus_window": focus,
+            "uia_find": '1 match(es):\n[e9] Button "Don\'t save" center (5, 5)',
+        }
+    )
+    desktop = FakeDesktop(
+        hands,
+        {
+            1: "Relay",
+            2: "*First line 010427 - Notepad",
+            3: "*Nimbus 14 - $749 - Notepad",
+            4: "*my plans - Notepad",
+            5: "relay diagnostics 1 - Brave",
+        },
+    )
+    assert diag.close_test_docs(tools(FakeLink(), hands, desktop=desktop)) == 2
+    assert sorted(desktop.open) == [1, 4, 5]  # the owner's own tab and other windows stay
+    assert hands.calls.count(("uia_invoke", {"element": "e9"})) == 2
+
+
+def test_library_lists_one_reserve_button_per_matching_copy() -> None:
+    from relay_screen.diagnostics.run import site_page
+
+    empty = site_page("/library", {})
+    assert "Search the catalogue" in empty and "Reserve" not in empty
+    found = site_page("/library", {"q": "dune"})
+    assert found.count(">Reserve<") == 3 and 'value="dune-paperback"' in found
+    assert "Foundation" not in found
+    assert "Reserved: Dune" in site_page("/reserved", {"book": "dune-paperback"})
+
+
+def test_a_test_tab_that_will_not_close_is_tried_twice_then_left() -> None:
+    hands = FakeHands({"uia_find": "No match"})
+    desktop = FakeDesktop(hands, {2: "*First line 010427 - Notepad"})
+    assert diag.close_test_docs(tools(FakeLink(), hands, desktop=desktop)) == 2
+    assert hands.calls.count(("key", {"text": "Escape"})) == 2

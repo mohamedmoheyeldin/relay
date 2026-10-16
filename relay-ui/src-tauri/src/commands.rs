@@ -12,8 +12,8 @@ use tauri_plugin_opener::OpenerExt;
 use relay_core::operator::{Operator, Route};
 use relay_core::settings::{ActiveModel, Settings};
 use relay_core::{
-    catalog, chat, chats, claude, diagnostics, doctor, gpu, local_agent, local_ai, mcp, paths,
-    system, updates,
+    catalog, chat, chats, cloud, diagnostics, doctor, gpu, local_agent, local_ai, mcp, paths,
+    projects, system, updates,
 };
 
 use crate::jobs;
@@ -39,10 +39,10 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
         open_path,
         job_cancel,
         jobs_running,
-        claude_state,
-        claude_install,
-        claude_update,
-        claude_verify,
+        cloud_state,
+        cloud_install,
+        cloud_update,
+        cloud_verify,
         pty_start,
         pty_write,
         pty_resize,
@@ -69,6 +69,11 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
         chat_stop,
         chat_say,
         chat_new,
+        chat_move,
+        projects_list,
+        project_save,
+        project_delete,
+        tasks_list,
         chats_list,
         chat_open,
         chat_save,
@@ -90,7 +95,7 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
 
 // ---------------------------------------------------------------- app and settings
 
-/// Tells Claude when relay-browser can't open pages, so it says so instead of waiting.
+/// Tells Cloud AI when relay-browser can't open pages, so it says so instead of waiting.
 #[derive(Serialize)]
 struct AppInfo {
     version: String,
@@ -209,50 +214,50 @@ fn setup_complete(state: State<'_, AppState>) -> Res<Settings> {
         .map_err(anyhow_err)
 }
 
-// ---------------------------------------------------------------- Claude Code (D-045)
+// ---------------------------------------------------------------- Cloud AI (D-045)
 
 #[tauri::command]
-async fn claude_state(state: State<'_, AppState>) -> Result<claude::ClaudeState, ()> {
-    let c = claude::state().await;
+async fn cloud_state(state: State<'_, AppState>) -> Result<cloud::CloudState, ()> {
+    let c = cloud::state().await;
     // The UI asks after every sign-in or sign-out, so chat_send sees the change at once.
-    *state.claude_signed_in.lock().expect("claude lock") =
+    *state.cloud_signed_in.lock().expect("cloud lock") =
         Some((c.installed && c.auth.logged_in, std::time::Instant::now()));
     Ok(c)
 }
 
 #[tauri::command]
-fn claude_install(app: AppHandle) -> Res<()> {
+fn cloud_install(app: AppHandle) -> Res<()> {
     let app2 = app.clone();
-    jobs::spawn(&app, "claude-install", move |r, _| async move {
+    jobs::spawn(&app, "cloud-install", move |r, _| async move {
         let line_r = r.clone();
-        claude::install(move |l| line_r.line(l)).await?;
+        cloud::install(move |l| line_r.line(l)).await?;
         state::ensure_relay_screen(&app2).await?;
         Ok(())
     })
 }
 
 #[tauri::command]
-fn claude_update(app: AppHandle) -> Res<()> {
-    jobs::spawn(&app, "claude-update", move |r, _| async move {
-        claude::update(move |l| r.line(l)).await
+fn cloud_update(app: AppHandle) -> Res<()> {
+    jobs::spawn(&app, "cloud-update", move |r, _| async move {
+        cloud::update(move |l| r.line(l)).await
     })
 }
 
 #[tauri::command]
-async fn claude_verify(app: AppHandle) -> Res<String> {
+async fn cloud_verify(app: AppHandle) -> Res<String> {
     // One check at a time: the wizard and Settings can both ask, and two runs
-    // would race on re-registering relay-screen in Claude Code's config.
+    // would race on re-registering relay-screen in Cloud AI's config.
     static ONE_AT_A_TIME: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
     let _guard = ONE_AT_A_TIME.lock().await;
-    // Registration needs Claude Code, so retry it here after a fresh install.
+    // Registration needs Cloud AI, so retry it here after a fresh install.
     let _ = state::ensure_relay_screen(&app).await;
-    claude::verify().await.map_err(anyhow_err)
+    cloud::verify().await.map_err(anyhow_err)
 }
 
 #[tauri::command]
 fn pty_start(app: AppHandle, kind: String, cols: u16, rows: u16) -> Res<u64> {
     let args: &[&str] = match kind.as_str() {
-        "login" => &["auth", "login", "--claudeai"],
+        "login" => &["auth", "login", relay_core::cli_names::ACCOUNT_LOGIN_FLAG],
         "login-console" => &["auth", "login", "--console"],
         _ => return Err("unknown terminal".into()),
     };
@@ -510,7 +515,7 @@ async fn mcp_add(app: AppHandle, spec: mcp::ServerSpec, secrets: Vec<SecretInput
         .filter(|s| !s.key.trim().is_empty())
         .map(|s| (s.key.trim().to_string(), s.value))
         .collect();
-    // Record the secret names first: the launcher reads them when Claude starts the server.
+    // Record the secret names first: the launcher reads them when Cloud AI starts the server.
     let names: Vec<String> = secret_env.iter().map(|(k, _)| k.clone()).collect();
     let name = spec.name().to_string();
     let st = app.state::<AppState>();
@@ -593,8 +598,8 @@ async fn mcp_resume(app: AppHandle, name: String) -> Res<()> {
     Ok(())
 }
 
-/// Sign in to a server that uses OAuth (HTTP servers, claude.ai connectors).
-/// Claude Code opens the browser and keeps the token; the job ends when it's done.
+/// Sign in to a server that uses OAuth (HTTP servers, account connectors).
+/// Cloud AI opens the browser and keeps the token; the job ends when it's done.
 #[tauri::command]
 fn mcp_login(app: AppHandle, name: String) -> Res<()> {
     jobs::spawn(
@@ -617,7 +622,7 @@ async fn plugins_list() -> Res<Vec<mcp::Plugin>> {
     mcp::plugins().await.map_err(anyhow_err)
 }
 
-/// Turn a Claude Code plugin (and every server it brings) on or off.
+/// Turn a Cloud AI plugin (and every server it brings) on or off.
 #[tauri::command]
 async fn plugin_set_enabled(id: String, enabled: bool) -> Res<()> {
     mcp::set_plugin_enabled(&id, enabled)
@@ -638,9 +643,9 @@ fn emit_chat(app: &AppHandle, event: Option<chat::ChatEvent>) {
     let _ = app.emit("chat", ChatPayload { event, finished });
 }
 
-/// What a Claude turn showed about whether Claude could run at all.
+/// What a Cloud AI turn showed about whether Cloud AI could run at all.
 #[derive(Default)]
-struct ClaudeOutcome {
+struct CloudOutcome {
     tool_ran: bool,
     auth_text: bool,
     unavailable: bool,
@@ -664,12 +669,12 @@ pub async fn operator(app: &AppHandle) -> Option<Arc<Operator>> {
     }
     let python = state::python_path(app).filter(|p| p.exists())?;
     let events_app = app.clone();
-    // Steps of tasks Relay didn't start here (Claude's ui_task calls) show only while
-    // this app's own Claude turn runs; other callers' tasks never land in a chat.
+    // Steps of tasks Relay didn't start here (Cloud AI's ui_task calls) show only while
+    // this app's own Cloud AI turn runs; other callers' tasks never land in a chat.
     let started = Operator::start(&python, &st.settings(), move |event| {
         if events_app
             .state::<AppState>()
-            .claude_turn
+            .cloud_turn
             .load(Ordering::SeqCst)
         {
             emit_chat(&events_app, Some(event))
@@ -690,25 +695,25 @@ pub async fn operator(app: &AppHandle) -> Option<Arc<Operator>> {
     }
 }
 
-const CLAUDE_SIGNED_OUT: &str =
-    "Claude isn't signed in. Screen tasks still work; writing and judgment need Claude";
+const CLOUD_SIGNED_OUT: &str =
+    "Cloud AI isn't signed in. Screen tasks still work; writing and judgment need Cloud AI";
 
-/// Whether Claude Code can answer: installed and signed in. Checked at most once a
-/// minute, since asking runs the `claude` CLI.
-async fn claude_signed_in(app: &AppHandle) -> bool {
+/// Whether Cloud AI can answer: installed and signed in. Checked at most once a
+/// minute, since asking runs the Cloud AI CLI.
+async fn cloud_signed_in(app: &AppHandle) -> bool {
     let st = app.state::<AppState>();
-    if let Some((yes, at)) = *st.claude_signed_in.lock().expect("claude lock") {
+    if let Some((yes, at)) = *st.cloud_signed_in.lock().expect("cloud lock") {
         if at.elapsed() < std::time::Duration::from_secs(60) {
             return yes;
         }
     }
-    let yes = claude::find().is_some()
-        && claude::auth_status()
+    let yes = cloud::find().is_some()
+        && cloud::auth_status()
             .await
             .map(|a| a.logged_in)
-            // Can't tell: let Claude try; a failed turn still falls back to the local AI.
+            // Can't tell: let Cloud AI try; a failed turn still falls back to the local AI.
             .unwrap_or(true);
-    *st.claude_signed_in.lock().expect("claude lock") = Some((yes, std::time::Instant::now()));
+    *st.cloud_signed_in.lock().expect("cloud lock") = Some((yes, std::time::Instant::now()));
     yes
 }
 
@@ -736,7 +741,7 @@ async fn operator_turn(
 }
 
 #[tauri::command]
-async fn chat_send(app: AppHandle, prompt: String) -> Res<()> {
+async fn chat_send(app: AppHandle, prompt: String, project: Option<String>) -> Res<()> {
     let st = app.state::<AppState>();
     // A run the owner just stopped may take a moment to exit; wait for it briefly.
     for _ in 0..50 {
@@ -749,9 +754,9 @@ async fn chat_send(app: AppHandle, prompt: String) -> Res<()> {
         return Err("Relay is still working on the last message.".into());
     }
     st.stopped.store(false, Ordering::SeqCst);
-    // Screen tasks go straight to the local operator; the rest to Claude. The turn
+    // Screen tasks go straight to the local operator; the rest to Cloud AI. The turn
     // isn't held while deciding, so Stop never waits on this.
-    let signed_in = claude_signed_in(&app).await;
+    let signed_in = cloud_signed_in(&app).await;
     let op = operator(&app).await;
     let to_operator = match &op {
         Some(op) => op.route(&prompt, signed_in).await == Route::Operator,
@@ -768,24 +773,33 @@ async fn chat_send(app: AppHandle, prompt: String) -> Res<()> {
     if let (Some(op), true) = (op, to_operator) {
         return operator_turn(&app, &op, &prompt, turn).await;
     }
-    // Without Claude the local AI does everything it can; nothing waits on a sign-in.
+    // Without Cloud AI the local AI does everything it can; nothing waits on a sign-in.
     if !signed_in {
         drop(turn);
         let done_app = app.clone();
         tauri::async_runtime::spawn(async move {
-            run_local(&done_app, &prompt, CLAUDE_SIGNED_OUT.into()).await;
+            run_local(&done_app, &prompt, CLOUD_SIGNED_OUT.into()).await;
             *done_app.state::<AppState>().turn.lock().await = None;
             emit_chat(&done_app, None);
         });
         return Ok(());
     }
     let s = st.settings();
-    let opts = chat::TurnOptions {
-        resume: st.session.lock().expect("session lock").clone(),
-        model: s.claude.model.clone(),
-        effort: s.claude.effort.clone(),
+    let resume = st.session.lock().expect("session lock").clone();
+    // A project's instructions go in front of the first message Cloud AI sees in a chat.
+    let prompt = match (
+        &resume,
+        project.and_then(|id| projects::get(&projects::file(), &id)),
+    ) {
+        (None, Some(p)) => projects::preamble(&p).map_or(prompt.clone(), |pre| pre + &prompt),
+        _ => prompt,
     };
-    let outcome = Arc::new(std::sync::Mutex::new(ClaudeOutcome::default()));
+    let opts = chat::TurnOptions {
+        resume,
+        model: s.cloud.model.clone(),
+        effort: s.cloud.effort.clone(),
+    };
+    let outcome = Arc::new(std::sync::Mutex::new(CloudOutcome::default()));
     let seen = outcome.clone();
     let events_app = app.clone();
     let started = chat::start(&prompt, &opts, move |event| {
@@ -794,15 +808,15 @@ async fn chat_send(app: AppHandle, prompt: String) -> Res<()> {
             match &event {
                 chat::ChatEvent::ToolUse { .. } => o.tool_ran = true,
                 chat::ChatEvent::Text { text } => {
-                    o.auth_text |= local_agent::claude_unavailable(text)
+                    o.auth_text |= local_agent::cloud_unavailable(text)
                 }
                 chat::ChatEvent::Done {
                     is_error: true,
                     result,
                     ..
-                } => o.unavailable |= o.auth_text || local_agent::claude_unavailable(result),
+                } => o.unavailable |= o.auth_text || local_agent::cloud_unavailable(result),
                 chat::ChatEvent::Error { message } => {
-                    o.unavailable |= local_agent::claude_unavailable(message)
+                    o.unavailable |= local_agent::cloud_unavailable(message)
                 }
                 _ => {}
             }
@@ -819,29 +833,29 @@ async fn chat_send(app: AppHandle, prompt: String) -> Res<()> {
         emit_chat(&events_app, Some(event));
     })
     .await;
-    let claude_task = match started {
+    let cloud_task = match started {
         Ok((handle, task)) => {
             *turn = Some(handle);
-            st.claude_turn.store(true, Ordering::SeqCst);
+            st.cloud_turn.store(true, Ordering::SeqCst);
             Some(task)
         }
-        // Claude Code isn't installed: the local AI takes the task straight away.
+        // Cloud AI isn't installed: the local AI takes the task straight away.
         Err(_) => None,
     };
     drop(turn);
     let done_app = app.clone();
     tauri::async_runtime::spawn(async move {
-        let reason = match claude_task {
-            None => Some("Claude Code isn't installed".to_string()),
+        let reason = match cloud_task {
+            None => Some("Cloud AI isn't installed".to_string()),
             Some(task) => {
                 let _ = task.await;
                 done_app
                     .state::<AppState>()
-                    .claude_turn
+                    .cloud_turn
                     .store(false, Ordering::SeqCst);
                 let o = outcome.lock().expect("outcome lock");
                 (o.unavailable && !o.tool_ran)
-                    .then(|| "Claude can't run right now (signed out or offline)".to_string())
+                    .then(|| "Cloud AI can't run right now (signed out or offline)".to_string())
             }
         };
         let st = done_app.state::<AppState>();
@@ -922,7 +936,7 @@ async fn run_local(app: &AppHandle, prompt: &str, reason: String) {
 /// of plan on its next step; anything else stops and the message starts a new turn in
 /// the same conversation.
 #[tauri::command]
-async fn chat_say(app: AppHandle, text: String) -> Res<()> {
+async fn chat_say(app: AppHandle, text: String, project: Option<String>) -> Res<()> {
     let st = app.state::<AppState>();
     if let Some(chat::Turn::Operator { op, id }) = st.turn.lock().await.as_ref() {
         return op.say(id, &text).await.map_err(anyhow_err);
@@ -933,7 +947,7 @@ async fn chat_say(app: AppHandle, text: String) -> Res<()> {
             turn.stop().await;
         }
     }
-    chat_send(app.clone(), text).await
+    chat_send(app.clone(), text, project).await
 }
 
 #[tauri::command]
@@ -966,7 +980,7 @@ fn chats_list() -> Vec<chats::Summary> {
     chats::list(&chats::dir())
 }
 
-/// Open a saved chat; the next message continues its Claude session.
+/// Open a saved chat; the next message continues its Cloud AI session.
 #[tauri::command]
 fn chat_open(state: State<'_, AppState>, id: String) -> Res<chats::Chat> {
     let chat = chats::load(&chats::dir(), &id).map_err(anyhow_err)?;
@@ -974,13 +988,14 @@ fn chat_open(state: State<'_, AppState>, id: String) -> Res<chats::Chat> {
     Ok(chat)
 }
 
-/// Save what the chat screen shows, with the Claude session it is on now.
+/// Save what the chat screen shows, with the Cloud AI session it is on now.
 #[tauri::command]
 fn chat_save(
     state: State<'_, AppState>,
     id: String,
     title: String,
     items: serde_json::Value,
+    project: Option<String>,
 ) -> Res<chats::Summary> {
     let session = state.session.lock().expect("session lock").clone();
     let chat = chats::Chat {
@@ -991,6 +1006,7 @@ fn chat_save(
         items,
         pinned: false,
         renamed: false,
+        project,
     };
     let saved = chats::save(&chats::dir(), chat).map_err(anyhow_err)?;
     Ok(chats::Summary::from(&saved))
@@ -1011,6 +1027,35 @@ fn chat_pin(id: String, pinned: bool) -> Res<chats::Summary> {
 #[tauri::command]
 fn chat_delete(id: String) -> Res<()> {
     chats::delete(&chats::dir(), &id).map_err(anyhow_err)
+}
+
+#[tauri::command]
+fn chat_move(id: String, project: Option<String>) -> Res<chats::Summary> {
+    let chat = chats::move_to(&chats::dir(), &id, project.as_deref()).map_err(anyhow_err)?;
+    Ok(chats::Summary::from(&chat))
+}
+
+#[tauri::command]
+fn projects_list() -> Vec<projects::Project> {
+    projects::list(&projects::file())
+}
+
+#[tauri::command]
+fn project_save(id: String, name: String, instructions: String) -> Res<projects::Project> {
+    projects::save(&projects::file(), &id, &name, &instructions).map_err(anyhow_err)
+}
+
+/// Delete a project; its chats stay, outside any project.
+#[tauri::command]
+fn project_delete(id: String) -> Res<()> {
+    projects::delete(&projects::file(), &id).map_err(anyhow_err)?;
+    chats::leave_project(&chats::dir(), &id);
+    Ok(())
+}
+
+#[tauri::command]
+fn tasks_list() -> Vec<chats::Task> {
+    chats::tasks(&chats::dir())
 }
 
 // ---------------------------------------------------------------- browsers, playbooks

@@ -1,6 +1,6 @@
-//! The local operator (D-067): when Claude can't run, the chat hands the task to
+//! The local operator (D-067): when Cloud AI can't run, the chat hands the task to
 //! `relay-screen agent --json`, which drives the PC with the local model alone,
-//! through the same approval prompt and kill switch Claude's actions use.
+//! through the same approval prompt and kill switch Cloud AI's actions use.
 
 use std::path::Path;
 use std::process::Stdio;
@@ -13,9 +13,9 @@ use crate::chat::{ChatEvent, Turn};
 use crate::settings::Settings;
 use crate::{local_ai, mcp, paths, proc, system};
 
-/// Claude's words when it can't run at all: signed out, sign-in expired, or offline.
+/// Cloud AI's words when it can't run at all: signed out, sign-in expired, or offline.
 /// Only then does the chat fall back to the local operator.
-pub fn claude_unavailable(text: &str) -> bool {
+pub fn cloud_unavailable(text: &str) -> bool {
     let t = text.to_lowercase();
     [
         "failed to authenticate",
@@ -202,12 +202,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn knows_when_claude_cannot_run() {
-        assert!(claude_unavailable(
+    fn knows_when_cloud_cannot_run() {
+        assert!(cloud_unavailable(
             "Failed to authenticate: OAuth session expired and could not be refreshed"
         ));
-        assert!(claude_unavailable("API Error: Connection error."));
-        assert!(!claude_unavailable("I opened Notepad."));
+        assert!(cloud_unavailable("API Error: Connection error."));
+        assert!(!cloud_unavailable("I opened Notepad."));
     }
 
     #[test]

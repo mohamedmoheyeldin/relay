@@ -1,4 +1,4 @@
-// Claude's replies are Markdown: bold, lists, links, code and tables.
+// Cloud AI's replies are Markdown: bold, lists, links, code and tables.
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api } from "@/lib/api";

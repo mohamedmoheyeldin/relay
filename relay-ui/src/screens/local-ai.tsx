@@ -334,7 +334,7 @@ const CustomModels = ({ state, onChange }: { state: LocalAiState; onChange: () =
     );
 };
 
-/** Which downloaded model runs tasks on its own when Claude can't (D-067). */
+/** Which downloaded model runs tasks on its own when Cloud AI can't (D-067). */
 const OperatorPicker = ({ state, settings, save }: { state: LocalAiState; settings: Settings; save: (s: Settings) => Promise<void> }) => {
     const options = [
         // Only models that can plan run tasks; "check" or "find" models can't (D-100).
@@ -357,7 +357,7 @@ const OperatorPicker = ({ state, settings, save }: { state: LocalAiState; settin
                 {(item) => <Select.Item id={item.id} label={item.label} />}
             </Select>
             <p className="text-sm text-tertiary">
-                This model plans and does screen tasks on its own, and does every task when Claude is signed out or offline. "Pick for me" uses Holo3.1-9B.
+                This model plans and does screen tasks on its own, and does every task when Cloud AI is signed out or offline. "Pick for me" uses Holo3.1-9B.
             </p>
             {options.length === 0 && <Notice tone="warning">No model is downloaded yet. Download Holo3.1-9B above so Relay can work on screen.</Notice>}
         </Card>
@@ -389,7 +389,7 @@ export const LocalAiPage = ({ settings, save }: { settings: Settings; save: (s: 
                     <ModelCard key={m.id} model={m} state={state} onChange={refresh} />
                 ))}
             </Section>
-            <Section title="Local operator" description="Runs tasks with the local model alone when Claude isn't available.">
+            <Section title="Local operator" description="Runs tasks with the local model alone when Cloud AI isn't available.">
                 <OperatorPicker state={state} settings={settings} save={save} />
             </Section>
             <Section title="Custom models" description="Add any GGUF vision model from Hugging Face.">

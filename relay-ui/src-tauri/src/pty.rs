@@ -1,13 +1,13 @@
-//! The in-app terminal pane for signing in to Claude Code (D-045).
+//! The in-app terminal pane for signing in to Cloud AI (D-045).
 //!
-//! It runs `claude auth login` in a pseudo-terminal (ConPTY on Windows) and streams
+//! It runs `cloud-cli auth login` in a pseudo-terminal (ConPTY on Windows) and streams
 //! the bytes to the sign-in screen, which finds the sign-in link in them. The owner signs in themselves; Relay never sees the token,
-//! it only checks `claude auth status` afterwards.
+//! it only checks `cloud-cli auth status` afterwards.
 //!
 //! portable-pty opens ConPTY with PSEUDOCONSOLE_INHERIT_CURSOR, so ConPTY first asks
 //! the terminal where its cursor is (`ESC [ 6 n`) and passes no output until it gets
 //! an answer. There is no terminal emulator here, so Relay answers it itself;
-//! without that, `claude auth login` printed nothing and the sign-in never started.
+//! without that, `cloud-cli auth login` printed nothing and the sign-in never started.
 
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -79,16 +79,16 @@ fn take_cursor_queries(data: &[u8]) -> (Vec<u8>, usize) {
     (out, queries)
 }
 
-/// Start `claude <args>` in a new terminal.
+/// Start `cloud <args>` in a new terminal.
 pub fn start(app: &AppHandle, args: &[&str], cols: u16, rows: u16) -> Result<Session> {
-    let claude = relay_core::claude::find().context("Claude Code is not installed yet")?;
+    let cloud = relay_core::cloud::find().context("Cloud AI is not installed yet")?;
     let pair = native_pty_system().openpty(PtySize {
         rows,
         cols,
         pixel_width: 0,
         pixel_height: 0,
     })?;
-    let mut cmd = CommandBuilder::new(claude);
+    let mut cmd = CommandBuilder::new(cloud);
     cmd.args(args);
     cmd.cwd(relay_core::paths::work_dir());
     let child = pair.slave.spawn_command(cmd)?;
@@ -138,8 +138,8 @@ mod tests {
         let (rest, n) = take_cursor_queries(b"\x1b[6nhello\x1b[6n");
         assert_eq!(rest, b"hello");
         assert_eq!(n, 2);
-        let (rest, n) = take_cursor_queries(b"https://claude.ai/oauth");
-        assert_eq!(rest, b"https://claude.ai/oauth");
+        let (rest, n) = take_cursor_queries(b"https://example.com/oauth");
+        assert_eq!(rest, b"https://example.com/oauth");
         assert_eq!(n, 0);
     }
 }

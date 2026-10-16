@@ -1,6 +1,6 @@
 """Key names used by the computer toolset (`key`, `hold_key`, click/scroll modifiers).
 
-Accepts xdotool-style names ("Return", "Page_Down", "super") as Claude writes them, plus
+Accepts xdotool-style names ("Return", "Page_Down", "super") as Cloud AI writes them, plus
 common aliases ("enter", "pgdn", "win"), and `+`-joined chords ("ctrl+shift+t").
 Single printable characters are resolved to virtual keys by the backend at send time,
 because that depends on the active keyboard layout.

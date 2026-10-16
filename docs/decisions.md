@@ -10,36 +10,36 @@ adding a new one that names it; do not rewrite history. Status is `accepted`,
 *2026-10-14 · accepted · from the project brief*
 
 Local AI does perception and execution only (read the screen, find elements,
-click, type, follow playbooks). Claude does all judgment (planning new tasks,
+click, type, follow playbooks). Cloud AI does all judgment (planning new tasks,
 writing free text, recovering when stuck). The local model is never asked to
-decide what to do; Claude is never asked to emit raw clicks without Relay's
+decide what to do; Cloud AI is never asked to emit raw clicks without Relay's
 tools in between.
 
-## D-002 Cloud via the owner's subscription through the official Claude Code CLI
+## D-002 Cloud via the owner's subscription through the official Cloud AI CLI
 *2026-10-14 · accepted*
 
-Relay reaches Claude only by running the unmodified `claude` binary (interactive
-or `claude -p`) under the owner's own login, with Relay plugged in as an MCP
-server. Relay never calls the Anthropic API, never uses `--bare` (which ignores
+Relay reaches Cloud AI only by running the unmodified `cloud-cli` binary (interactive
+or `cloud-cli -p`) under the owner's own login, with Relay plugged in as an MCP
+server. Relay never calls the cloud AI's web API, never uses `--bare` (which ignores
 the subscription and needs an API key), and never reads, stores, or forwards
 OAuth tokens. Personal use on the owner's own machine only.
 
-Why: Anthropic's legal/compliance page reserves OAuth/subscription auth for
-"ordinary use of Claude Code and other native Anthropic applications", forbids
-third parties to "collect, store, or intermediate Claude.ai credentials", and
-says the rules do not "prevent an end user from signing in to the unmodified
-Claude Code binary with their own Claude subscription". Driving that binary for
+Why: the vendor's legal/compliance page reserves OAuth/subscription auth for
+ordinary use of its own CLI and native apps, forbids third parties to
+collect, store, or intermediate account credentials, and says the rules do not
+stop an end user from signing in to the unmodified CLI binary with their own
+subscription (paraphrased). Driving that binary for
 yourself is our reading of what is allowed; it is an inference, not an explicit
 statement. Relay must never be distributed for others to use on a subscription.
 
-Consequence: Claude Code is the one external runtime Relay cannot bundle. Relay
-detects it (`claude --version`, currently 2.1.296 on the owner's PC) and its
+Consequence: Cloud AI is the one external runtime Relay cannot bundle. Relay
+detects it (`cloud-cli --version`, currently 2.1.296 on the owner's PC) and its
 login state, and links to the official installer if missing.
 
 ## D-003 Services via MCP, screen automation for everything else
 *2026-10-14 · accepted · from the project brief*
 
-Gmail, Calendar, Drive, GitHub, etc. go through Claude Code's MCP connectors.
+Gmail, Calendar, Drive, GitHub, etc. go through Cloud AI's MCP connectors.
 Screen automation is reserved for apps/sites with no API.
 
 ## D-004 Local model runtime: bundled llama.cpp server, Ollama optional
@@ -121,7 +121,7 @@ approval card with Run / Always allow / Cancel.
 ## D-008 Layered targeting, cheapest first
 *2026-10-14 · accepted · from the project brief*
 
-connector/API -> UIA accessibility tree -> Windows OCR -> local VLM -> Claude
+connector/API -> UIA accessibility tree -> Windows OCR -> local VLM -> Cloud AI
 with a screenshot. Typical costs (script/API 10 ms, keyboard shortcut 20 ms,
 accessibility handle 50 ms, GUI click 200 ms) follow the same order; Relay adds "keyboard shortcut" as a preferred action form inside
 playbooks.
@@ -134,7 +134,7 @@ parameters, plus a `batch` tool with the documented stop-on-first-failure
 semantics and exact halt text `Not executed: an earlier computer action in this turn failed.`
 Coordinates are screenshot pixels of the active display; Relay scales to
 physical pixels and offsets into the virtual desktop. Default screenshot long
-edge 1568 px (fits Claude Code's MCP image handling and the 25k-token MCP output
+edge 1568 px (fits Cloud AI's MCP image handling and the 25k-token MCP output
 cap), max 2576 px / 3.75 MP per the toolset docs.
 
 Multi-monitor (owner has 2x 3440x1440 + 2560x720): one display is "active";
@@ -156,7 +156,7 @@ MCP Python SDK: pin `mcp>=1.28,<2` (`FastMCP`). v2.3.0 renamed it to
 *2026-10-14 · accepted*
 
 M1: every state-changing action needs approval (milestone rule). Interactive
-runs use Claude Code's own permission prompts (only read-only relay-screen
+runs use Cloud AI's own permission prompts (only read-only relay-screen
 tools are allowlisted in `.claude/settings.json`). Headless runs use
 `--permission-prompt-tool mcp__relay-screen__approve`. In a `batch`, approval is
 checked before each action. From M2: approval only for irreversible actions
@@ -242,13 +242,13 @@ The approval prompt is Relay's own top-most window and ignores injected input
 SendInput events), so the agent can never click "Approve" on itself. Tracked
 in #6; the M3 tray UI keeps the same rule.
 
-## D-020 Playbooks are Claude Code skill compatible
+## D-020 Playbooks are Cloud AI skill compatible
 *2026-10-14 · accepted (amends architecture §7) · from the screen-lane research*
 
-Playbook front matter uses the Claude Code `SKILL.md` keys (`name`,
+Playbook front matter uses the Cloud AI `SKILL.md` keys (`name`,
 `description`) plus Relay's own keys (`app`, `match`, `inputs`,
 `irreversible_steps`, `last_success`). Relay replays them locally without a
-cloud call; when escalation is needed, Claude Code can load the same file as a
+cloud call; when escalation is needed, Cloud AI can load the same file as a
 skill. Tracked in #12.
 
 ## D-021 More API lanes before pixels
@@ -257,7 +257,7 @@ skill. Tracked in #12.
 Extends D-003/D-008: Office apps are driven through COM automation (Word,
 Excel, Outlook) before screen automation; browsers get the DOM lane from D-016
 using Playwright's `aria_snapshot()` over CDP, with form field values redacted
-before anything is sent to Claude. Both are M2 work.
+before anything is sent to Cloud AI. Both are M2 work.
 
 ## D-022 Rejected for now: OmniParser icon fallback; deferred: PP-OCR
 *2026-10-14 · accepted*
@@ -297,10 +297,10 @@ every step of the Start → "notepad" → Return batch now reports "screen chang
 ## D-025 Relay's own prompt is the approval gate
 *2026-10-14 · accepted (amends D-011) · M1-06*
 
-D-011 left interactive approvals to Claude Code's permission prompts. Two problems
-showed up while building M1-06: a `batch` is one tool call, so Claude Code could
-only approve it as a whole, and Claude Code's prompt lives in a terminal that
-Relay can type into, so Claude could approve its own actions (against D-019).
+D-011 left interactive approvals to Cloud AI's permission prompts. Two problems
+showed up while building M1-06: a `batch` is one tool call, so Cloud AI could
+only approve it as a whole, and Cloud AI's prompt lives in a terminal that
+Relay can type into, so Cloud AI could approve its own actions (against D-019).
 
 Relay's own prompt is therefore the gate for every act, in single tools and in
 each step of a batch. It is a small top-most window in a separate process that
@@ -309,7 +309,7 @@ plus a screenshot with the target circled, and gives focus back to the window
 that had it. Buttons: Approve, Approve rest of batch (batches only), Deny. No
 answer in 120 s counts as Deny. The relay-screen act tools are allowlisted in
 `.claude/settings.json` so the owner is not asked twice. The `approve` tool
-(for `claude -p --permission-prompt-tool`) allows relay-screen tools for the
+(for `cloud-cli -p --permission-prompt-tool`) allows relay-screen tools for the
 same reason and shows any other tool in the same prompt.
 `RELAY_APPROVAL=off` turns the per-act prompt off; it is never the default.
 
@@ -327,12 +327,12 @@ before/after thumbnails of the active display for acts.
 *2026-10-14 · accepted · M1-07*
 
 `uia_tree` and `uia_find` give every element they list a short id (`e12`) that
-`uia_invoke` and `uia_set_value` take, so Claude never has to describe an element
+`uia_invoke` and `uia_set_value` take, so Cloud AI never has to describe an element
 twice. Ids stay valid for the server's lifetime (last 5,000 kept); a vanished
 element gives a clear error. All COM calls run on one dedicated thread, because
 UIA element pointers belong to the thread that created them and MCP calls
 arrive on varying worker threads. Listings are capped at 400 elements, 24k
-characters (about 6-8k tokens) and 6 s, with a note telling Claude how to narrow
+characters (about 6-8k tokens) and 6 s, with a note telling Cloud AI how to narrow
 the search. With no `window` given, the search covers the foreground window plus
 the other visible top-level windows of the same process, so menus and dialogs
 that open as separate windows are found. `uia_invoke` uses the control's own
@@ -346,7 +346,7 @@ set when the UIA backend starts and restored at exit.
 
 The live check on the owner's three monitors showed two gaps. An element on a
 monitor other than the active one was listed only as "not on the active
-display", which left Claude no way forward. It now reads "on display N, not the
+display", which left Cloud AI no way forward. It now reads "on display N, not the
 active one (select_display N)". `uia_tree` also skips unnamed elements with no
 automation id when they are hidden (no bounds) or are bare layout containers
 (Pane, Group, Custom, Text with no action). Their children are still listed one
@@ -404,7 +404,7 @@ handler still names EdgeCore, and Brave Origin is the browser the owner uses.
 
 Launching goes through `shell:AppsFolder` when there are no args, the same way a
 Start menu click does, so Store apps work too. With args, the program is started
-directly, detached and outside Claude Code's job object where Windows allows it.
+directly, detached and outside Cloud AI's job object where Windows allows it.
 Relay only launches apps from the catalog, never an arbitrary path. Afterwards it
 waits up to 10 s for the app's window. That is a new window, the window that came
 to the front, or one of the app's windows whose title changed (a browser adding a
@@ -413,11 +413,11 @@ server is a background process, and reports the window's title and its display.
 Live checks use the catalog too (`scripts/check_apps.py`; `check_uia.py` finds
 Brave Origin this way).
 
-## D-031 Claude merges its own PRs into dev and main
+## D-031 Cloud AI merges its own PRs into dev and main
 *2026-10-14 · accepted · owner request · amends D-014*
 
 The owner doesn't want to merge PRs by hand or mark drafts ready. From now on
-Claude opens PRs ready for review and merges them into `dev` once CI is green.
+Cloud AI opens PRs ready for review and merges them into `dev` once CI is green.
 It then merges `dev` into `main` through a dev-to-main PR, also on green CI, and
 closes the issues each PR resolves. `main` still only receives code through
 `dev`. Live checks that open windows on the owner's PC run only when the owner
@@ -431,7 +431,7 @@ children, owns the local sockets and ships as one binary next to Tauri. It
 wraps the Python relay-screen from M1 and keeps it running, and does not
 replace it. relay-screen stays the Windows hands through v1: it is verified
 on the owner's PC, and Python adds well under a millisecond to an action.
-The real per-step costs are vision and Claude calls. The hands move to Rust
+The real per-step costs are vision and Cloud AI calls. The hands move to Rust
 only for macOS (M4), behind the same tool contract (D-009), with
 relay-screen's tests used as contract tests.
 
@@ -439,8 +439,8 @@ relay-screen's tests used as contract tests.
 *2026-10-14 · accepted · proposals/final-architecture.md §3.2*
 
 relay-screen also serves streamable-HTTP MCP on 127.0.0.1, protected by a
-local token that belongs to Relay and is never a Claude credential.
-relay-core keeps one instance running, and Claude Code connects to it through
+local token that belongs to Relay and is never a Cloud AI credential.
+relay-core keeps one instance running, and Cloud AI connects to it through
 the `--mcp-config` Relay passes. This removes the 1-2 s Python start-up on
 every run. Stdio stays for development. The kill switch, approvals and audit
 log stay inside relay-screen, next to SendInput, so no route can bypass them
@@ -459,7 +459,7 @@ Relay always uses the highest rung that works:
 5. The accessibility tree.
 6. OCR.
 7. Local vision models.
-8. Claude with a screenshot.
+8. Cloud AI with a screenshot.
 9. Raw coordinates.
 
 Raw coordinates are only ever the output of rungs 6 to 8 on the current
@@ -488,7 +488,7 @@ never pays a model swap. Holo2-8B is the single-model fallback if the M1-11
 benchmark shows the Q4 pair losing more than about 2 points against Q8.
 Relay runs no local planning model and keeps nothing in system RAM. Both
 models unload after 60 s idle. When NVML reports too little free VRAM, Relay
-loads only the grounding model or goes straight to Claude.
+loads only the grounding model or goes straight to Cloud AI.
 
 ## D-037 relay-core owns the model runtime from M2
 *2026-10-14 · accepted · proposals/final-architecture.md §3.2*
@@ -504,17 +504,17 @@ v1 is Windows only. macOS comes in M4 with Rust hands (xa11y or AXUIElement,
 ScreenCaptureKit, CGEvent, Vision OCR, AppleScript), tested on a real Mac.
 Linux follows macOS, Wayland first, using AT-SPI and portals. The MCP tool
 contract is the boundary that keeps relay-core, playbooks, the UI and
-Claude's prompts the same on every OS.
+Cloud AI's prompts the same on every OS.
 
 ## D-039 D-001 confirmed against the revised brief
 *2026-10-14 · accepted · proposals/final-architecture.md §5*
 
 The owner's brief opened with "no cloud AI" but ended with "local AI is the
-main brain for local automation, Claude does the thinking". Relay keeps
+main brain for local automation, Cloud AI does the thinking". Relay keeps
 D-001. The local side executes: the playbook runner, perception and checks,
-with no cloud call. Claude plans new tasks, writes free text and recovers
+with no cloud call. Cloud AI plans new tasks, writes free text and recovers
 when a check fails. Successful runs are saved as playbooks, so later runs
-need no Claude call.
+need no Cloud AI call.
 
 ## D-040 Always-on perception in relay-core
 *2026-10-14 · accepted · M2 · proposals/final-architecture.md (revised in #31) · will replace D-024 polling*
@@ -529,12 +529,12 @@ relay-screen uses these events instead of capturing and polling after each act.
 The "what changed" verdicts (D-018) come from the stream, so they are faster
 and need no fixed waits. Until then, D-024 polling stays.
 
-## D-041 Text first to Claude
+## D-041 Text first to Cloud AI
 *2026-10-14 · accepted · proposals/final-architecture.md (revised in #31)*
 
-What Relay reports to Claude leads with text: the UIA or ARIA elements, the
+What Relay reports to Cloud AI leads with text: the UIA or ARIA elements, the
 focused control and the window title. A screenshot is attached only when text
-is not enough, such as canvas apps, unknown layouts, or when Claude asks for
+is not enough, such as canvas apps, unknown layouts, or when Cloud AI asks for
 one. Text is cheaper for the owner's usage limits and more precise.
 
 ## D-042 Models load at task start and unload 60 s after it ends
@@ -565,7 +565,7 @@ hand. v1.0 is defined by that experience:
   PyInstaller `--onedir` (D-013), and the pinned llama.cpp CUDA build (D-004).
   Python, uv and the repo are not needed on the machine.
 - **A first-run wizard in the app.** It checks the GPU and free VRAM, sets up
-  Claude Code (D-045), lets the owner pick and download the local model (D-046),
+  Cloud AI (D-045), lets the owner pick and download the local model (D-046),
   helps them install the Brave extension (D-035), and runs a short
   self-test with the owner watching. It can be re-run from Settings.
 - **Everything else lives in Settings** (D-048). No config files to edit, and
@@ -574,19 +574,19 @@ hand. v1.0 is defined by that experience:
   CI builds from tags on `main`.
 
 The personal-use rule (D-002) stays. The installer is built for the owner's
-machine, and each install signs in to Claude Code with its own account.
+machine, and each install signs in to Cloud AI with its own account.
 
-## D-045 Claude Code is set up by Relay, not bundled
+## D-045 Cloud AI is set up by Relay, not bundled
 *2026-10-14 · accepted · refines D-002*
 
-Relay can't ship the Claude Code binary or touch its credentials (D-002), but
+Relay can't ship the Cloud AI binary or touch its credentials (D-002), but
 it can make setting it up feel like part of Relay. The wizard runs
-`claude --version`. If Claude Code is missing, Relay runs Anthropic's official
-Windows installer, unmodified, from Anthropic's own URL, and shows its
-progress. Relay then opens `claude` in a terminal pane inside the app, where
+`cloud-cli --version`. If Cloud AI is missing, Relay runs the official
+Windows installer, unmodified, from its own URL, and shows its
+progress. Relay then opens `cloud-cli` in a terminal pane inside the app, where
 the owner signs in with their own subscription. Relay only checks that it
-worked (`claude -p` with a trivial prompt) and never reads the token. Settings
-shows the Claude Code version and login state, with "Update" and "Sign in
+worked (`cloud-cli -p` with a trivial prompt) and never reads the token. Settings
+shows the Cloud AI version and login state, with "Update" and "Sign in
 again" buttons that run the official commands.
 
 ## D-046 The owner picks the local UI model in Settings
@@ -619,13 +619,13 @@ Model files live in a models folder the owner can change in Settings. The
 default is `%LOCALAPPDATA%\Relay\models`, and Settings shows how much space
 each model uses and can delete it.
 
-## D-047 One MCP hub for Claude and Relay
+## D-047 One MCP hub for Cloud AI and Relay
 *2026-10-14 · accepted · owner request*
 
 Settings > Connections is the one place to manage MCP servers. It does not
-keep its own copy of the list: it reads and writes Claude Code's MCP config
-through the official `claude mcp list/add/remove/get` commands, at user
-scope. Whatever the owner adds there is what Claude sees, and the other way
+keep its own copy of the list: it reads and writes Cloud AI's MCP config
+through the official `cloud-cli mcp list/add/remove/get` commands, at user
+scope. Whatever the owner adds there is what Cloud AI sees, and the other way
 round.
 - **Relay's own servers** (relay-screen through relay-core D-033, the browser
   bridge) are registered there by the installer and shown as built in. They
@@ -634,11 +634,11 @@ round.
   well-known servers or by hand. Their secrets go into Windows Credential
   Manager and reach the server as environment variables at launch. They are
   never written to the config file or the repo.
-- **claude.ai connectors** (Gmail, Calendar, Drive, ...) belong to the owner's
-  Claude account. They are listed with their state, and "Manage" opens
-  claude.ai's connector settings. Relay cannot add them for the owner.
+- **account connectors** (Gmail, Calendar, Drive, ...) belong to the owner's
+  Cloud AI account. They are listed with their state, and "Manage" opens
+  cloud.ai's connector settings. Relay cannot add them for the owner.
 - relay-core's playbook runner can call local MCP servers from this same list
-  directly when it replays a step, so a playbook doesn't need Claude for a step
+  directly when it replays a step, so a playbook doesn't need Cloud AI for a step
   it already knows.
 
 ## D-048 Every setting lives in the app
@@ -646,7 +646,7 @@ round.
 
 Settings covers:
 - General: start at login, keep running in the tray, language.
-- Claude: version, sign-in state, model and effort passed to `claude -p`.
+- Cloud AI: version, sign-in state, model and effort passed to `cloud-cli -p`.
 - Local AI: the model picker (D-046), the idle unload time (D-042), the models
   folder.
 - Connections (D-047).
@@ -698,9 +698,9 @@ GitHub CLI's login. A PR with auto-merge on merges as soon as a local run
 reports success.
 
 The ruleset requires no reviews, and repository admins are on its bypass list.
-Claude's own PRs go through the GitHub connector, which has no way to post a
-commit status, so Claude runs the same checks in its session and merges
-directly under that bypass (D-031). If Claude's sessions ever get a way to post
+Cloud AI's own PRs go through the GitHub connector, which has no way to post a
+commit status, so Cloud AI runs the same checks in its session and merges
+directly under that bypass (D-031). If Cloud AI's sessions ever get a way to post
 statuses, they will use `--report` and auto-merge instead.
 
 Ruleset settings (Settings > Rules > Rulesets > New branch ruleset):
@@ -823,16 +823,16 @@ relay-screen's `approve` tool lets the browser lane's tools that only look
 (snapshot, screenshot, console, network, wait) run without asking. Every
 other browser tool still goes through the approval prompt, the same as
 relay-screen's act tools. `approve` returns one plain text block with no
-`structuredContent`: Claude Code rejected the structured form with
+`structuredContent`: Cloud AI rejected the structured form with
 "Permission prompt tool returned an invalid result".
 
-## D-062 In-app Claude sign-in through the official CLI, out of sight
+## D-062 In-app Cloud AI sign-in through the official CLI, out of sight
 *2026-10-15 · accepted · app thread, PR #52 · refines D-045*
 
-Sign-in runs `claude auth login --claudeai` (or `--console`) in a hidden
+Sign-in runs `cloud-cli auth login --cloudai` (or `--console`) in a hidden
 pseudo-terminal. The app shows the link from its output, takes the code the
-owner pastes back, and polls `claude auth status` until it reports signed
-in. The token stays inside Claude Code; Relay only reads the signed-in flag
+owner pastes back, and polls `cloud-cli auth status` until it reports signed
+in. The token stays inside Cloud AI; Relay only reads the signed-in flag
 (D-002).
 
 ## D-063 Relay installs per machine into Program Files
@@ -862,7 +862,7 @@ doctor and the app's self-test run that check as "Approval prompt".
 *2026-10-15 · accepted · app thread, PR #60 · refines D-025*
 
 When the approval prompt can't be shown, relay-screen raises
-`PromptUnavailableError`. Claude is told the owner was not asked, not that
+`PromptUnavailableError`. Cloud AI is told the owner was not asked, not that
 the owner said no, so it reports a setup problem instead of giving up on the
 task as refused. The call is still not run.
 
@@ -873,18 +873,18 @@ On relay-browser, `browser_navigate` and `browser_navigate_back` run without
 a prompt, along with D-061's read-only tools. Every other browser tool
 (click, type, fill, and so on) still asks. The prompt has a third button,
 "Allow the browser for this request", which approves the remaining browser
-tools until that `claude -p` run ends. relay-screen's desktop act tools are
+tools until that `cloud-cli -p` run ends. relay-screen's desktop act tools are
 not covered by that button.
 
-## D-067 The local model can do UI tasks on its own when Claude is unavailable
+## D-067 The local model can do UI tasks on its own when Cloud AI is unavailable
 *2026-10-15 · accepted · owner request · amends D-032..D-043 (and D-001's "local hands only")*
 
 The owner: UI automation has to work with the local AI alone, so Relay still
-does mouse, keyboard and browser-window tasks when Claude can't be reached
-(signed out, offline, out of quota). Until now nothing worked without Claude.
+does mouse, keyboard and browser-window tasks when Cloud AI can't be reached
+(signed out, offline, out of quota). Until now nothing worked without Cloud AI.
 
 Decision:
-- Claude stays the preferred brain whenever it is available. When it isn't,
+- Cloud AI stays the preferred brain whenever it is available. When it isn't,
   the app hands the task to Relay's **local operator**:
   `relay-screen agent "task" --json`.
 - The local operator is a plan-act loop on the local vision model. Each step
@@ -893,12 +893,12 @@ Decision:
   click, double_click, right_click, type, key, scroll, launch_app, wait,
   done or fail. Coordinates are 0-1000 of the image for the Qwen3-VL family
   (`ModelSpec.coords`), and Relay converts them to screenshot pixels.
-- Actions run through the same `Computer` that Claude drives, so the kill
+- Actions run through the same `Computer` that Cloud AI drives, so the kill
   switch, the approval prompt (D-025, D-064) and the audit log all apply.
   An owner denial, the kill switch or a prompt that can't open stops the run.
   Other errors go back to the model as the step's result.
 - The model never signs in or types passwords. A sign-in page ends the run
-  with "sign-in needed", as the rule for Claude already says.
+  with "sign-in needed", as the rule for Cloud AI already says.
 - The run gives up after 25 steps by default, after three unusable replies,
   or when the same action changes nothing three times in a row.
 - Model choice: `--model`, then settings.json `local_ai.agent`, then
@@ -909,7 +909,7 @@ Decision:
 - The model loads when the run starts and unloads when the run ends, because
   the CLI process ends with the task.
 
-This changes D-001's split for the no-Claude case only. With Claude
+This changes D-001's split for the no-Cloud AI case only. With Cloud AI
 available, the local model is still hands and eyes (D-008 layering, D-036).
 
 ## D-068 The local operator's target is 95% task success, measured on a fixed benchmark
@@ -942,30 +942,30 @@ Decision:
   rate per model, and the default local operator model is the one that meets
   the target, or the best one if none does yet.
 
-## D-069 The local AI owns UI automation; Claude handles everything else
+## D-069 The local AI owns UI automation; Cloud AI handles everything else
 *2026-10-15 · accepted · owner request · amends D-001, D-008, D-036; builds on D-067, D-068*
 
 The owner: Relay is a desktop operator done in software. Instead of an
 external box with its own AI driving the mouse and keyboard, the local AI and
 the input control run on the PC, and Relay should beat hardware operators
 because it has full access to the PC's hardware and software. The local AI's main job is to
-make UI automation work well; anything else is for the cloud AI, Claude.
+make UI automation work well; anything else is for the cloud AI, Cloud AI.
 
 Decision:
 - The local operator (D-067) is Relay's UI automation engine whether or not
-  Claude is available. It is no longer only a fallback.
-- With Claude available, Claude decides what to do and hands whole UI tasks
+  Cloud AI is available. It is no longer only a fallback.
+- With Cloud AI available, Cloud AI decides what to do and hands whole UI tasks
   to the local operator through a new relay-screen tool, `ui_task(task,
-  max_steps)`. It returns the outcome and every step. On failure Claude looks
+  max_steps)`. It returns the outcome and every step. On failure Cloud AI looks
   at the screen and finishes with the direct tools (screenshot, clicks,
   UIA, OCR), which stay available for fine control.
-- Without Claude, the app runs `relay-screen agent` for the whole request
+- Without Cloud AI, the app runs `relay-screen agent` for the whole request
   (D-067).
-- Claude keeps everything that isn't UI work: deciding, writing, connectors,
+- Cloud AI keeps everything that isn't UI work: deciding, writing, connectors,
   code and recovering when the operator can't finish.
 - `ui_task` keeps the model loaded across tasks in the MCP server and unloads
   it after the idle time (D-042). It runs one task at a time. If no local
-  model is downloaded it says so and Claude uses the direct tools.
+  model is downloaded it says so and Cloud AI uses the direct tools.
 - Safety is the same as everywhere: every action goes through the kill
   switch, the approval gate and the audit log.
 - Success is measured, not claimed: 95% on the benchmark (D-068), per model
@@ -979,27 +979,27 @@ for UI tasks.
 
 portable-pty starts ConPTY with `PSEUDOCONSOLE_INHERIT_CURSOR`. ConPTY then
 sends `ESC[6n` (where is the cursor?) and holds back all output until it gets
-an answer. Relay never answered, so the hidden `claude auth login` printed
+an answer. Relay never answered, so the hidden `cloud-cli auth login` printed
 nothing and the sign-in page never opened.
 
 Decision: `pty.rs` answers `ESC[6n` with `ESC[1;1R`. Checked on the owner's
-PC: before the fix `claude --version` printed only `ESC[6n`, and after it,
+PC: before the fix `cloud-cli --version` printed only `ESC[6n`, and after it,
 the version.
 
-## D-071 Expired Claude sign-in and the chat fallback to the local operator
+## D-071 Expired Cloud AI sign-in and the chat fallback to the local operator
 *2026-10-15 · accepted · app thread (Relay 0.1.4, #73) · app side of D-067 and D-069*
 
-- An expired login (`claude auth status` says logged in, but turns fail to
-  authenticate) shows "Sign in again" in chat and on the Claude page.
+- An expired login (`cloud-cli auth status` says logged in, but turns fail to
+  authenticate) shows "Sign in again" in chat and on the Cloud AI page.
 - Chat sends the same message to `relay-screen agent --json` (D-067),
   hidden and with the same environment as relay-screen, when:
-  - `claude` is not installed; or
+  - `cloud-cli` is not installed; or
   - a turn ends with an auth or network error before any tool ran.
 
-  The steps show under "Local AI (Claude unavailable)".
+  The steps show under "Local AI (Cloud AI unavailable)".
 - Stop kills the local run and never triggers the fallback.
-- Chat input stays enabled while Claude is signed out.
-- With Claude available, the app's `claude -p` system prompt tells Claude to
+- Chat input stays enabled while Cloud AI is signed out.
+- With Cloud AI available, the app's `cloud-cli -p` system prompt tells Cloud AI to
   give desktop UI tasks to `ui_task` (D-069) as one plain-words goal naming
   the app, and to use the direct tools only for recovery or fine control.
 
@@ -1061,38 +1061,38 @@ Decision:
   from the Chrome Web Store.
 - Why: Chromium blocks remote debugging of the everyday profile, and the
   extension bridges it. The owner keeps their sign-ins and their Brave Origin
-  purchase. Claude works in its own tab group.
+  purchase. Cloud AI works in its own tab group.
 - The extension's token is stored in Windows Credential Manager as
   relay-browser's `PLAYWRIGHT_MCP_EXTENSION_TOKEN`, and Relay's launcher
   passes it to Playwright (D-047). With the token, the extension connects
   without showing its tab picker.
 - Relay's own profile (D-060) remains the option when `use_own` is off.
 
-## D-075 Chat streams Claude's reply as it is written
+## D-075 Chat streams Cloud AI's reply as it is written
 *2026-10-15 · accepted · app thread (Relay 0.1.5, #77)*
 
-`claude -p` runs with `--include-partial-messages`, and the chat shows the
+`cloud-cli -p` runs with `--include-partial-messages`, and the chat shows the
 text as it streams.
 
 Not changed: connector lookups (search_, get_ and list_ tools) still go
 through the approval prompt. Skipping them would loosen the gate, so it waits
 for the owner's word, like the "risky" default in D-073.
 
-## D-076 Claude-desktop-style look for the app
+## D-076 reference-app-style look for the app
 *2026-10-15 · accepted · owner request · app thread (Relay 0.1.6, #85/#86)*
 
 The owner found the app ugly and asked for a clean, modern look like the
-Claude desktop app.
+reference chat app.
 
 Decision:
 - **Colors:** warm neutrals with a terracotta accent (#D97757 / #B95A38).
-- **Type:** Inter for the UI, Source Serif 4 for Claude's replies.
+- **Type:** Inter for the UI, Source Serif 4 for Cloud AI's replies.
 - **Layout:**
   - a collapsible sidebar with New chat;
   - a centered chat column with a rounded composer;
   - compact activity rows.
 - Settings and the wizard follow the same style.
-- No Anthropic logos or assets. Icons come only from @untitledui/icons.
+- No vendor logos or assets. Icons come only from @untitledui/icons.
 
 ## D-077 Relay Setup: a small bootstrapper around the NSIS installer
 *2026-10-15 · accepted · app thread (Relay 0.1.6, #85/#86) · amends D-055, D-057, D-063*
@@ -1118,7 +1118,7 @@ Decision:
 The owner: "the app should know where is the program need to be controlled and
 do whatever needed automatically". In a job-search run Relay screenshotted its
 own chat window, clicked the Brave taskbar button again and again (which
-minimizes and restores it), and Claude ran PowerShell `Get-Process` to look for
+minimizes and restores it), and Cloud AI ran PowerShell `Get-Process` to look for
 Brave's windows.
 
 - Two Relay-only members, with the same safety layer and audit log:
@@ -1130,7 +1130,7 @@ Brave's windows.
     catalog), topmost match first, never Relay's own, and brings it to the
     front, restoring it if minimized. The approval summary is
     `Bring "<title>" to the front`.
-- The MCP server instructions and both tool descriptions tell Claude to
+- The MCP server instructions and both tool descriptions tell Cloud AI to
   `focus_window` an open program instead of clicking the taskbar or running
   `Get-Process`, and to use `launch_app` only when no window of it is open.
 - The local operator:
@@ -1147,7 +1147,7 @@ Brave's windows.
 *2026-10-15 · accepted · owner request · extends D-069, D-072, D-078*
 
 The owner asked Relay to "go to https://www.dice.com/ and search for fde jobs".
-Claude answered with a table from the Dice connector, because the browser
+Cloud AI answered with a table from the Dice connector, because the browser
 extension was missing, and told the owner to add it in Settings. The owner
 wants Relay to act on the screen end to end like a person at the PC, set up
 whatever it needs by itself, and never stop to ask for setup.
@@ -1159,10 +1159,10 @@ whatever it needs by itself, and never stop to ask for setup.
   - A bare "dice.com" gets `https://`.
   - Only http and https are accepted.
   - The approval summary is `Open <url> in <browser>`.
-- **Claude's instructions.** When the owner says go to, open, search on or use
-  a site or app, Claude does it on screen (`open_url`, then `ui_task` or the
+- **Cloud AI's instructions.** When the owner says go to, open, search on or use
+  a site or app, Cloud AI does it on screen (`open_url`, then `ui_task` or the
   direct tools). A connector that fetches the same data is not a substitute.
-  The screen tools need no setup, so Claude never stops to ask for any.
+  The screen tools need no setup, so Cloud AI never stops to ask for any.
 - **The local operator:**
   - has an `open_url` action, with a rule to use it instead of typing in the
     address bar;
@@ -1172,7 +1172,7 @@ whatever it needs by itself, and never stop to ask for setup.
 - **Self-setup.** When `ui_task` finds no llama.cpp runtime or no model, it
   starts downloading them in the background: the runtime, then
   qwen3-vl-8b-instruct (D-072's default). It answers that Relay is
-  downloading them, and tells Claude to do the task with the direct tools
+  downloading them, and tells Cloud AI to do the task with the direct tools
   meanwhile.
   - Only one download runs at a time.
   - A failure is reported on the next `ui_task` and retried then.
@@ -1191,7 +1191,7 @@ windows, and ask only before steps that can't be undone. The owner answered
 - "risky" is the default approval mode. Settings files that still carry the
   old "ask" default switch once (`safety.defaults_version`). Settings > Safety
   still offers "Before every click or keystroke" and "Never ask".
-- Claude Code's own tool calls follow the same mode:
+- Cloud AI's own tool calls follow the same mode:
   - lookups and ordinary tools run without asking;
   - tool names that send, pay or delete ask;
   - shell commands that delete, wipe, shut down or push ask.
@@ -1205,51 +1205,51 @@ windows, and ask only before steps that can't be undone. The owner answered
 - Chat shows each step in plain words (`describe-tool.ts`).
 - Relay Setup turns off Windows 11's 1 px window frame.
 
-## D-081 Claude plans, the local AI does every screen task; no shell, no scripts in chat
+## D-081 Cloud AI plans, the local AI does every screen task; no shell, no scripts in chat
 *2026-10-16 · accepted · owner request · amends D-069, D-074, D-079*
 
 The owner, after 0.1.9: "I see tons of PowerShell, tons of Python script … it
 keeps asking for permissions, then extensions". They want the local AI to work
 out and do the UI work in any program, smoothly and fast. Why it happened:
 
-- Relay ran `claude -p` with all of Claude Code's built-in tools. For a task on
-  the screen, Claude reached for what it knows best: PowerShell `Get-Process`,
+- Relay ran `cloud-cli -p` with all of Cloud AI's built-in tools. For a task on
+  the screen, Cloud AI reached for what it knows best: PowerShell `Get-Process`,
   `Start-Process` and small Python scripts. Each of those went through the
   approval gate.
-- Claude also had relay-screen's direct click and key tools. It drove the
+- Cloud AI also had relay-screen's direct click and key tools. It drove the
   screen itself, one screenshot at a time, instead of calling `ui_task`, so
   the local AI was rarely used.
-- The system prompt told Claude to prefer the relay-browser lane for websites.
+- The system prompt told Cloud AI to prefer the relay-browser lane for websites.
   That lane needs the Playwright extension, and when the extension was missing
-  Claude told the owner to install it.
+  Cloud AI told the owner to install it.
 
-Decision. A Relay chat runs `claude -p` with `--disallowedTools`:
+Decision. A Relay chat runs `cloud-cli -p` with `--disallowedTools`:
 
 - removed tools:
   - `Bash`, `PowerShell`, `Write`, `Edit`, `MultiEdit` and `NotebookEdit`;
   - the whole `mcp__relay-browser` server;
   - relay-screen's direct input tools (clicks, drag, mouse, scroll, type, key,
     hold_key, batch, uia_invoke, uia_set_value);
-- tools Claude keeps:
+- tools Cloud AI keeps:
   - for looking: screenshot, zoom, uia_tree, uia_find, find_text, list_windows
     and list_apps;
   - for opening things: open_url, launch_app and focus_window;
   - `ui_task`, the connectors, and read-only built-ins.
 
-The system prompt now casts Claude as the planner and the local AI as the
+The system prompt now casts Cloud AI as the planner and the local AI as the
 hands:
 
 - every task on the screen, in any program or site, goes to `ui_task`, one
   goal per call, with long tasks split into several calls;
 - connectors only read information and never replace doing the task on
   screen;
-- Claude never asks the owner to install or set anything up.
+- Cloud AI never asks the owner to install or set anything up.
 
-A `ui_task` that doesn't finish tells Claude to look, then hand the rest back
-as a narrower goal. While the model downloads (D-079), Claude tells the owner
+A `ui_task` that doesn't finish tells Cloud AI to look, then hand the rest back
+as a narrower goal. While the model downloads (D-079), Cloud AI tells the owner
 it will be ready shortly.
 
-Trade-off: Claude can no longer run shell commands or write files from the
+Trade-off: Cloud AI can no longer run shell commands or write files from the
 chat. File work now happens on screen through the local AI, for example in
 File Explorer. relay-screen's direct tools stay for other MCP clients and for
 the local AI itself.
@@ -1265,7 +1265,7 @@ the local AI itself.
 - The owner picked this on a decision card. They accepted the "Managed by your
   organization" notice the browsers then show.
 - Uninstall removes only Relay's entry from the list.
-- Since D-081, chat no longer offers Claude the relay-browser tools, so this
+- Since D-081, chat no longer offers Cloud AI the relay-browser tools, so this
   matters only if that lane comes back.
 
 ## D-083 The extension token stays a one-time paste
@@ -1307,13 +1307,13 @@ screenshot per click. The operator (`agent/local.py`) now works in tiers:
   milliseconds, whether a screenshot was sent, and the number of actions. A
   slow step can be seen, not guessed at.
 
-Claude stays the planner (D-081). Tier 3, where the operator asks Claude
+Cloud AI stays the planner (D-081). Tier 3, where the operator asks Cloud AI
 mid-task, and a skills recorder come in later slices.
 
 ## D-085 The operator's model stays warm across chat turns
 *2026-10-16 · accepted · owner ("milliseconds, not waiting a minute") · amends D-042*
 
-- Claude Code starts a new relay-screen for every chat turn. A model owned by
+- Cloud AI starts a new relay-screen for every chat turn. A model owned by
   that process loaded again on every `ui_task`, adding seconds to tens of
   seconds per turn.
 - The operator's llama-server now starts outside the relay-screen process's
@@ -1338,7 +1338,7 @@ mid-task, and a skills recorder come in later slices.
   - `say`: a follow-up or correction into the running task; with no task
     running, a new task that knows the last one
   - `stop`
-  - `route`: send to the local AI or to Claude
+  - `route`: send to the local AI or to Cloud AI
   - `state`
   - `quit`
 - Every event carries its task id. A `step` event has a plain-words `say` line
@@ -1350,13 +1350,13 @@ mid-task, and a skills recorder come in later slices.
     and never written to disk;
   - the browser in front's address, read from its address bar through UIA.
 - It also listens on a localhost port named in `operator.json`, behind a token.
-  Claude's `ui_task` hands its task there when the service is running. That
-  gives one mouse and one operator, and the pill shows Claude's hand-offs
-  too (`"source": "claude"`). Without the service, `ui_task` runs the
+  Cloud AI's `ui_task` hands its task there when the service is running. That
+  gives one mouse and one operator, and the pill shows Cloud AI's hand-offs
+  too (`"source": "cloud"`). Without the service, `ui_task` runs the
   operator in-process as before.
 - One task runs at a time. A second task while one runs is refused with a
   message saying to stop the first or add to it.
-- The local AI can ask Claude through the owner's `claude` CLI: one
+- The local AI can ask Cloud AI through the owner's Cloud AI CLI: one
   question, text answer, no tools, no MCP servers (D-002). It does this for
   writing and judgment only, never for where to click.
 - This interface stays the same when the operator moves into relay-core
@@ -1455,7 +1455,7 @@ The owner chose the full rebuild with every recommendation:
 - A target that also says a word the task didn't name still asks. For
   example, "Submit and delete" asks when only "submit" was granted.
 - The grant lasts for that task only and is cleared when it ends.
-- Text not written by the owner never grants anything. That covers Claude's
+- Text not written by the owner never grants anything. That covers Cloud AI's
   `ui_task` hand-offs and anything read from a page.
 
 ## D-092 The state reader finds the browser wherever it is in the stack
@@ -1493,14 +1493,14 @@ The owner chose the full rebuild with every recommendation:
   Invisible marks in titles are ignored. A miss lists the open windows.
 - **Address bars.** invoke on an element with no press action clicks its
   center instead.
-- **Stop is instant.** A model or Claude call is dropped the moment Stop is
+- **Stop is instant.** A model or Cloud AI call is dropped the moment Stop is
   pressed. Waits check every 50 ms.
 - **The owner's own input.** Before real input (clicks, typing, keys), the
   task's program goes in front again if the owner switched away. UIA invoke
   and set_value stay the first choice, since they need no focus.
-- **Claude signed out.** An ask_claude failure tells the model to decide for
+- **Cloud AI signed out.** An ask_cloud failure tells the model to decide for
   itself instead of ending the task. `route` sends everything to the local AI
-  when the app passes `"claude": false`, or after an ask failed.
+  when the app passes `"cloud": false`, or after an ask failed.
 
 ## D-094 Plan first, ask the owner first, never type over their files
 *2026-10-16 · accepted · owner ("it should ask me where I want to save the note … doing things without thinking") · amends D-084*
@@ -1520,8 +1520,8 @@ The owner chose the full rebuild with every recommendation:
   model is told to look at what is already there.
 - The prompt also says to save through the Save dialog's File name box with
   the full path, and to finish only when the done-check holds.
-- The plan comes from the local model, so it works with Claude signed out.
-  Claude is still asked for writing or judgment through ask_claude.
+- The plan comes from the local model, so it works with Cloud AI signed out.
+  Cloud AI is still asked for writing or judgment through ask_cloud.
 
 ## D-095 Pages open in a new tab of the browser that is already open
 *2026-10-16 · accepted · owner ("open a new browser instead just open a new tab") · amends D-079*
@@ -1537,28 +1537,28 @@ The owner chose the full rebuild with every recommendation:
 - The plan prompt tells the model to use what is already open: switch to open
   programs, and open pages in a new tab.
 
-## D-096 Full test runs on the owner's PC, and a dev loop Claude can drive
+## D-096 Full test runs on the owner's PC, and a dev loop Cloud AI can drive
 *2026-10-16 · accepted · owner ("Diagnostics should have actual tests … record everything … link the Diagnostics to you so you can install the app, run Diagnostics, gather the results and keep fixing")*
 
 - `relay-screen diagnostics` runs real tasks: every monitor (screenshot size
   and pointer read-back), the router, Notepad (instant and with the model),
   File Explorer, a new browser tab and web search, a web form served on
-  127.0.0.1 by the run itself, Calculator with Claude off, a Claude round trip,
-  and Claude calling `ui_task`. Each result is checked from outside the agent:
+  127.0.0.1 by the run itself, Calculator with Cloud AI off, a Cloud AI round trip,
+  and Cloud AI calling `ui_task`. Each result is checked from outside the agent:
   window in front, UIA text, what the form server received.
 - Tasks go through the app's operator service over its localhost port when
   Relay is open (the owner's own path), else an operator in the process. A
   `diagnostics` source counts as the owner's words like `app` (D-091) but is
   not mirrored into the chat. `offline: true` keeps the local AI from asking
-  Claude, standing in for signed out.
+  Cloud AI, standing in for signed out.
 - Everything goes in Downloads\Relay-diagnostics\<time>: per-step screenshots,
-  every event with its time, timings, the Claude transcript, the runtime and
+  every event with its time, timings, the Cloud AI transcript, the runtime and
   audit log lines of the run, environment.json, summary.json (with an
   overview) and report.html. latest.json names the newest run.
 - Settings > Developer has a Full test panel with live progress, the newest
-  result, the report and a "Copy for Claude" summary.
+  result, the report and a "Copy for Cloud AI" summary.
 - Dev loop: the installer is per-machine and needs the owner's admin yes, so
-  Claude tries builds in a copy of Relay in Downloads\Relay-dev\current instead
+  Cloud AI tries builds in a copy of Relay in Downloads\Relay-dev\current instead
   (the installer's files, unpacked; `scripts/build_dev_copy.py`, `--code` for
   just relay-screen). `scripts/dev_loop.ps1` closes Relay, unpacks the package,
   starts the copy, runs the diagnostics and prints where the results are.
@@ -1583,7 +1583,7 @@ The owner chose the full rebuild with every recommendation:
   done-when finish at once, as before.
 - Diagnostics record when the operator said done but the check from outside
   failed (`false_done`, and `said_done_but_was_not` in the overview).
-- A diagnostics run's Claude starts relay-screen with RELAY_DIAGNOSTICS=1, so
+- A diagnostics run's Cloud AI starts relay-screen with RELAY_DIAGNOSTICS=1, so
   its `ui_task` hand-off is marked quiet and the app's chat never shows it.
   Diagnostics' own tasks are quiet too.
 
@@ -1600,7 +1600,7 @@ The owner chose the full rebuild with every recommendation:
   front and two keys are pressed, and the task must still finish.
 - Every run samples RAM (working set and private bytes) and VRAM every 2 s,
   grouped as the app, its WebView2 window, the local AI service, relay-screen
-  for Claude, llama-server and the test itself, into resources.jsonl. Peaks go
+  for Cloud AI, llama-server and the test itself, into resources.jsonl. Peaks go
   in summary.json. Over budget (1.5 GB for Relay without the model, 2.5 GB for
   llama-server) is listed as a problem and shown in Settings > Developer.
 
@@ -1633,7 +1633,7 @@ The owner chose the full rebuild with every recommendation:
 
 - **What.** The full test (D-096) also uses Relay itself the way the owner
   does: every Settings page, the model and effort picker (pick, saved to
-  settings.json, put back), a new chat with a Claude reply, the chat menu (pin,
+  settings.json, put back), a new chat with a Cloud AI reply, the chat menu (pin,
   rename, unpin, delete), search, attach (a file picker opens and closes) and
   Stop during a long answer. Scenarios `app-*`, kind `app`.
 - **How.** `diagnostics/app.py` holds the scripts against a small `AppUi`
@@ -1645,7 +1645,7 @@ The owner chose the full rebuild with every recommendation:
 - **Clean up.** Test chats are deleted, the picker goes back to what the owner
   had, and the run ends on Settings > Developer, where a run from the app
   starts. A signed-out chat can't be shown without signing the owner out, so
-  it stays covered by the router check (Claude off goes to the local AI).
+  it stays covered by the router check (Cloud AI off goes to the local AI).
 
 ## D-102 llama-server flags follow the installed build
 
@@ -1659,7 +1659,7 @@ knows them.
 
 - **One run, everything.** "Full test" in Settings and `relay-screen
   diagnostics` both run every area in this order: Relay app, Real-world
-  tasks, Claude and signed out, System (monitors, routing), with RAM and VRAM
+  tasks, Cloud AI and signed out, System (monitors, routing), with RAM and VRAM
   sampled throughout. Results, summary.json, the report and the app's list
   are grouped by area.
 - **Real clicks, timed.** App tests click with the real mouse at the
@@ -1695,7 +1695,7 @@ From round 5 of the full test (D-103):
   what the task didn't ask for; Notepad tasks were saving files unasked.
 - launch_app takes the app name under any of the keys models used.
 
-## D-105 llama-server loads with DirectIO, and relay-screen leaves with its Claude run
+## D-105 llama-server loads with DirectIO, and relay-screen leaves with its Cloud AI run
 *2026-10-16*
 
 - **Load mode.** On llama.cpp builds with `--load-mode`, `none` reads the whole
@@ -1705,10 +1705,10 @@ From round 5 of the full test (D-103):
   otherwise, never `none`. `RELAY_LLAMA_LOAD_MODE` overrides the choice so a run
   on the PC can compare modes without a new build. Older builds keep `--no-mmap`.
 - **No leftover MCP servers.** Stopping a chat turn or a timed-out diagnostics run
-  kills only claude.exe, and on Windows its children live on. relay-screen's MCP
+  kills only cloud-cli.exe, and on Windows its children live on. relay-screen's MCP
   server now waits on its parent's process handle and exits with it, and exits as
   soon as stdin closes instead of waiting for worker threads. (Most of the 11
-  "relay-screen for Claude" processes in round 5 were the Claude desktop app's own
+  "relay-screen for Cloud AI" processes in round 5 were the reference chat app's own
   MCP servers, which the diagnostics count no longer includes.)
 
 ## D-106 Operator clicks: listed centres, the window in front, honest status
@@ -1792,3 +1792,99 @@ Round 8 (19 of 22) added:
   fallback.
 - The `--log-file` copy from D-107 stayed empty on b11630 and is dropped; the
   appended `llama-<model>.log` has the server's output.
+
+Round 9 (16 of 22) added:
+- **Test Notepad tabs are closed without saving.** Closing a whole window
+  left Notepad's "Save changes?" prompt open, and later scenarios worked in
+  those leftover tabs. Before the run and after each scenario, every Notepad
+  tab whose title starts with a test text and a six-digit stamp is closed with
+  Ctrl+W and "Don't save". The owner's own tabs are never touched.
+- **Search tasks that open a tab first** ("Open a new tab in the web browser
+  and search the web for …") go straight to the search page. Relay's own window
+  and open browsers no longer count as "the program the task names".
+- **A bare launch_app** opens the program the plan named.
+- `RELAY_POINT_FALLBACK=0` turns off the listed-centre and raw-point fallbacks,
+  so a run measures the model's own position clicks (with D-108's frames).
+
+Round 10 added:
+- **Dropdown options are picked by typing.** A list item inside a dropdown
+  (a ComboBox in the element list) is chosen the way a person does: Escape,
+  click the box, type the option's name, Enter. Invoke and Select both said
+  OK on the web form and left "Choose..." picked.
+- **Each step records what the model was shown**: a "seen" event with the
+  window in front and the top of the element list, for Diagnostics. The chat
+  ignores it.
+- **Text filters match text-box contents.** uia_tree and uia_find filters now
+  also match an element's value, so a check can find Notepad's second line,
+  which is only in the document's value.
+- **Window ping-pong.** Four focus_window steps in a row get a note to act in
+  the window in front; eight in a row end the task as stuck.
+- **Plans lose steps the task never asked for**: save, close, exit or quit.
+
+Round 11 added:
+- **Clicks outside the window are aimed at the control the model named.** A
+  position click outside the window in front is refused, unless the thought
+  names a listed control; then the click goes to that control's centre. The job
+  form's clicks landed at x≈560 on the ultrawide, outside the browser.
+- **A second type with no click between goes into the box the thought names**,
+  if that box is still empty, by set_value. The phone number had gone into Email.
+- **click_text falls back to the element list**: a control named exactly that
+  text is invoked even when OCR can't see it, for example on another display.
+- **Any error inside an action is reported to the model** as "failed: Type: msg"
+  instead of ending the task (save-where hit a COMError).
+- **Calculator sums are typed whole without the model**: "work out 12 times 34"
+  opens Calculator and types 12*34=. The model kept pressing buttons and ran out
+  of steps.
+- **A program's other windows are left out of its element list unless they sit
+  over it.** explorer.exe owns the taskbar and every folder window, so they no
+  longer show up as popups of the window in front.
+- Diagnostics closes up to 40 leftover test tabs in Notepad before a run.
+
+## D-109 Diagnostics includes tasks the operator was never tuned on
+*2026-10-16 · accepted · from the D-106 test loop*
+
+The D-106 rounds fixed the operator against the same scenarios each time, which
+can reward fixes that pass one test rather than help the same kind of task in
+other programs. Two scenarios that no fix was made for now run in every full
+test: showing the About page in Windows Settings, and searching a library
+catalogue on the test site and reserving the right copy of a book among
+similar ones. Their results show whether the operator handles new work.
+Operator fixes stay general: a rule may name a kind of program (a calculator
+takes a typed sum) but never a scenario's own text or numbers, so the prompt's
+Calculator example no longer uses the test's sum.
+
+## D-110 Projects, a Tasks page and a thread per task
+*2026-10-16 · accepted · owner ("settings tabs, tasks, history, projects, text, threads for each task", look and work like the reference chat app)*
+
+- **Projects.** `%LOCALAPPDATA%\Relay\projects.json` holds each project's name and
+  instructions; a chat names its project. The instructions go in front of the first
+  message Cloud AI sees in a chat (not on resumed turns), and never to the local
+  operator. Deleting a project keeps its chats, outside any project.
+- **Tasks.** Built from the saved chats, not a second store: each operator plan
+  starts a task; its steps count; `done` gives the verdict, a "Stopping" note means
+  stopped, and anything Cloud AI says after it ends it as done. Opening a task opens
+  its chat with that task's thread.
+- **Threads.** In a chat a task is one card (status, step count, latest step); its
+  thread opens beside the chat with the plan, every step, and a box that steers the
+  running task (`say`). Questions stay in the chat too, where they're answered.
+- Labels the Diagnostics app tests use are unchanged; new ones: Projects, Tasks,
+  "Task: <goal>", "Close thread", "Steer this task".
+
+## D-111 The project never names the cloud AI's vendor or product
+*2026-10-16 · accepted · owner request*
+
+The owner wants nothing in Relay to name the cloud AI or its desktop app. Every
+file, identifier, UI label, setting, report and doc calls it **Cloud AI**; the
+style Relay's app copies is "the reference chat app". Docs write the CLI as
+`cloud-cli`. The only places the real names remain are the ones Relay can't
+change and still work: the executable, its official installer URL, its config
+file, the prefix its `mcp list` gives account connectors and its account-login
+flag (`relay-core/src/cli_names.rs`, `relay-screen/src/relay_screen/cli_names.py`,
+`relay-ui/src/lib/cli-names.ts`, and the uninstaller's `mcp remove` line in
+`relay-ui/src-tauri/installer/hooks.nsh`), plus the files the CLI itself looks for
+in the repo (`CLAUDE.md` and `.claude/`). New code reads names from those modules.
+Commit messages, PR text and git author names leave the name out too, with no
+co-author trailers or footers. History is not rewritten for this.
+
+Settings saved before this change keep their old model and effort under a key
+Relay no longer reads, so those two fall back to the CLI's default once.

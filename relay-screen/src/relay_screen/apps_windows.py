@@ -20,7 +20,7 @@ from relay_screen.scaling import Rect
 START_APPS_TIMEOUT = 30  # s; Get-StartApps takes about a second
 _NO_WINDOW = 0x08000000  # CREATE_NO_WINDOW
 _DETACHED = 0x00000008 | 0x00000200  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
-_BREAKAWAY = 0x01000000  # CREATE_BREAKAWAY_FROM_JOB: outlive Claude Code's job object
+_BREAKAWAY = 0x01000000  # CREATE_BREAKAWAY_FROM_JOB: outlive Cloud AI's job object
 
 _KNOWN_FOLDER = re.compile(r"^(\{[0-9A-Fa-f-]{36}\})\\(.*)$")
 _START_APPS_SCRIPT = (

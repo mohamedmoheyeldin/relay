@@ -1,13 +1,13 @@
 // First-run setup (D-044): one page of checks that run on their own. Buttons only
-// appear where something needs the owner: installing Claude Code, signing in,
+// appear where something needs the owner: installing Cloud AI, signing in,
 // downloading the suggested model.
 import { type ReactNode, useEffect } from "react";
 import { ArrowRight, CpuChip01, ShieldTick, Stars01 } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
 import { Card } from "@/components/relay/ui";
 import { type Settings, api } from "@/lib/api";
-import { useClaude } from "@/lib/claude";
-import { ClaudeChecks } from "./claude-setup";
+import { useCloud } from "@/lib/cloud";
+import { CloudChecks } from "./cloud-setup";
 import { LocalAiChecks, SelfTest } from "./setup-checks";
 
 const Group = ({ icon: Icon, title, description, children }: { icon: typeof Stars01; title: string; description: string; children: ReactNode }) => (
@@ -26,13 +26,13 @@ const Group = ({ icon: Icon, title, description, children }: { icon: typeof Star
 );
 
 export const Wizard = ({ onFinish }: { settings: Settings; save: (s: Settings) => Promise<void>; onFinish: () => void }) => {
-    const { signedIn, check } = useClaude();
+    const { signedIn, check } = useCloud();
     const ready = signedIn && check.status === "ok";
     const finish = async () => {
         await api.setupComplete();
         onFinish();
     };
-    // Nothing to click: once Claude is connected Relay opens the chat by itself, and
+    // Nothing to click: once Cloud AI is connected Relay opens the chat by itself, and
     // downloads keep going in the background.
     useEffect(() => {
         if (!ready) return;
@@ -53,10 +53,10 @@ export const Wizard = ({ onFinish }: { settings: Settings; save: (s: Settings) =
                         </p>
                     </header>
 
-                    <Group icon={Stars01} title="Claude" description="Relay thinks with Claude Code and your own Claude subscription.">
-                        <ClaudeChecks autoSignIn />
+                    <Group icon={Stars01} title="Cloud AI" description="Relay thinks with Cloud AI on your own subscription.">
+                        <CloudChecks autoSignIn />
                     </Group>
-                    <Group icon={CpuChip01} title="Local AI" description="A vision model on your GPU helps Relay find things on screen, and runs tasks on its own when Claude can't.">
+                    <Group icon={CpuChip01} title="Local AI" description="A vision model on your GPU helps Relay find things on screen, and runs tasks on its own when Cloud AI can't.">
                         <LocalAiChecks autoDownload />
                     </Group>
                     <Group icon={ShieldTick} title="Self-test" description="The rest of Relay, checked on this PC.">
@@ -68,8 +68,8 @@ export const Wizard = ({ onFinish }: { settings: Settings; save: (s: Settings) =
                 <div className="mx-auto flex w-full max-w-3xl flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-8">
                     <p className="text-sm text-tertiary">
                         {ready
-                            ? "Claude is connected. Opening Relay; downloads keep going in the background."
-                            : "Relay works without Claude: the local AI does screen tasks. Sign in any time for writing and judgment."}
+                            ? "Cloud AI is connected. Opening Relay; downloads keep going in the background."
+                            : "Relay works without Cloud AI: the local AI does screen tasks. Sign in any time for writing and judgment."}
                     </p>
                     <Button iconTrailing={ArrowRight} onClick={finish}>
                         Start using Relay

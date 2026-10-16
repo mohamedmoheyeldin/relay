@@ -1,8 +1,8 @@
-//! Relay used to give Claude a browser through Playwright MCP and the Playwright
+//! Relay used to give Cloud AI a browser through Playwright MCP and the Playwright
 //! Extension (relay-browser, D-074). The local operator now reads and drives the
 //! owner's browser through UI Automation with nothing to install (D-089), so all that
 //! is left here is removing what that lane set up: the relay-browser registration in
-//! Claude Code and the extension's token in Credential Manager. The installer removes
+//! Cloud AI and the extension's token in Credential Manager. The installer removes
 //! the extension policy it added in 0.1.9.
 
 use crate::mcp::RELAY_BROWSER;

@@ -1,6 +1,6 @@
 [package]
 name = "relay-core"
-description = "Relay's core: settings, Claude Code setup, MCP hub, local model catalog and downloads."
+description = "Relay's core: settings, Cloud AI setup, MCP hub, local model catalog and downloads."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

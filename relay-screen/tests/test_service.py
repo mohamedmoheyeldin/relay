@@ -16,7 +16,7 @@ from relay_screen.agent.service import (
     Awareness,
     OperatorService,
     Write,
-    ask_claude,
+    ask_cloud,
     hand_off,
     route,
     serve_port,
@@ -30,10 +30,10 @@ from relay_screen.runtime.supervisor import RuntimeUnavailable
         ("open Notepad", "operator"),
         ("go to dice.com and search for python jobs", "operator"),
         ("In Brave, click the Remote filter", "operator"),
-        ("write a cover letter for the Acme job", "claude"),
-        ("what is the weather like?", "claude"),
-        ("thanks", "claude"),
-        ("apply to the first job and write a short note to the recruiter", "claude"),
+        ("write a cover letter for the Acme job", "cloud"),
+        ("what is the weather like?", "cloud"),
+        ("thanks", "cloud"),
+        ("apply to the first job and write a short note to the recruiter", "cloud"),
     ],
 )
 def test_route_sends_screen_work_to_the_local_ai(text: str, to: str) -> None:
@@ -212,12 +212,12 @@ def test_ui_task_hands_off_to_the_service_over_localhost(tmp_path: Path) -> None
     assert handed is not None
     model, outcome, lines = handed
     assert (model, outcome.status, lines) == ("m", "done", ["Step 1: Opened Notepad"])
-    # The app sees Claude's hand-off too (its last line can land just after hand_off).
+    # The app sees Cloud AI's hand-off too (its last line can land just after hand_off).
     for _ in range(100):
         if len(app.items) >= 4:
             break
         time.sleep(0.01)
-    assert [e.get("source") for e in app.items] == ["claude"] * 4
+    assert [e.get("source") for e in app.items] == ["cloud"] * 4
 
 
 def test_no_service_means_no_hand_off(tmp_path: Path) -> None:
@@ -245,19 +245,19 @@ def test_hand_off_reports_an_unavailable_model(tmp_path: Path) -> None:
         sock.close()
 
 
-def test_ask_claude_uses_the_cli_without_tools(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("RELAY_CLAUDE", "claude")
+def test_ask_cloud_uses_the_cli_without_tools(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("RELAY_CLOUD_CLI", "cloud-cli")
     calls: list[dict[str, Any]] = []
 
     def run(command: list[str], **kw: Any) -> subprocess.CompletedProcess[bytes]:
         calls.append({"command": command, **kw})
         return subprocess.CompletedProcess(command, 0, b"Dear Acme team, ...\n", b"")
 
-    assert ask_claude("What should the cover letter say?", "apply on Dice", run) == (
+    assert ask_cloud("What should the cover letter say?", "apply on Dice", run) == (
         "Dear Acme team, ..."
     )
     command = calls[0]["command"]
-    assert command[:2] == ["claude", "-p"] and "--strict-mcp-config" in command
+    assert command[:2] == ["cloud-cli", "-p"] and "--strict-mcp-config" in command
     assert "Bash" in command[command.index("--disallowedTools") + 1]
     assert b"apply on Dice" in calls[0]["input"]
 
@@ -285,7 +285,7 @@ def test_a_new_task_from_the_app_re_arms_the_kill_switch(tmp_path: Path) -> None
     assert rearmed == ["app"]
     sock = serve_port(service, tmp_path)
     try:
-        hand_off(tmp_path, "open Notepad", 10, timeout=5)  # Claude's hand-off: no re-arm
+        hand_off(tmp_path, "open Notepad", 10, timeout=5)  # Cloud AI's hand-off: no re-arm
     finally:
         service.stopping.set()
         sock.close()
@@ -302,21 +302,21 @@ def test_only_the_owners_own_task_grants_approval(tmp_path: Path) -> None:
     thread.join(5)
     sock = serve_port(service, tmp_path)
     try:
-        hand_off(tmp_path, "send the draft", 10, timeout=5)  # Claude's words
+        hand_off(tmp_path, "send the draft", 10, timeout=5)  # Cloud AI's words
     finally:
         service.stopping.set()
         sock.close()
     assert granted == ["send the draft", None, None, None]
 
 
-def test_claude_signed_out_routes_everything_to_the_local_ai() -> None:
-    assert route("write a cover letter for this job")[0] == "claude"
-    assert route("write a cover letter for this job", claude_ready=False)[0] == "operator"
+def test_cloud_signed_out_routes_everything_to_the_local_ai() -> None:
+    assert route("write a cover letter for this job")[0] == "cloud"
+    assert route("write a cover letter for this job", cloud_ready=False)[0] == "operator"
     events = Events()
     service = OperatorService(FakeRunner(), None, events)
-    service.handle({"op": "route", "id": "r1", "text": "why is the sky blue?", "claude": False})
+    service.handle({"op": "route", "id": "r1", "text": "why is the sky blue?", "cloud": False})
     assert events.items[0]["to"] == "operator"
-    service.claude_ok = False  # an ask_claude call failed earlier
+    service.cloud_ok = False  # an ask_cloud call failed earlier
     service.handle({"op": "route", "id": "r2", "text": "why is the sky blue?"})
     assert events.items[1]["to"] == "operator"
 

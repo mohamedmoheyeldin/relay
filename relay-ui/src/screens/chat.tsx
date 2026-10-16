@@ -1,4 +1,4 @@
-// The chat window: one conversation with Claude, with Relay's activity shown inline.
+// The chat window: one conversation with Cloud AI, with Relay's activity shown inline.
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
@@ -7,9 +7,9 @@ import { Check, CheckCircle, ChevronDown, ChevronRight, CornerDownLeft, CpuChip0
 import { TextAreaBase } from "@/components/base/textarea/textarea";
 import { Markdown } from "@/components/relay/markdown";
 import { Notice, Spinner } from "@/components/relay/ui";
-import { type ChatEvent, type ChatSummary, type Settings, api, errorText } from "@/lib/api";
+import { type ChatEvent, type ChatSummary, type Project, type Settings, api, errorText } from "@/lib/api";
 import { describeTool, isHiddenTool } from "@/lib/describe-tool";
-import { isAuthError, refreshClaude, useClaude } from "@/lib/claude";
+import { isAuthError, refreshCloud, useCloud } from "@/lib/cloud";
 import { ChatMenu, RelayMark } from "@/components/relay/sidebar";
 import { SignIn } from "./sign-in";
 import { cx } from "@/utils/cx";
@@ -146,7 +146,7 @@ const LocalStep = ({ item }: { item: Extract<Item, { kind: "step" }> }) => {
     );
 };
 
-type ClaudeSettings = Settings["claude"];
+type CloudSettings = Settings["cloud"];
 
 const PlanCard = ({ item }: { item: Extract<Item, { kind: "plan" }> }) => (
     <div className="rounded-xl px-4 py-3 text-sm ring-1 ring-secondary animate-in fade-in duration-200">
@@ -165,6 +165,181 @@ const PlanCard = ({ item }: { item: Extract<Item, { kind: "plan" }> }) => (
     </div>
 );
 
+/** A task the local AI ran: its plan and everything it did, shown as one card in the
+ * chat and in full in its own thread beside it. */
+type TaskEntry = {
+    type: "task";
+    index: number;
+    at: number;
+    plan: Extract<Item, { kind: "plan" }>;
+    children: { item: Item; at: number }[];
+    status: "running" | "done" | "failed" | "stopped";
+};
+type Entry = TaskEntry | { type: "item"; item: Item; at: number };
+
+const TASK_PARTS = new Set(["step", "note", "question", "done"]);
+
+export const groupTasks = (items: Item[], busy: boolean): Entry[] => {
+    const out: Entry[] = [];
+    let task = null as TaskEntry | null;
+    let count = 0;
+    items.forEach((item, at) => {
+        if (item.kind === "plan") {
+            task = { type: "task", index: count++, at, plan: item, children: [], status: "stopped" };
+            out.push(task);
+            return;
+        }
+        if (task && TASK_PARTS.has(item.kind)) {
+            task.children.push({ item, at });
+            // A question also shows in the chat, where it is answered.
+            if (item.kind === "question") out.push({ type: "item", item, at });
+            if (item.kind === "done") {
+                task.status = item.ok ? "done" : "failed";
+                task = null;
+            }
+            return;
+        }
+        // A reply while the task runs (an answer, a change of plan) doesn't end it.
+        if (item.kind !== "user" && task) {
+            // Cloud AI went on after the task without a verdict from it: it ended unless stopped.
+            const stopped = task.children.some((c) => c.item.kind === "note" && c.item.text.startsWith("Stopping"));
+            if (!stopped) task.status = "done";
+            task = null;
+        }
+        out.push({ type: "item", item, at });
+    });
+    const last = out.filter((e): e is TaskEntry => e.type === "task").pop();
+    if (busy && last && last.status === "stopped" && task === last) last.status = "running";
+    return out;
+};
+
+
+const TaskStatus = ({ status }: { status: TaskEntry["status"] }) =>
+    status === "running" ? (
+        <Spinner />
+    ) : status === "done" ? (
+        <CheckCircle className="size-4 shrink-0 text-fg-success-primary" />
+    ) : status === "failed" ? (
+        <XCircle className="size-4 shrink-0 text-fg-error-primary" />
+    ) : (
+        <StopSquare className="size-4 shrink-0 text-fg-quaternary" />
+    );
+
+const STATUS_TEXT = { running: "Working", done: "Done", failed: "Didn't finish", stopped: "Stopped" };
+
+const TaskCard = ({ task, active, onOpen }: { task: TaskEntry; active: boolean; onOpen: () => void }) => {
+    const steps = task.children.filter((c) => c.item.kind === "step").map((c) => c.item as Extract<Item, { kind: "step" }>);
+    const latest = steps[steps.length - 1];
+    const done = task.children.find((c) => c.item.kind === "done")?.item as Extract<Item, { kind: "done" }> | undefined;
+    return (
+        <button
+            onClick={onOpen}
+            aria-label={`Task: ${task.plan.goal || "Task"}`}
+            aria-expanded={active}
+            className={cx(
+                "flex w-full cursor-pointer flex-col gap-1 rounded-xl border px-4 py-3 text-left transition duration-150 outline-focus-ring animate-in fade-in focus-visible:outline-2",
+                active ? "border-primary bg-primary_alt" : "border-secondary hover:border-primary hover:bg-primary_hover",
+            )}
+        >
+            <span className="flex items-center gap-2.5">
+                <TaskStatus status={task.status} />
+                <span className="min-w-0 flex-1 truncate text-sm font-medium text-primary">{task.plan.goal || "Task"}</span>
+                <span className="shrink-0 text-xs text-tertiary">
+                    {STATUS_TEXT[task.status]}
+                    {steps.length > 0 && ` · ${steps.length} ${steps.length === 1 ? "step" : "steps"}`}
+                </span>
+                <ChevronRight className={cx("size-4 shrink-0 text-fg-quaternary transition", active && "rotate-180")} />
+            </span>
+            <span className="truncate pl-[26px] text-[13px] text-tertiary">
+                {task.status === "failed" && done?.text
+                    ? done.text
+                    : latest
+                      ? `Step ${latest.step} · ${latest.thought || latest.action}`
+                      : task.plan.app
+                        ? `In ${task.plan.app}`
+                        : "Planning…"}
+            </span>
+        </button>
+    );
+};
+
+/** A task's thread, open beside the chat: the plan, every step, and a box to steer it. */
+const ThreadPane = ({ task, busy, onClose, onSteer }: { task: TaskEntry; busy: boolean; onClose: () => void; onSteer: (text: string) => void }) => {
+    const [text, setText] = useState("");
+    const end = useRef<HTMLDivElement>(null);
+    useEffect(() => end.current?.scrollIntoView({ behavior: "smooth" }), [task.children.length]);
+    const running = task.status === "running" && busy;
+    return (
+        <aside aria-label="Task thread" className="flex w-[400px] shrink-0 flex-col border-l border-secondary bg-primary animate-in fade-in slide-in-from-right-2 duration-200">
+            <div className="h-9 shrink-0" />
+            <div className="flex h-11 shrink-0 items-center gap-2 px-4">
+                <span className="text-sm text-tertiary">Tasks</span>
+                <ChevronRight className="size-3.5 shrink-0 text-fg-quaternary" />
+                <span className="min-w-0 flex-1 truncate text-sm font-medium text-primary">{task.plan.goal || "Task"}</span>
+                <button
+                    aria-label="Close thread"
+                    title="Close thread"
+                    onClick={onClose}
+                    className="flex size-7 cursor-pointer items-center justify-center rounded-md text-fg-tertiary hover:bg-primary_hover hover:text-fg-secondary"
+                >
+                    <XClose className="size-4" />
+                </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
+                <div className="flex flex-col gap-3">
+                    <PlanCard item={task.plan} />
+                    {task.children.map(({ item, at }) => {
+                        if (item.kind === "step") return <LocalStep key={at} item={item} />;
+                        if (item.kind === "note")
+                            return (
+                                <p key={at} className="text-xs text-tertiary">
+                                    {item.text}
+                                </p>
+                            );
+                        if (item.kind === "question")
+                            return (
+                                <p key={at} className="rounded-lg px-3 py-2 text-sm text-primary ring-1 ring-brand">
+                                    {item.text}
+                                </p>
+                            );
+                        if (item.kind === "done")
+                            return (
+                                <p key={at} className={cx("text-xs", item.ok ? "text-tertiary" : "text-error-primary")}>
+                                    {item.ok ? `Done${item.seconds ? ` in ${item.seconds.toFixed(1)} s` : ""}` : item.text}
+                                </p>
+                            );
+                        return null;
+                    })}
+                    {running && (
+                        <div className="flex items-center gap-2 text-sm text-tertiary">
+                            <Spinner />
+                            <span className="animate-pulse">Working…</span>
+                        </div>
+                    )}
+                    <div ref={end} />
+                </div>
+            </div>
+            {running && (
+                <div className="p-3">
+                    <input
+                        aria-label="Steer this task"
+                        placeholder="Steer this task…"
+                        value={text}
+                        onChange={(e) => setText(e.target.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === "Enter" && text.trim()) {
+                                onSteer(text.trim());
+                                setText("");
+                            }
+                        }}
+                        className="h-10 w-full rounded-xl border border-primary bg-primary_alt px-3 text-sm text-primary outline-hidden placeholder:text-placeholder focus:border-[#5c5c5b]"
+                    />
+                </div>
+            )}
+        </aside>
+    );
+};
+
 const FileChip = ({ path, onRemove }: { path: string; onRemove?: () => void }) => (
     <span title={path} className="inline-flex max-w-60 items-center gap-1.5 rounded-lg bg-secondary px-2 py-1 text-xs text-secondary ring-1 ring-secondary">
         <File06 className="size-3.5 shrink-0 text-fg-quaternary" />
@@ -177,9 +352,9 @@ const FileChip = ({ path, onRemove }: { path: string; onRemove?: () => void }) =
     </span>
 );
 
-// Claude Code takes these aliases for --model; empty means its own default.
+// Cloud AI takes these aliases for --model; empty means its own default.
 const MODELS = [
-    { id: "", label: "Default", hint: "Claude Code's choice" },
+    { id: "", label: "Default", hint: "Cloud AI's choice" },
     { id: "opus", label: "Opus", hint: "Most capable" },
     { id: "sonnet", label: "Sonnet", hint: "Fast and smart" },
     { id: "haiku", label: "Haiku", hint: "Fastest" },
@@ -194,8 +369,8 @@ const EFFORTS = [
 const pickerItem =
     "flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-secondary outline-hidden data-[focused]:bg-tertiary data-[focused]:text-primary";
 
-/** The model and effort picker next to Send, like the Claude app's. */
-const ModelPicker = ({ settings, onChange }: { settings: ClaudeSettings; onChange: (next: ClaudeSettings) => void }) => {
+/** The model and effort picker next to Send, like the reference chat app's. */
+const ModelPicker = ({ settings, onChange }: { settings: CloudSettings; onChange: (next: CloudSettings) => void }) => {
     const model = MODELS.find((m) => m.id === settings.model)?.label ?? settings.model;
     const effort = EFFORTS.find((e) => e.id === settings.effort)?.label ?? settings.effort;
     return (
@@ -258,7 +433,7 @@ const forgotten = new Set<string>();
 export const forgetChat = (id: string) => forgotten.add(id);
 
 /** Which conversation the screen shows; `fresh` ones have nothing saved yet. */
-export type OpenChat = { id: string; fresh: boolean };
+export type OpenChat = { id: string; fresh: boolean; project?: string | null; task?: number };
 
 /** A chat's title: the start of its first message. */
 const titleOf = (items: Item[]) => {
@@ -285,10 +460,16 @@ export const ChatScreen = ({
     onRename,
     onPin,
     onDelete,
-    claudeSettings,
-    onClaudeSettings,
+    cloudSettings,
+    onCloudSettings,
     approvalMode = "risky",
+    projects = [],
+    onMove,
+    onOpenProject,
 }: {
+    projects?: Project[];
+    onMove?: (project: string | null) => void;
+    onOpenProject?: (id: string) => void;
     ready: boolean;
     /** Settings > Safety: what the line under the composer promises. */
     approvalMode?: string;
@@ -302,9 +483,9 @@ export const ChatScreen = ({
     onRename: () => void;
     onPin: () => void;
     onDelete: () => void;
-    /** Settings > Claude, for the model and effort picker in the composer. */
-    claudeSettings: ClaudeSettings;
-    onClaudeSettings: (next: ClaudeSettings) => void;
+    /** Settings > Cloud AI, for the model and effort picker in the composer. */
+    cloudSettings: CloudSettings;
+    onCloudSettings: (next: CloudSettings) => void;
 }) => {
     const [files, setFiles] = useState<string[]>([]);
     const [items, setItems] = useState<Item[]>([]);
@@ -312,17 +493,19 @@ export const ChatScreen = ({
     const [input, setInput] = useState("");
     const [busy, setBusy] = useState(false);
     const [signingIn, setSigningIn] = useState(false);
+    // The task whose thread is open beside the chat, like a thread in the reference chat app.
+    const [thread, setThread] = useState<number | null>(null);
     // Auth failures at or before this index were fixed by signing in again.
     const [signedInAt, setSignedInAt] = useState(-1);
     const bottom = useRef<HTMLDivElement>(null);
-    const claude = useClaude();
+    const cloud = useCloud();
 
     let lastAuthFailure = -1;
     items.forEach((it, i) => {
         if ((it.kind === "error" || (it.kind === "done" && !it.ok)) && isAuthError(it.text)) lastAuthFailure = i;
     });
-    const signedOut = !!claude.state?.installed && !claude.state.auth.loggedIn;
-    // Signed out is fine (the note at the top says so); an expired sign-in Claude just hit is worth a button.
+    const signedOut = !!cloud.state?.installed && !cloud.state.auth.loggedIn;
+    // Signed out is fine (the note at the top says so); an expired sign-in Cloud AI just hit is worth a button.
     const needsSignIn = ready && !signedOut && lastAuthFailure > signedInAt;
 
     useEffect(() => {
@@ -354,12 +537,12 @@ export const ChatScreen = ({
                             it.kind === "tool" && it.id === e.tool_use_id ? { ...it, result: { ok: !e.is_error, text: e.text, image: e.image } } : it,
                         );
                     case "done":
-                        if (e.is_error && isAuthError(e.result)) refreshClaude().catch(() => {});
+                        if (e.is_error && isAuthError(e.result)) refreshCloud().catch(() => {});
                         return [...prev, { kind: "done", ok: !e.is_error, text: e.is_error ? e.result : "", seconds: e.duration_ms ? e.duration_ms / 1000 : null }];
                     case "error":
                         return [...prev, { kind: "error", text: e.message }];
                     case "fallback":
-                        refreshClaude().catch(() => {});
+                        refreshCloud().catch(() => {});
                         return [...prev, { kind: "fallback", reason: e.reason }];
                     case "local_note": {
                         // The plan and the question also come as notes; they're shown once.
@@ -408,7 +591,7 @@ export const ChatScreen = ({
         if (busy) {
             setItems((p) => [...p, { kind: "user", text }]);
             setInput("");
-            api.chatSay(text).catch((e) => setItems((p) => [...p, { kind: "error", text: errorText(e) }]));
+            api.chatSay(text, project).catch((e) => setItems((p) => [...p, { kind: "error", text: errorText(e) }]));
             return;
         }
         const attached = files;
@@ -416,10 +599,10 @@ export const ChatScreen = ({
         setInput("");
         setFiles([]);
         setBusy(true);
-        // Files go along as paths on this PC; Claude and the local AI open them from there.
+        // Files go along as paths on this PC; Cloud AI and the local AI open them from there.
         const prompt = attached.length ? `${text}\n\nAttached files:\n${attached.map((f) => `- ${f}`).join("\n")}` : text;
         try {
-            await api.chatSend(prompt);
+            await api.chatSend(prompt, project);
         } catch (e) {
             setItems((p) => [...p, { kind: "error", text: errorText(e) }]);
             setBusy(false);
@@ -435,6 +618,7 @@ export const ChatScreen = ({
     useEffect(() => {
         let cancelled = false;
         shown.current = null;
+        setThread(chat.task ?? null);
         setLoadError("");
         (async () => {
             if (busyRef.current) await api.chatStop().catch(() => {});
@@ -474,7 +658,7 @@ export const ChatScreen = ({
             // Opening a chat changes nothing, so it keeps its place in the list.
             if (forgotten.has(id) || lastSaved.current[id] === json) return;
             lastSaved.current[id] = json;
-            api.chatSave(id, titleOf(items), kept)
+            api.chatSave(id, titleOf(items), kept, project)
                 .then(onSaved)
                 .catch(() => {});
         };
@@ -484,6 +668,84 @@ export const ChatScreen = ({
             if (shown.current !== id) save();
         };
     }, [items, busy]);
+
+    const project = saved?.project ?? chat.project ?? null;
+    const inProject = project ? projects.find((p) => p.id === project) : undefined;
+    const entries = groupTasks(items, busy);
+    const tasks = entries.filter((e): e is TaskEntry => e.type === "task");
+    const openTask = thread === null ? undefined : tasks.find((t) => t.index === thread);
+    const renderItem = (it: Item, i: number) => {
+                    if (it.kind === "user")
+                        return (
+                            <div
+                                key={i}
+                                className="ml-auto max-w-[80%] rounded-xl bg-tertiary px-4 py-2.5 text-[15px] leading-6 break-words whitespace-pre-wrap text-primary animate-in fade-in duration-200 dark:bg-[#212121]"
+                            >
+                                {it.text}
+                                {it.files && (
+                                    <div className="mt-2 flex flex-wrap gap-1.5">
+                                        {it.files.map((f) => (
+                                            <FileChip key={f} path={f} />
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    if (it.kind === "assistant" && isAuthError(it.text) && items[i + 1]?.kind === "done") return null;
+                    if (it.kind === "assistant")
+                        return (
+                            <div key={i} className="text-[15px] leading-[1.7] break-words text-primary animate-in fade-in duration-300">
+                                <Markdown text={it.text} />
+                            </div>
+                        );
+                    if (it.kind === "tool")
+                        return isHiddenTool(it.name) && it.result?.ok !== false ? null : <ToolItem key={i} item={it} />;
+                    if (it.kind === "fallback")
+                        return (
+                            <div key={i} className="flex items-center gap-2 pt-1 text-sm font-medium text-brand-secondary animate-in fade-in duration-300">
+                                <CpuChip01 className="size-4 shrink-0" />
+                                Local AI (Cloud AI unavailable)
+                                <span className="font-normal text-tertiary">· {it.reason}</span>
+                            </div>
+                        );
+                    if (it.kind === "note")
+                        return (
+                            <div key={i} className="text-xs text-tertiary animate-in fade-in duration-300">
+                                {it.text}
+                            </div>
+                        );
+                    if (it.kind === "step") return <LocalStep key={i} item={it} />;
+                    if (it.kind === "plan") return <PlanCard key={i} item={it} />;
+                    if (it.kind === "question")
+                        return (
+                            <div key={i} className="rounded-xl px-4 py-3 text-sm text-primary ring-1 ring-brand animate-in fade-in duration-200">
+                                <p className="font-medium">{it.text}</p>
+                                <p className="mt-1 text-xs text-tertiary">
+                                    {busy && i === items.length - 1 ? "Reply below; Relay waits for your answer" : "Asked while working"}
+                                    {it.fallback ? `, or goes with "${it.fallback}".` : "."}
+                                </p>
+                            </div>
+                        );
+                    if (it.kind === "done")
+                        return (
+                            <div key={i} className={cx("text-xs animate-in fade-in duration-300", it.ok ? "text-quaternary" : "text-error-primary")}>
+                                {it.ok ? `Done${it.seconds ? ` in ${it.seconds.toFixed(1)} s` : ""}` : it.text}
+                            </div>
+                        );
+                    return (
+                        <Notice key={i} tone="error">
+                            {it.text}
+                            {LOCAL_MODEL_MISSING.test(it.text) && (
+                                <>
+                                    {" "}
+                                    <button className="cursor-pointer font-semibold underline" onClick={onLocalAi}>
+                                        Open Local AI
+                                    </button>
+                                </>
+                            )}
+                        </Notice>
+                    );
+    };
 
     const empty = items.length === 0;
     const sendable = !!input.trim();
@@ -547,16 +809,28 @@ export const ChatScreen = ({
                     <Plus className="size-4" />
                 </button>
                 <span className="ml-auto" />
-                <ModelPicker settings={claudeSettings} onChange={onClaudeSettings} />
+                <ModelPicker settings={cloudSettings} onChange={onCloudSettings} />
             </div>
             <p className="mt-1 text-center text-[11px] text-quaternary">{APPROVAL_NOTE[approvalMode] ?? APPROVAL_NOTE.risky}</p>
         </div>
     );
 
     return (
-        <div className="flex h-full min-h-0 flex-col">
+        <div className="flex h-full min-h-0">
+        <div className="flex h-full min-w-0 flex-1 flex-col">
             <div className="h-9 shrink-0" />
-            <div className="flex h-11 shrink-0 items-center gap-2 px-5">
+            <div className="flex h-11 shrink-0 items-center gap-1 px-5">
+                {inProject && (
+                    <>
+                        <button
+                            onClick={() => onOpenProject?.(inProject.id)}
+                            className="relative z-40 max-w-[30%] cursor-pointer truncate rounded-md px-2 py-1 text-sm text-tertiary hover:bg-primary_hover hover:text-primary"
+                        >
+                            {inProject.name}
+                        </button>
+                        {!empty && <span className="text-sm text-quaternary">/</span>}
+                    </>
+                )}
                 {!empty &&
                     (saved ? (
                         <ChatMenu
@@ -565,6 +839,9 @@ export const ChatScreen = ({
                             onPin={onPin}
                             onRename={onRename}
                             onDelete={onDelete}
+                            projects={projects}
+                            project={saved.project}
+                            onMove={onMove}
                             className="relative z-40 flex h-7 max-w-[60%] cursor-pointer items-center gap-1 rounded-md px-2 text-sm font-medium text-primary outline-hidden hover:bg-primary_hover data-[focus-visible]:ring-2 data-[focus-visible]:ring-brand"
                         >
                             <span className="truncate">{saved.title}</span>
@@ -579,7 +856,7 @@ export const ChatScreen = ({
                     {loadError && <Notice tone="error">{loadError}</Notice>}
                     {!ready && (
                         <p className="text-center text-xs text-tertiary">
-                            Claude isn't signed in, so the local AI does screen tasks on its own. Writing and judgment need Claude:{" "}
+                            Cloud AI isn't signed in, so the local AI does screen tasks on its own. Writing and judgment need Cloud AI:{" "}
                             <button className="cursor-pointer font-medium underline" onClick={onSetup}>
                                 sign in
                             </button>
@@ -590,7 +867,7 @@ export const ChatScreen = ({
                         <div className="flex flex-col items-center text-center animate-in fade-in slide-in-from-bottom-3 duration-700">
                             <div className="flex items-center gap-3">
                                 <RelayMark className="size-8" />
-                                <h2 className="font-serif text-[2.1rem] leading-tight font-normal tracking-tight text-primary">{greeting()}</h2>
+                                <h2 className="font-serif text-[2.1rem] leading-tight font-normal tracking-tight text-primary">{inProject ? inProject.name : greeting()}</h2>
                             </div>
                             <div className="mt-7 w-full text-left">{composer}</div>
                             <div className="mt-5 flex max-w-2xl flex-wrap justify-center gap-2">
@@ -607,78 +884,13 @@ export const ChatScreen = ({
                             </div>
                         </div>
                     )}
-                    {items.map((it, i) => {
-                        if (it.kind === "user")
-                            return (
-                                <div
-                                    key={i}
-                                    className="ml-auto max-w-[80%] rounded-xl bg-tertiary px-4 py-2.5 text-[15px] leading-6 break-words whitespace-pre-wrap text-primary animate-in fade-in duration-200 dark:bg-[#212121]"
-                                >
-                                    {it.text}
-                                    {it.files && (
-                                        <div className="mt-2 flex flex-wrap gap-1.5">
-                                            {it.files.map((f) => (
-                                                <FileChip key={f} path={f} />
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-                            );
-                        if (it.kind === "assistant" && isAuthError(it.text) && items[i + 1]?.kind === "done") return null;
-                        if (it.kind === "assistant")
-                            return (
-                                <div key={i} className="text-[15px] leading-[1.7] break-words text-primary animate-in fade-in duration-300">
-                                    <Markdown text={it.text} />
-                                </div>
-                            );
-                        if (it.kind === "tool")
-                            return isHiddenTool(it.name) && it.result?.ok !== false ? null : <ToolItem key={i} item={it} />;
-                        if (it.kind === "fallback")
-                            return (
-                                <div key={i} className="flex items-center gap-2 pt-1 text-sm font-medium text-brand-secondary animate-in fade-in duration-300">
-                                    <CpuChip01 className="size-4 shrink-0" />
-                                    Local AI (Claude unavailable)
-                                    <span className="font-normal text-tertiary">· {it.reason}</span>
-                                </div>
-                            );
-                        if (it.kind === "note")
-                            return (
-                                <div key={i} className="text-xs text-tertiary animate-in fade-in duration-300">
-                                    {it.text}
-                                </div>
-                            );
-                        if (it.kind === "step") return <LocalStep key={i} item={it} />;
-                        if (it.kind === "plan") return <PlanCard key={i} item={it} />;
-                        if (it.kind === "question")
-                            return (
-                                <div key={i} className="rounded-xl px-4 py-3 text-sm text-primary ring-1 ring-brand animate-in fade-in duration-200">
-                                    <p className="font-medium">{it.text}</p>
-                                    <p className="mt-1 text-xs text-tertiary">
-                                        {busy && i === items.length - 1 ? "Reply below; Relay waits for your answer" : "Asked while working"}
-                                        {it.fallback ? `, or goes with "${it.fallback}".` : "."}
-                                    </p>
-                                </div>
-                            );
-                        if (it.kind === "done")
-                            return (
-                                <div key={i} className={cx("text-xs animate-in fade-in duration-300", it.ok ? "text-quaternary" : "text-error-primary")}>
-                                    {it.ok ? `Done${it.seconds ? ` in ${it.seconds.toFixed(1)} s` : ""}` : it.text}
-                                </div>
-                            );
-                        return (
-                            <Notice key={i} tone="error">
-                                {it.text}
-                                {LOCAL_MODEL_MISSING.test(it.text) && (
-                                    <>
-                                        {" "}
-                                        <button className="cursor-pointer font-semibold underline" onClick={onLocalAi}>
-                                            Open Local AI
-                                        </button>
-                                    </>
-                                )}
-                            </Notice>
-                        );
-                    })}
+                    {entries.map((e) =>
+                        e.type === "task" ? (
+                            <TaskCard key={`t${e.at}`} task={e} active={thread === e.index} onOpen={() => setThread(thread === e.index ? null : e.index)} />
+                        ) : (
+                            renderItem(e.item, e.at)
+                        ),
+                    )}
                     {needsSignIn &&
                         !busy &&
                         (signingIn ? (
@@ -691,7 +903,7 @@ export const ChatScreen = ({
                             />
                         ) : (
                             <Notice tone="warning">
-                                {signedOut ? "Claude Code isn't signed in." : "Your Claude sign-in has expired, so Claude can't answer."}{" "}
+                                {signedOut ? "Cloud AI isn't signed in." : "Your Cloud AI sign-in has expired, so Cloud AI can't answer."}{" "}
                                 <button className="cursor-pointer font-semibold underline" onClick={() => setSigningIn(true)}>
                                     Sign in again
                                 </button>
@@ -712,6 +924,18 @@ export const ChatScreen = ({
                     <div className="mx-auto max-w-[720px]">{composer}</div>
                 </div>
             )}
+        </div>
+        {openTask && (
+            <ThreadPane
+                task={openTask}
+                busy={busy}
+                onClose={() => setThread(null)}
+                onSteer={(text) => {
+                    setItems((p) => [...p, { kind: "user", text }]);
+                    api.chatSay(text, project).catch((e) => setItems((p) => [...p, { kind: "error", text: errorText(e) }]));
+                }}
+            />
+        )}
         </div>
     );
 };

@@ -253,7 +253,7 @@ def bench_main(argv: list[str]) -> int:
 
 
 def _hands() -> Any:
-    """The same Computer Claude drives: kill switch, approval prompt and audit log."""
+    """The same Computer Cloud AI drives: kill switch, approval prompt and audit log."""
     from relay_screen.dpi import set_dpi_awareness
 
     set_dpi_awareness()

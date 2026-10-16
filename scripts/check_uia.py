@@ -12,7 +12,7 @@ is covered by scripts/check_safety.py).
    pixels, then closes only that window. Without Brave Origin it uses a throwaway
    Edge (EdgeCore on newer installs) or Chrome profile with
    --force-renderer-accessibility (D-017). On several monitors, follows the
-   "select_display N" hint as Claude would.
+   "select_display N" hint as Cloud AI would.
 3. Size: that window's tree at depth 12 must stay under ~8k tokens.
 Prints PASS/FAIL per check.
 """
@@ -68,7 +68,7 @@ def first_id(text: str) -> str | None:
 
 
 def follow_display(text: str) -> bool:
-    """Select the display a listing points to, as Claude would with select_display."""
+    """Select the display a listing points to, as Cloud AI would with select_display."""
     hint = re.search(r"select_display (\d+)", text)
     if hint is None:
         return False

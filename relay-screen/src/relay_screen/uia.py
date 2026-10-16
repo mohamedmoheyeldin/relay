@@ -2,7 +2,7 @@
 
 Elements get short ids (``e12``) that later calls (``uia_invoke``, ``uia_set_value``)
 refer to. Bounds are reported in screenshot pixels of the active display, like every
-other coordinate Relay gives Claude. Output is capped so a large window stays well
+other coordinate Relay gives Cloud AI. Output is capped so a large window stays well
 under the MCP output limit.
 
 The Windows side uses the ``uiautomation`` package (D-013); everything else here is
@@ -101,7 +101,18 @@ def _matches(element: UiaElement, query: str) -> bool:
         q in element.name.casefold()
         or q == element.role.casefold()
         or (bool(element.automation_id) and q in element.automation_id.casefold())
+        or q in _text_value(element).casefold()
     )
+
+
+def _text_value(element: UiaElement) -> str:
+    """A text box's contents: Notepad's second line is only there, never in a name, so
+    a filter for it found nothing (D-106)."""
+    try:
+        value = element.value() if "value" in element.patterns() else None
+    except Exception:
+        return ""
+    return value if isinstance(value, str) else ""
 
 
 def _noise(element: UiaElement) -> bool:
@@ -119,7 +130,7 @@ def screenshot_box(
 ) -> str:
     """Bounds as screenshot px of the active display, or why there are none.
 
-    An element on another monitor names that display, so Claude can select_display it.
+    An element on another monitor names that display, so Cloud AI can select_display it.
     """
     if rect is None or rect.width <= 0 or rect.height <= 0:
         return "no bounds"

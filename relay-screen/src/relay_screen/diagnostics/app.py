@@ -52,7 +52,7 @@ class AppUi(Protocol):
 # Settings pages and words on each one (from relay-ui/src/screens/settings.tsx).
 PAGES = (
     ("General", "Startup, the tray and language."),
-    ("Account", "Your Claude sign-in"),
+    ("Account", "Your Cloud AI sign-in"),
     ("Local AI", "The models that run on your GPU"),
     ("Connectors", "MCP servers and connectors"),
     ("Safety", "Approvals, the kill switch"),
@@ -88,7 +88,7 @@ class Ctx:
     event: Callable[[dict[str, Any]], object]
     settings_file: Path | None
     stamp: str
-    claude: bool  # Claude Code is signed in, so chats get replies
+    cloud: bool  # Cloud AI is signed in, so chats get replies
     failed: list[str] = field(default_factory=list)
     checks: list[dict[str, Any]] = field(default_factory=list)
 
@@ -299,11 +299,11 @@ def composer(ctx: Ctx) -> None:
     ctx.expect("line one\nline two" in text, "Shift+Enter starts a new line")
     ctx.ui.fill("Message", "")
     picker(ctx)
-    if send(ctx, QUESTION, QUESTION[:40]) and ctx.claude:
+    if send(ctx, QUESTION, QUESTION[:40]) and ctx.cloud:
         ms = ctx.until(ctx.shows("42"), 120)
-        ctx.expect(ms is not None, "Claude's reply (42) shows in the chat", ms)
+        ctx.expect(ms is not None, "Cloud AI's reply (42) shows in the chat", ms)
     ctx.shot("reply")
-    if new_chat(ctx) and send(ctx, LONG_MESSAGE, LONG_MESSAGE[:30]) and ctx.claude:
+    if new_chat(ctx) and send(ctx, LONG_MESSAGE, LONG_MESSAGE[:30]) and ctx.cloud:
         ms = ctx.until(ctx.shows("OK"), 120)
         ctx.expect(ms is not None, "a long message gets its reply (OK)", ms)
     ctx.shot("long-message")
@@ -313,8 +313,8 @@ def composer(ctx: Ctx) -> None:
 
 def picker(ctx: Ctx) -> None:
     """The model and effort menu opens on one click, saves each pick and is put back."""
-    model = ctx.setting(("claude", "model")) or ""
-    effort = ctx.setting(("claude", "effort")) or ""
+    model = ctx.setting(("cloud", "model")) or ""
+    effort = ctx.setting(("cloud", "effort")) or ""
     picks = (("model", "Sonnet", "sonnet"), ("effort", "High", "high"))
     for key, label, value in picks:
         opened = ctx.act(
@@ -325,14 +325,14 @@ def picker(ctx: Ctx) -> None:
             ctx.ui.key("{Esc}")
             return
         ctx.shot(f"picker-{key}")
-        ctx.act(f"Picking {label} saves it", label, "MenuItem", ctx.saved(("claude", key), value))
+        ctx.act(f"Picking {label} saves it", label, "MenuItem", ctx.saved(("cloud", key), value))
     for key, value, labels in (("model", model, MODEL_LABELS), ("effort", effort, EFFORT_LABELS)):
         label = labels.get(value, value)
         ctx.act(
             "The model and effort menu opens", "Model and effort", "Button",
             ctx.shows("Low", "MenuItem"),
         )  # fmt: skip
-        if label == "Default":  # the model's reads "Default Claude Code's choice"
+        if label == "Default":  # the model's reads "Default Cloud AI's choice"
             names = ctx.ui.find("Default", "MenuItem")
             longer = [n for n in names if n.strip().casefold() != "default"]
             plain = [n for n in names if n.strip().casefold() == "default"]
@@ -340,7 +340,7 @@ def picker(ctx: Ctx) -> None:
             label = choose[0] if choose else label
         ctx.act(
             f"{key} goes back to {value or 'default'}", label, "MenuItem",
-            ctx.saved(("claude", key), value),
+            ctx.saved(("cloud", key), value),
         )  # fmt: skip
 
 
@@ -352,11 +352,11 @@ def chats(ctx: Ctx) -> None:
     clean_up(ctx)
     if not (new_chat(ctx) and send(ctx, QUESTION, first)):
         return
-    if ctx.claude:
+    if ctx.cloud:
         ctx.wait("42", seconds=120)
     if not (new_chat(ctx) and send(ctx, SECOND, second)):
         return
-    if ctx.claude:
+    if ctx.cloud:
         ctx.wait("blue", seconds=120)
         ctx.act("Switching to the first chat", first, "Button", ctx.shows("42"))
         ctx.act("Switching to the second chat", second, "Button", ctx.shows("blue"))
@@ -421,7 +421,7 @@ def attach(ctx: Ctx) -> None:
 
 
 def stop(ctx: Ctx) -> None:
-    """A long Claude answer stops on one click, and the composer is ready again."""
+    """A long Cloud AI answer stops on one click, and the composer is ready again."""
     if not (new_chat(ctx) and send(ctx, LONG_ASK, LONG_ASK[:40])):
         return
     if ctx.expect(ctx.wait("Stop", "Button", seconds=15), "Stop shows while Relay works"):
@@ -459,5 +459,5 @@ SCRIPTS: dict[str, Callable[[Ctx], None]] = {
     "app-stop": stop,
     "app-small-window": small_window,
 }
-# Scripts that need Claude signed in (a reply, or something to stop).
-NEEDS_CLAUDE = {"app-stop"}
+# Scripts that need Cloud AI signed in (a reply, or something to stop).
+NEEDS_CLOUD = {"app-stop"}

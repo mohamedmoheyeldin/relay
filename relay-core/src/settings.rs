@@ -16,7 +16,7 @@ use crate::paths;
 #[serde(default)]
 pub struct Settings {
     pub general: General,
-    pub claude: ClaudeSettings,
+    pub cloud: CloudSettings,
     pub local_ai: LocalAi,
     pub connections: Connections,
     pub browser: Browser,
@@ -56,10 +56,10 @@ impl Default for General {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
-pub struct ClaudeSettings {
-    /// Passed to `claude -p --model`; empty means Claude Code's own default.
+pub struct CloudSettings {
+    /// Passed to `cloud-cli -p --model`; empty means Cloud AI's own default.
     pub model: String,
-    /// Passed to `claude -p --effort`; empty means Claude Code's own default.
+    /// Passed to `cloud-cli -p --effort`; empty means Cloud AI's own default.
     pub effort: String,
 }
 
@@ -83,7 +83,7 @@ pub struct LocalAi {
     pub grounding: Option<ActiveModel>,
     /// "Check / describe" model (D-036: Qwen3-VL-8B-Instruct by default).
     pub describe: Option<ActiveModel>,
-    /// The local operator that runs tasks when Claude can't (D-067). None picks
+    /// The local operator that runs tasks when Cloud AI can't (D-067). None picks
     /// the describe model, then the grounding model, then the first downloaded planner.
     pub agent: Option<AgentModel>,
     /// Models unload this many seconds after a task ends (D-042).
@@ -115,7 +115,7 @@ impl LocalAi {
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct Connections {
-    /// Servers paused from the hub: removed from Claude Code's config and kept here
+    /// Servers paused from the hub: removed from Cloud AI's config and kept here
     /// so they can be put back exactly as they were (D-047).
     pub paused: Vec<PausedServer>,
     /// Names of the secret environment variables per server. The values live in
@@ -129,7 +129,7 @@ pub struct Browser {
     /// "auto" picks the first Chromium-based browser found; otherwise a browser
     /// name from discovery.
     pub preferred: String,
-    /// Give Claude the relay-browser server (Playwright over the chosen browser).
+    /// Give Cloud AI the relay-browser server (Playwright over the chosen browser).
     pub lane_enabled: bool,
     /// Drive the browser the owner already has open, through the Playwright
     /// Extension, instead of a separate Relay profile.
@@ -343,7 +343,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("sub").join("settings.json");
         let mut s = Settings::default();
-        s.claude.model = "opus".into();
+        s.cloud.model = "opus".into();
         s.connections
             .secret_names
             .insert("notion".into(), vec!["NOTION_TOKEN".into()]);

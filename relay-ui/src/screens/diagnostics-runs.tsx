@@ -1,5 +1,5 @@
 // The full test run (D-096): real tasks in Notepad, File Explorer, the browser, a web
-// form, every monitor, the router, Claude and the local AI alone, recorded under
+// form, every monitor, the router, Cloud AI and the local AI alone, recorded under
 // Downloads\Relay-diagnostics. Shown on the Developer page of Settings.
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
@@ -33,14 +33,14 @@ const timing = (r: DiagnosticsResult) => {
     if (r.model) parts.push(r.model);
     const think = r.timings?.think_ms_total;
     if (typeof think === "number" && think > 0) parts.push(`model ${(think / 1000).toFixed(1)} s`);
-    const claude = r.timings?.claude_ms;
-    if (typeof claude === "number") parts.push(`Claude ${(claude / 1000).toFixed(1)} s`);
+    const cloud = r.timings?.cloud_ms;
+    if (typeof cloud === "number") parts.push(`Cloud AI ${(cloud / 1000).toFixed(1)} s`);
     return parts.join(" · ");
 };
 
 const fromSummary = (s: DiagnosticsSummary): Row[] => s.results.map((r) => ({ id: r.id, title: r.title, area: r.area, result: r }));
 
-/** Rows under their area (the app, real tasks, Claude, system), in run order. */
+/** Rows under their area (the app, real tasks, Cloud AI, system), in run order. */
 const byArea = (rows: Row[]) => {
     const groups: { area: string; rows: Row[] }[] = [];
     for (const r of rows) {
@@ -87,7 +87,7 @@ export const DiagnosticsRuns = () => {
             } else if (kind === "scenario") {
                 setRows((rs) => rs.map((r) => (r.id === e.scenario ? { ...r, live: "Starting…" } : r)));
             } else if (kind === "progress") {
-                const text = (e.say as string) || (e.kind === "tool_use" ? `Claude called ${e.tool}` : "");
+                const text = (e.say as string) || (e.kind === "tool_use" ? `Cloud AI called ${e.tool}` : "");
                 if (text) setRows((rs) => rs.map((r) => (r.id === e.scenario ? { ...r, live: text } : r)));
             } else if (kind === "result") {
                 const result = e as unknown as DiagnosticsResult;
@@ -125,7 +125,7 @@ export const DiagnosticsRuns = () => {
     return (
         <Section
             title="Full test"
-            description="Runs everything in one go: Relay's own app, real tasks in Notepad, File Explorer, Brave and web forms, Claude and the local AI on its own, every monitor, and RAM and VRAM. It records screenshots, timings and every step in Downloads\Relay-diagnostics. It opens windows and moves the mouse while it runs; press Ctrl+Alt+Pause to stop it."
+            description="Runs everything in one go: Relay's own app, real tasks in Notepad, File Explorer, Brave and web forms, Cloud AI and the local AI on its own, every monitor, and RAM and VRAM. It records screenshots, timings and every step in Downloads\Relay-diagnostics. It opens windows and moves the mouse while it runs; press Ctrl+Alt+Pause to stop it."
         >
             {error && <Notice tone="error">{error}</Notice>}
             {job?.state === "error" && job.error && job.error !== "Stopped." && <Notice tone="error">{job.error}</Notice>}
@@ -189,7 +189,7 @@ export const DiagnosticsRuns = () => {
                             Open results folder
                         </Button>
                         <Button size="sm" color="secondary" iconLeading={Copy01} onClick={copy}>
-                            {copied ? "Copied" : "Copy for Claude"}
+                            {copied ? "Copied" : "Copy for Cloud AI"}
                         </Button>
                     </>
                 )}

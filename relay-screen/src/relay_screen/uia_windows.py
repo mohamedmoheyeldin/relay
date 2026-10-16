@@ -318,9 +318,21 @@ class WinUiaBackend:
             return []
         pid = foreground.ProcessId
         handle = foreground.NativeWindowHandle
+        front = foreground.BoundingRectangle
         popups = [
             w
             for w in tops
-            if w.ProcessId == pid and w.NativeWindowHandle != handle and not w.IsOffscreen
+            if w.ProcessId == pid
+            and w.NativeWindowHandle != handle
+            and not w.IsOffscreen
+            and _overlaps(w.BoundingRectangle, front)
         ]
         return [WinElement(w, auto) for w in [foreground, *popups]]
+
+
+def _overlaps(a: Any, b: Any) -> bool:
+    """A menu or dialog sits over its window; explorer.exe's other folder windows and the
+    taskbar share its process but not its place, and don't belong in its listing (D-106)."""
+    if a is None or b is None:
+        return False
+    return a.left < b.right and b.left < a.right and a.top < b.bottom and b.top < a.bottom

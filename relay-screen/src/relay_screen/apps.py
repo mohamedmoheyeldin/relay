@@ -3,7 +3,7 @@
 Nothing in Relay hard-codes where a program lives. The Windows backend
 (apps_windows.py) reports Start menu apps (Store apps included), registered App Paths
 and the registered web browsers with the default one marked; this module merges them
-into one catalog Claude can search with ``list_apps`` and open with ``launch_app``.
+into one catalog Cloud AI can search with ``list_apps`` and open with ``launch_app``.
 """
 
 from __future__ import annotations

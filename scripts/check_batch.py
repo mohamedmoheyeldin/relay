@@ -3,7 +3,7 @@
     uv run python scripts/check_batch.py
 
 Calls the relay-screen `batch` tool through an in-process MCP client, exactly as
-Claude Code would: Start menu, type "notepad", Return. Prints every batch line, checks
+Cloud AI would: Start menu, type "notepad", Return. Prints every batch line, checks
 that a new Notepad process started, runs a batch with a bad key in the middle to show
 the halt text, then closes only the Notepad window this script opened.
 """

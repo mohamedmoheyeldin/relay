@@ -8,24 +8,24 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use relay_core::download::Cancel;
 use relay_core::settings::Settings;
-use relay_core::{browser, chat, claude, mcp, settings, system, updates};
+use relay_core::{browser, chat, cloud, mcp, settings, system, updates};
 
 pub struct AppState {
     settings: Mutex<Settings>,
     pub jobs: Mutex<HashMap<String, Cancel>>,
     pub turn: tokio::sync::Mutex<Option<chat::Turn>>,
     pub session: Mutex<Option<String>>,
-    /// The owner pressed Stop, so a failed Claude turn must not fall back to the local AI.
+    /// The owner pressed Stop, so a failed Cloud AI turn must not fall back to the local AI.
     pub stopped: std::sync::atomic::AtomicBool,
     pub pty: Mutex<Option<crate::pty::Session>>,
     /// The operator service (`commands::operator`), once started.
     pub operator: tokio::sync::Mutex<Option<std::sync::Arc<relay_core::operator::Operator>>>,
     /// When the operator service last failed to start, so it isn't retried on every message.
     pub operator_failed: Mutex<Option<std::time::Instant>>,
-    /// Whether Claude Code was signed in, and when that was checked (`commands::claude_signed_in`).
-    pub claude_signed_in: Mutex<Option<(bool, std::time::Instant)>>,
-    /// A Claude turn of this app is running, so its `ui_task` steps belong in the chat.
-    pub claude_turn: std::sync::atomic::AtomicBool,
+    /// Whether Cloud AI was signed in, and when that was checked (`commands::cloud_signed_in`).
+    pub cloud_signed_in: Mutex<Option<(bool, std::time::Instant)>>,
+    /// A Cloud AI turn of this app is running, so its `ui_task` steps belong in the chat.
+    pub cloud_turn: std::sync::atomic::AtomicBool,
 }
 
 impl AppState {
@@ -39,8 +39,8 @@ impl AppState {
             pty: Mutex::default(),
             operator: tokio::sync::Mutex::default(),
             operator_failed: Mutex::default(),
-            claude_signed_in: Mutex::default(),
-            claude_turn: Default::default(),
+            cloud_signed_in: Mutex::default(),
+            cloud_turn: Default::default(),
         }
     }
 
@@ -77,8 +77,8 @@ pub fn launcher_path() -> PathBuf {
         .unwrap_or_else(|_| PathBuf::from("relay"))
 }
 
-/// Make sure Claude Code starts relay-screen the way the current settings say.
-/// Skipped when Claude Code or the bundle is missing, or the owner paused it.
+/// Make sure Cloud AI starts relay-screen the way the current settings say.
+/// Skipped when Cloud AI or the bundle is missing, or the owner paused it.
 pub async fn ensure_relay_screen(app: &AppHandle) -> anyhow::Result<bool> {
     let settings = app.state::<AppState>().settings();
     if settings
@@ -92,7 +92,7 @@ pub async fn ensure_relay_screen(app: &AppHandle) -> anyhow::Result<bool> {
     let Some(python) = python_path(app).filter(|p| p.is_file()) else {
         return Ok(false);
     };
-    if claude::find().is_none() {
+    if cloud::find().is_none() {
         return Ok(false);
     }
     let want = system::relay_screen_spec(&python, &settings).config_json(None);
@@ -105,7 +105,7 @@ pub async fn ensure_relay_screen(app: &AppHandle) -> anyhow::Result<bool> {
     Ok(true)
 }
 
-/// Take out what the old browser lane left behind (D-089): relay-browser in Claude
+/// Take out what the old browser lane left behind (D-089): relay-browser in Cloud AI
 /// Code's config, its paused entry and the extension's token.
 pub async fn retire_relay_browser(app: &AppHandle) -> anyhow::Result<()> {
     let st = app.state::<AppState>();
@@ -129,7 +129,7 @@ pub async fn retire_relay_browser(app: &AppHandle) -> anyhow::Result<()> {
             s.connections.secret_names.remove(mcp::RELAY_BROWSER);
         })?;
     }
-    if claude::find().is_some() && mcp::user_config(mcp::RELAY_BROWSER).is_ok() {
+    if cloud::find().is_some() && mcp::user_config(mcp::RELAY_BROWSER).is_ok() {
         mcp::remove(mcp::RELAY_BROWSER, &[], true).await?;
     }
     Ok(())

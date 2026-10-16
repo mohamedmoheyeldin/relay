@@ -138,7 +138,7 @@ def test_rect_intersect():
 
 @pytest.mark.parametrize("display", DISPLAYS)
 def test_screenshot_round_trip_is_exact(display):
-    """Clicking where Claude points and reading the position back gives the same pixel."""
+    """Clicking where Cloud AI points and reading the position back gives the same pixel."""
     geometry = ScreenshotGeometry.for_display(display, DEFAULT)
     for sx in range(0, geometry.width, 7):
         for sy in range(0, geometry.height, 11):

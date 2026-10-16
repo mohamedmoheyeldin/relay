@@ -1,9 +1,9 @@
-# M1 plan: relay-screen MCP server working with Claude Code
+# M1 plan: relay-screen MCP server working with Cloud AI
 
 Weeks 1-2. Pure vision + UIA, approval on every state change.
 
 **Demos that close M1**
-1. "Open Notepad, type text, save the file" driven by Claude Code through relay-screen.
+1. "Open Notepad, type text, save the file" driven by Cloud AI through relay-screen.
 2. The canonical form flow on one test site (a local test form shipped in
    `tests/e2e/site/`), up to and including the approval before Submit.
 
@@ -17,10 +17,10 @@ items 2-4 can run in parallel after 1.
 - `relay-screen` package skeleton with `relay-screen` console entry point and a stdio MCP server that starts and lists one `ping` tool.
 - ruff (lint + format), pyright (basic), pytest configured; `uv run pytest` passes.
 - ~~GitHub Actions on `windows-latest`~~ removed by D-050: `scripts/check.py` runs lint, type check and tests locally.
-- `.mcp.json` registers relay-screen for Claude Code in this repo; `.claude/settings.json` extended (dev commands + read-only relay-screen tools allowed).
+- `.mcp.json` registers relay-screen for Cloud AI in this repo; `.claude/settings.json` extended (dev commands + read-only relay-screen tools allowed).
 - `CLAUDE.md` with project conventions and pointers to docs.
 
-**Acceptance:** fresh clone -> `uv sync` -> `uv run pytest` green locally and in CI; `claude mcp list` (in the repo) shows `relay-screen` connected; calling `ping` from Claude Code returns `pong`.
+**Acceptance:** fresh clone -> `uv sync` -> `uv run pytest` green locally and in CI; `cloud-cli mcp list` (in the repo) shows `relay-screen` connected; calling `ping` from Cloud AI returns `pong`.
 
 ### M1-02 Display geometry, DPI awareness and coordinate scaling
 - Per-monitor-v2 DPI awareness set before any capture/UI import.
@@ -35,7 +35,7 @@ items 2-4 can run in parallel after 1.
 - `zoom(region)`: region in screenshot px -> capture physical region at full resolution -> fit to the same budget, aspect preserved.
 - Records the scale of the last screenshot per display for later coordinate mapping.
 
-**Acceptance:** screenshot of a 3440x1440 display returns 1568x656; zoom of a 200x100 screenshot-px region returns a sharp image; result stays under Claude Code's MCP output cap; capture of the iGPU-driven display works.
+**Acceptance:** screenshot of a 3440x1440 display returns 1568x656; zoom of a 200x100 screenshot-px region returns a sharp image; result stays under Cloud AI's MCP output cap; capture of the iGPU-driven display works.
 
 ### M1-04 Input layer: SendInput mouse and keyboard
 - ctypes SendInput: absolute move (virtual desk normalization), button down/up, clicks (single/double/triple), wheel (vertical/horizontal), drag.
@@ -50,7 +50,7 @@ items 2-4 can run in parallel after 1.
 - `batch(actions)`: in-order, stop at first failure, exact halt text `Not executed: an earlier computer action in this turn failed.` for the rest.
 - Input validation errors are clean tool errors, never crashes.
 
-**Acceptance:** in-process MCP client tests for every member and for batch (success, failure in the middle, validation error); Claude Code can open Notepad via `key super` + `type notepad` + `key Return` in one batch.
+**Acceptance:** in-process MCP client tests for every member and for batch (success, failure in the middle, validation error); Cloud AI can open Notepad via `key super` + `type notepad` + `key Return` in one batch.
 
 ### M1-06 Safety: kill switch, approval gate, audit log
 - Kill switch: top-left corner watcher + Ctrl+Alt+Pause; aborts current batch, disarms until re-armed (`rearm` tool or tray later).
@@ -59,7 +59,7 @@ items 2-4 can run in parallel after 1.
 - `.claude/settings.json`: read tools allowed, act tools left to prompt.
 - Audit log: `runs/<run-id>/actions.jsonl` plus before/after thumbnails.
 
-**Acceptance:** moving the mouse to the corner during a 10-step batch stops it within one action and returns the halt text for the rest; headless `claude -p` run with `--permission-prompt-tool` asks before each act; every action appears in the log.
+**Acceptance:** moving the mouse to the corner during a 10-step batch stops it within one action and returns the halt text for the rest; headless `cloud-cli -p` run with `--permission-prompt-tool` asks before each act; every action appears in the log.
 
 ### M1-07 UI Automation tools
 - `uia_tree(window?, depth, filter)`: compact tree (role, name, automation id, enabled, bounds in screenshot px).
@@ -77,7 +77,7 @@ items 2-4 can run in parallel after 1.
 ### M1-09 Local model runtime manager
 - Download pinned llama.cpp CUDA build + model files to `%LOCALAPPDATA%\Relay\` with resume and SHA-256 verification; progress reported.
 - Start on demand on a private port with full GPU offload; stop after 60 s idle; NVML free-VRAM check before load; never spill to system RAM.
-- `relay-screen doctor` CLI: driver/CUDA, VRAM, runtime, models, Claude Code version and login state.
+- `relay-screen doctor` CLI: driver/CUDA, VRAM, runtime, models, Cloud AI version and login state.
 - Moves into the Rust relay-core in M2 (D-037).
 
 **Acceptance:** cold start -> first answer measured and logged; after 60 s idle `nvidia-smi` shows the VRAM released; doctor output readable and correct on the owner's PC.
@@ -103,16 +103,16 @@ items 2-4 can run in parallel after 1.
 ### M1-12 Playbooks v0
 - Format (markdown + YAML front matter) per architecture §7; `playbook_list/load/save` tools; example playbook for Notepad under `playbooks/examples/`.
 
-**Acceptance:** after the Notepad demo, Claude saves a playbook; a second run reads and follows it.
+**Acceptance:** after the Notepad demo, Cloud AI saves a playbook; a second run reads and follows it.
 
 ### M1-13 Demo 1: Notepad end to end
-- Script `scripts/demo-notepad.ps1` runs `claude -p` with relay-screen, approval prompts on, and saves the run log.
+- Script `scripts/demo-notepad.ps1` runs `cloud-cli -p` with relay-screen, approval prompts on, and saves the run log.
 
 **Acceptance:** file saved with the requested text; run log + final screenshot attached to the PR.
 
 ### M1-14 Demo 2: test form flow
 - Local test site (`tests/e2e/site/`, served by `python -m http.server`): fake login page, fact fields, one judgment textarea, Submit, confirmation page.
-- `config/profile.example.yaml`; Claude fills fact fields from it, writes the judgment field, pauses for approval before Submit, saves proof screenshot and playbook.
+- `config/profile.example.yaml`; Cloud AI fills fact fields from it, writes the judgment field, pauses for approval before Submit, saves proof screenshot and playbook.
 
 **Acceptance:** recorded run reaches the confirmation page with correct values; login step waits for the owner; Submit only after approval.
 

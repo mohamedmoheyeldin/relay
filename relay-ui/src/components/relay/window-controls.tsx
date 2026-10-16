@@ -1,4 +1,4 @@
-// Relay draws its own title row, like the Claude desktop app: the window has no
+// Relay draws its own title row, like the reference chat app: the window has no
 // system frame, so the top strip drags the window and these buttons sit at its right.
 import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";

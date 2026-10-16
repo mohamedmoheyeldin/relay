@@ -1,7 +1,7 @@
 //! Full test runs from the app (D-096): `relay-screen diagnostics --json`, which drives
 //! the local operator through real tasks and records everything in
 //! Downloads\Relay-diagnostics\<time>\. The app shows its progress and the newest
-//! summary; Claude reads the same files.
+//! summary; Cloud AI reads the same files.
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;

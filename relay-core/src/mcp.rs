@@ -1,8 +1,8 @@
-//! The MCP hub (D-047): one list of MCP servers shared by Claude Code and Relay.
+//! The MCP hub (D-047): one list of MCP servers shared by Cloud AI and Relay.
 //!
-//! The hub keeps no copy of the list. It reads and writes Claude Code's own config
-//! through `claude mcp list/get/add/remove` at user scope. Paused servers are the one
-//! exception: they are removed from Claude Code and remembered in Relay's settings so
+//! The hub keeps no copy of the list. It reads and writes Cloud AI's own config
+//! through `cloud-cli mcp list/get/add/remove` at user scope. Paused servers are the one
+//! exception: they are removed from Cloud AI and remembered in Relay's settings so
 //! they can be put back unchanged.
 
 use std::collections::BTreeMap;
@@ -11,7 +11,7 @@ use std::path::Path;
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::{claude, proc, secrets};
+use crate::{cli_names, cloud, proc, secrets};
 
 /// Relay's own MCP server, registered by Relay and shown as built in.
 pub const RELAY_SCREEN: &str = "relay-screen";
@@ -28,9 +28,9 @@ pub fn is_builtin(name: &str) -> bool {
 pub enum Kind {
     /// Relay's own servers (relay-screen, later the browser bridge).
     Builtin,
-    /// Connectors from the owner's claude.ai account (Gmail, Calendar, ...).
-    ClaudeAi,
-    /// Servers that come with a Claude Code plugin.
+    /// Connectors from the owner's cloud.ai account (Gmail, Calendar, ...).
+    CloudAi,
+    /// Servers that come with a Cloud AI plugin.
     Plugin,
     /// Servers added by hand or from Relay's catalog.
     Local,
@@ -64,8 +64,8 @@ pub struct Entry {
 fn classify(name: &str) -> Kind {
     if is_builtin(name) {
         Kind::Builtin
-    } else if name.starts_with("claude.ai ") {
-        Kind::ClaudeAi
+    } else if name.starts_with(cli_names::ACCOUNT_CONNECTOR_PREFIX) {
+        Kind::CloudAi
     } else if name.starts_with("plugin:") {
         Kind::Plugin
     } else {
@@ -90,7 +90,7 @@ fn parse_status(text: &str) -> Status {
     }
 }
 
-/// Parse `claude mcp list`. Each server line reads `<name>: <target> - <status>`;
+/// Parse `cloud-cli mcp list`. Each server line reads `<name>: <target> - <status>`;
 /// names can contain colons (`plugin:a:b`) but not ": ".
 pub fn parse_list(text: &str) -> Vec<Entry> {
     text.lines()
@@ -161,9 +161,9 @@ impl ServerSpec {
         }
     }
 
-    /// The JSON `claude mcp add-json` takes. With `launcher`, a stdio server is
+    /// The JSON `cloud-cli mcp add-json` takes. With `launcher`, a stdio server is
     /// started through Relay's launcher so its secrets reach it from Credential
-    /// Manager as environment variables and never sit in Claude Code's config.
+    /// Manager as environment variables and never sit in Cloud AI's config.
     pub fn config_json(&self, launcher: Option<&Path>) -> serde_json::Value {
         match self {
             Self::Stdio {
@@ -197,19 +197,19 @@ impl ServerSpec {
     }
 }
 
-/// A server paused in Relay: its exact Claude Code config, put back on resume.
+/// A server paused in Relay: its exact Cloud AI config, put back on resume.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PausedServer {
     pub name: String,
     pub config: serde_json::Value,
 }
 
-/// Claude Code's user-scope config for one server, read from `~/.claude.json`.
+/// Cloud AI's user-scope config for one server, read from `~/.cloud.json`.
 /// Only the `mcpServers` entry is read; nothing else in the file is touched.
 pub fn user_config(name: &str) -> Result<serde_json::Value> {
     let path = dirs::home_dir()
         .context("no home folder")?
-        .join(".claude.json");
+        .join(cli_names::USER_CONFIG);
     let text = std::fs::read_to_string(&path)
         .with_context(|| format!("could not read {}", path.display()))?;
     let root: serde_json::Value = serde_json::from_str(&text)?;
@@ -230,16 +230,16 @@ fn validate_name(name: &str) -> Result<()> {
     Ok(())
 }
 
-async fn claude_mcp(args: &[String]) -> Result<proc::Output> {
-    let claude = claude::find().context("Claude Code is not installed")?;
+async fn cloud_mcp(args: &[String]) -> Result<proc::Output> {
+    let cloud = cloud::find().context("Cloud AI is not installed")?;
     let refs: Vec<&str> = args.iter().map(String::as_str).collect();
-    proc::run(&claude, &refs).await
+    proc::run(&cloud, &refs).await
 }
 
-/// Every server Claude Code sees, plus paused ones from Relay's settings.
+/// Every server Cloud AI sees, plus paused ones from Relay's settings.
 pub async fn list(paused: &[PausedServer]) -> Result<Vec<Entry>> {
     let args = ["mcp".to_string(), "list".to_string()];
-    let (out, plugins) = tokio::join!(claude_mcp(&args), plugins());
+    let (out, plugins) = tokio::join!(cloud_mcp(&args), plugins());
     let mut entries = parse_list(&out?.stdout);
     let plugins = plugins.unwrap_or_default();
     for e in entries.iter_mut().filter(|e| e.kind == Kind::Plugin) {
@@ -287,7 +287,7 @@ pub fn plugin_name(server: &str) -> Option<&str> {
     server.strip_prefix("plugin:")?.split(':').next()
 }
 
-/// A Claude Code plugin, from `claude plugin list --json`.
+/// A Cloud AI plugin, from `cloud-cli plugin list --json`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Plugin {
     /// "name@marketplace".
@@ -307,21 +307,21 @@ impl Plugin {
 }
 
 pub async fn plugins() -> Result<Vec<Plugin>> {
-    let out = claude_mcp(&["plugin".into(), "list".into(), "--json".into()]).await?;
+    let out = cloud_mcp(&["plugin".into(), "list".into(), "--json".into()]).await?;
     if !out.ok {
-        bail!("claude plugin list failed: {}", out.stderr.trim());
+        bail!("Cloud AI CLI plugin list failed: {}", out.stderr.trim());
     }
     Ok(serde_json::from_str(out.stdout.trim())?)
 }
 
-/// `claude plugin enable|disable <id>`: turns every server, skill and command of
+/// `cloud-cli plugin enable|disable <id>`: turns every server, skill and command of
 /// the plugin on or off together.
 pub async fn set_plugin_enabled(id: &str, enabled: bool) -> Result<()> {
     let verb = if enabled { "enable" } else { "disable" };
-    let out = claude_mcp(&["plugin".into(), verb.into(), id.into()]).await?;
+    let out = cloud_mcp(&["plugin".into(), verb.into(), id.into()]).await?;
     if !out.ok {
         bail!(
-            "claude plugin {verb} failed: {}{}",
+            "Cloud AI CLI plugin {verb} failed: {}{}",
             out.stderr.trim(),
             out.stdout.trim()
         );
@@ -329,11 +329,11 @@ pub async fn set_plugin_enabled(id: &str, enabled: bool) -> Result<()> {
     Ok(())
 }
 
-/// `claude mcp login <name>`: Claude Code opens the browser for the server's own
+/// `cloud-cli mcp login <name>`: Cloud AI opens the browser for the server's own
 /// sign-in and keeps the token itself. Relay only waits for it to finish.
 pub async fn login(name: &str, on_line: impl Fn(String) + Send + Sync + 'static) -> Result<()> {
-    let claude = claude::find().context("Claude Code is not installed")?;
-    let mut cmd = proc::command(&claude);
+    let cloud = cloud::find().context("Cloud AI is not installed")?;
+    let mut cmd = proc::command(&cloud);
     cmd.current_dir(crate::paths::work_dir())
         .args(["mcp", "login", name]);
     let run = proc::run_streaming(cmd, on_line);
@@ -352,9 +352,9 @@ pub async fn login(name: &str, on_line: impl Fn(String) + Send + Sync + 'static)
 }
 
 pub async fn logout(name: &str) -> Result<()> {
-    let out = claude_mcp(&["mcp".into(), "logout".into(), name.into()]).await?;
+    let out = cloud_mcp(&["mcp".into(), "logout".into(), name.into()]).await?;
     if !out.ok {
-        bail!("claude mcp logout failed: {}", out.stderr.trim());
+        bail!("Cloud AI CLI mcp logout failed: {}", out.stderr.trim());
     }
     Ok(())
 }
@@ -363,9 +363,9 @@ fn last_line(text: &str) -> Option<&str> {
     text.lines().map(str::trim).rfind(|l| !l.is_empty())
 }
 
-/// `claude mcp get <name>`: the full details as Claude Code prints them.
+/// `cloud-cli mcp get <name>`: the full details as Cloud AI prints them.
 pub async fn get(name: &str) -> Result<String> {
-    let out = claude_mcp(&["mcp".into(), "get".into(), name.into()]).await?;
+    let out = cloud_mcp(&["mcp".into(), "get".into(), name.into()]).await?;
     if !out.ok {
         bail!("{}", out.stderr.trim());
     }
@@ -380,7 +380,7 @@ pub async fn add(
 ) -> Result<()> {
     validate_name(spec.name())?;
     if !secret_env.is_empty() && !matches!(spec, ServerSpec::Stdio { .. }) {
-        bail!("secrets can only be passed to local (stdio) servers; HTTP servers sign in through Claude Code");
+        bail!("secrets can only be passed to local (stdio) servers; HTTP servers sign in through Cloud AI");
     }
     for (key, value) in secret_env {
         secrets::set(spec.name(), key, value)?;
@@ -389,9 +389,9 @@ pub async fn add(
     add_json(spec.name(), &spec.config_json(use_launcher)).await
 }
 
-/// `claude mcp add-json --scope user <name> <json>`.
+/// `cloud-cli mcp add-json --scope user <name> <json>`.
 pub async fn add_json(name: &str, config: &serde_json::Value) -> Result<()> {
-    let out = claude_mcp(&[
+    let out = cloud_mcp(&[
         "mcp".into(),
         "add-json".into(),
         "--scope".into(),
@@ -402,7 +402,7 @@ pub async fn add_json(name: &str, config: &serde_json::Value) -> Result<()> {
     .await?;
     if !out.ok {
         bail!(
-            "claude mcp add-json failed: {}{}",
+            "Cloud AI CLI mcp add-json failed: {}{}",
             out.stderr.trim(),
             out.stdout.trim()
         );
@@ -410,10 +410,10 @@ pub async fn add_json(name: &str, config: &serde_json::Value) -> Result<()> {
     Ok(())
 }
 
-/// Remove a server from Claude Code's user config. Secrets are deleted with it unless
+/// Remove a server from Cloud AI's user config. Secrets are deleted with it unless
 /// the server is only being paused.
 pub async fn remove(name: &str, secret_names: &[String], keep_secrets: bool) -> Result<()> {
-    let out = claude_mcp(&[
+    let out = cloud_mcp(&[
         "mcp".into(),
         "remove".into(),
         "--scope".into(),
@@ -422,7 +422,7 @@ pub async fn remove(name: &str, secret_names: &[String], keep_secrets: bool) -> 
     ])
     .await?;
     if !out.ok {
-        bail!("claude mcp remove failed: {}", out.stderr.trim());
+        bail!("Cloud AI CLI mcp remove failed: {}", out.stderr.trim());
     }
     if !keep_secrets {
         for key in secret_names {
@@ -432,9 +432,9 @@ pub async fn remove(name: &str, secret_names: &[String], keep_secrets: bool) -> 
     Ok(())
 }
 
-/// Whether Claude Code has a server with this name (any scope).
+/// Whether Cloud AI has a server with this name (any scope).
 pub async fn exists(name: &str) -> bool {
-    claude_mcp(&["mcp".into(), "get".into(), name.into()])
+    cloud_mcp(&["mcp".into(), "get".into(), name.into()])
         .await
         .map(|o| o.ok)
         .unwrap_or(false)
@@ -512,10 +512,14 @@ pub fn catalog() -> Vec<CatalogServer> {
 mod tests {
     use super::*;
 
+    fn account(name: &str) -> String {
+        format!("{}{name}", cli_names::ACCOUNT_CONNECTOR_PREFIX)
+    }
+
     const SAMPLE: &str = "Checking MCP server health…\n\n\
-claude.ai Gmail: https://gmailmcp.googleapis.com/mcp/v1 - √ Connected\n\
-claude.ai Uber Eats: https://mcp.ubereats.com/eats-claude/mcp - ⊘ Disabled for this project (re-enable via /mcp)\n\
-claude.ai Indeed: https://mcp.indeed.com/claude/mcp - × Failed to connect — -32429: Rate limit exceeded\n\
+{acct}Gmail: https://gmailmcp.googleapis.com/mcp/v1 - √ Connected\n\
+{acct}Uber Eats: https://mcp.ubereats.com/eats/mcp - ⊘ Disabled for this project (re-enable via /mcp)\n\
+{acct}Indeed: https://mcp.indeed.com/jobs/mcp - × Failed to connect — -32429: Rate limit exceeded\n\
 plugin:cloudflare:cloudflare: https://mcp.cloudflare.com/mcp (HTTP) - ! Needs authentication\n\
 plugin:playwright:playwright: npx @playwright/mcp@latest - √ Connected\n\
 plugin:productivity:gmail:  (HTTP) - - Not configured\n\
@@ -529,7 +533,7 @@ relay-screen: C:\\Program Files\\Relay\\python\\pythonw.exe -m relay_screen.serv
             Some("productivity")
         );
         assert_eq!(plugin_name("plugin:design:google calendar"), Some("design"));
-        assert_eq!(plugin_name("claude.ai Gmail"), None);
+        assert_eq!(plugin_name(&account("Gmail")), None);
         let list: Vec<Plugin> = serde_json::from_str(
             r#"[{"id":"productivity@synced","version":"1.0.0","scope":"synced","enabled":true,"installPath":"x"}]"#,
         )
@@ -539,12 +543,12 @@ relay-screen: C:\\Program Files\\Relay\\python\\pythonw.exe -m relay_screen.serv
     }
 
     #[test]
-    fn parses_claude_mcp_list() {
-        let entries = parse_list(SAMPLE);
+    fn parses_cloud_mcp_list() {
+        let entries = parse_list(&SAMPLE.replace("{acct}", cli_names::ACCOUNT_CONNECTOR_PREFIX));
         assert_eq!(entries.len(), 8);
         let gmail = &entries[0];
-        assert_eq!(gmail.name, "claude.ai Gmail");
-        assert_eq!(gmail.kind, Kind::ClaudeAi);
+        assert_eq!(gmail.name, account("Gmail"));
+        assert_eq!(gmail.kind, Kind::CloudAi);
         assert_eq!(gmail.status, Status::Connected);
         assert_eq!(gmail.transport, "http");
         assert_eq!(entries[1].status, Status::Disabled);

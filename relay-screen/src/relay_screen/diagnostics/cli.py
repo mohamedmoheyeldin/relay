@@ -45,7 +45,7 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--list", action="store_true", help="list the scenarios and exit")
     p.add_argument("--latest", action="store_true", help="print the newest summary and exit")
     p.add_argument("--in-process", action="store_true", help="don't use the app's operator")
-    p.add_argument("--no-claude", action="store_true", help="skip everything that uses Claude")
+    p.add_argument("--no-cloud", action="store_true", help="skip everything that uses Cloud AI")
     return p
 
 
@@ -87,7 +87,7 @@ def human(event: dict[str, Any]) -> str | None:
         if event.get("kind") == "step":
             return f"    {event.get('step')}. {event.get('say') or event.get('action')}"
         if event.get("kind") == "tool_use":
-            return f"    Claude called {event.get('tool')}"
+            return f"    Cloud AI called {event.get('tool')}"
         return None
     if kind == "result":
         why = "; ".join(event["failed_checks"]) or event["message"]
@@ -126,8 +126,8 @@ def main(argv: list[str]) -> int:
         form.close()
         return 2
     chosen = [s for s in chosen if (not args.only or s.id in args.only) and s.id not in args.skip]
-    if args.no_claude:
-        chosen = [s for s in chosen if not s.kind.startswith("claude") and s.id != "app-stop"]
+    if args.no_cloud:
+        chosen = [s for s in chosen if not s.kind.startswith("cloud") and s.id != "app-stop"]
 
     started = time.strftime("%Y-%m-%d %H:%M:%S")
     folder = root / time.strftime("%Y-%m-%d_%H-%M-%S")
@@ -138,7 +138,7 @@ def main(argv: list[str]) -> int:
     os.environ.setdefault("RELAY_APPROVAL", "risky")
 
     from relay_screen.agent.bench import windows_desktop
-    from relay_screen.agent.service import ask_claude, claude_exe
+    from relay_screen.agent.service import ask_cloud, cloud_exe
     from relay_screen.dpi import set_dpi_awareness
     from relay_screen.runtime.paths import RelayPaths, settings_file
     from relay_screen.server import default_services
@@ -155,10 +155,10 @@ def main(argv: list[str]) -> int:
     link: Any = None if args.in_process else diag.ServiceLink.find(paths.home)
     local: diag.LocalLink | None = None
     if link is None:
-        local = diag.LocalLink(hands, gate.grant if gate else (lambda task: None), ask_claude)
+        local = diag.LocalLink(hands, gate.grant if gate else (lambda task: None), ask_cloud)
         link = local
-    exe = None if args.no_claude else claude_exe()
-    claude = diag.ClaudeCli(exe, cli_python()) if exe else None
+    exe = None if args.no_cloud else cloud_exe()
+    cloud = diag.CloudCli(exe, cli_python()) if exe else None
 
     state = services.state
 
@@ -189,7 +189,7 @@ def main(argv: list[str]) -> int:
         hands=hands,
         desktop=windows_desktop(hands),
         link=link,
-        claude=claude,
+        cloud=cloud,
         capture=diag.foreground_capture(),
         displays=displays,
         select_display=state.select,
@@ -210,7 +210,7 @@ def main(argv: list[str]) -> int:
         }
     )
     clock = time.monotonic()
-    env = diag.environment(paths.home, link.name, claude)
+    env = diag.environment(paths.home, link.name, cloud)
     (folder / "environment.json").write_text(json.dumps(env, indent=2), "utf-8")
     watch.begin()
     try:

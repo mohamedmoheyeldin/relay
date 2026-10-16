@@ -8,14 +8,14 @@
 Relay is a "second user" for one Windows PC. It sees the screen and drives the
 keyboard and mouse to finish tasks on its owner's behalf. It needs no external
 capture/HID device: Relay runs on the owner's own GPU and borrows
-its judgment from the owner's Claude subscription through Claude Code.
+its judgment from the owner's own Cloud AI subscription.
 
 **Local hands, cloud brain.** The owner's goal (D-069): a desktop operator done
 entirely in software, running on the PC itself with full access to its
 hardware and software. The local AI owns UI automation end to
-end; everything else that needs intelligence goes to Claude.
+end; everything else that needs intelligence goes to Cloud AI.
 
-| Local (RTX 5080, on this PC) | Cloud (Claude via Claude Code) |
+| Local (RTX 5080, on this PC) | Cloud (Cloud AI via Cloud AI) |
 |---|---|
 | UI automation, start to finish: the local operator plans and does UI tasks (D-067) | Deciding what to do and why; tasks that aren't UI work |
 | Perception: screenshots, UI Automation tree, OCR, local vision model | Writing text for judgment fields |
@@ -23,23 +23,23 @@ end; everything else that needs intelligence goes to Claude.
 | Following saved playbooks step by step | Recovering when the local operator can't finish |
 | Safety: kill switch, approval gates, audit log | |
 
-With Claude available, Claude hands whole UI tasks to the local operator
-(`ui_task`) and keeps the direct tools for fine control. Without Claude, the
+With Cloud AI available, Cloud AI hands whole UI tasks to the local operator
+(`ui_task`) and keeps the direct tools for fine control. Without Cloud AI, the
 app runs the local operator itself (`relay-screen agent`). Its target is 95%
-task success, measured with `relay-screen agent-bench` (D-068). Claude never
+task success, measured with `relay-screen agent-bench` (D-068). Cloud AI never
 clicks pixels directly: it calls Relay's tools, and Relay does the clicking.
 
 ## 2. Hard constraints
 
-1. **Subscription, not API keys.** The only path to Claude is the unmodified,
-   official `claude` CLI logged in with the owner's own subscription, run
-   interactively or headless (`claude -p`). Relay never calls the Anthropic API,
+1. **Subscription, not API keys.** The only path to Cloud AI is the unmodified,
+   official Cloud AI CLI logged in with the owner's own subscription, run
+   interactively or headless (`cloud-cli -p`). Relay never calls the cloud AI's web API,
    never reads, stores or forwards the OAuth token, and is never shipped to other
    people (D-002).
-2. **Services via MCP, pixels last.** Anything with an API goes through Claude
+2. **Services via MCP, pixels last.** Anything with an API goes through Cloud AI
    Code's MCP connectors. Screen automation is for apps and sites with no API.
 3. **Cheapest reliable target first.** connector/API -> UI Automation -> OCR ->
-   local vision model -> escalate to Claude with a screenshot (D-008).
+   local vision model -> escalate to Cloud AI with a screenshot (D-008).
 4. **Self-contained locally.** Relay ships and manages its own Python runtime,
    model runtime and model weights. The owner should not have to install
    Ollama, Python or CUDA by hand (D-004, D-005).
@@ -63,10 +63,10 @@ clicks pixels directly: it calls Relay's tools, and Relay does the clicking.
                           │  service | screen | judgment            │
                           │  profile.yaml · playbook memory         │
                           └──────┬─────────────────────┬───────────┘
-              playbook replay    │                     │ claude -p --output-format stream-json
+              playbook replay    │                     │ cloud-cli -p --output-format stream-json
               (no cloud call)    │                     ▼
                                  │       ┌──────────────────────────────┐
-                                 │       │ Claude Code (official CLI,     │
+                                 │       │ Cloud AI (official CLI,     │
                                  │       │ owner's subscription login)    │
                                  │       │  + MCP connectors (Gmail, ...) │
                                  │       └──────────────┬───────────────┘
@@ -83,19 +83,19 @@ clicks pixels directly: it calls Relay's tools, and Relay does the clicking.
                           (3 monitors)      grounding / describe / verify model
 ```
 
-M1 builds only the bottom box and proves it against interactive Claude Code.
+M1 builds only the bottom box and proves it against interactive Cloud AI.
 relay-core and relay-ui sit on top later without changing relay-screen's tool
 contract.
 
 ## 4. relay-screen (M1)
 
-A stdio MCP server, registered with Claude Code as `relay-screen`. Tools show
-up in Claude Code as `mcp__relay-screen__<tool>`.
+A stdio MCP server, registered with Cloud AI as `relay-screen`. Tools show
+up in Cloud AI as `mcp__relay-screen__<tool>`.
 
 ### 4.1 Computer toolset members
 
-Relay mirrors the 17 members of Claude's `computer_toolset_20260801` with the
-same names and parameters, so prompts, playbooks and Claude's own habits carry
+Relay mirrors the 17 members of Cloud AI's `computer_toolset_20260801` with the
+same names and parameters, so prompts, playbooks and Cloud AI's own habits carry
 over unchanged:
 
 `screenshot`, `zoom`, `left_click`, `right_click`, `middle_click`,
@@ -104,7 +104,7 @@ over unchanged:
 `hold_key`, `wait`.
 
 Semantics copied from the API docs (see
-[research/claude-integration.md](research/claude-integration.md)):
+[research/cloud-integration.md](research/cloud-integration.md)):
 
 - **Coordinates are screenshot pixels** of the last full screenshot of the
   active display, origin top-left. After a `zoom`, coordinates are still in the
@@ -169,9 +169,9 @@ relay_screen/
    needs approval (milestone rule). From M2 only `irreversible` actions (submit,
    send, pay, delete, detected by target label and playbook annotations) need
    approval unless the app/site is allowlisted.
-   - Interactive Claude Code: approvals are Claude Code's own permission prompts
+   - Interactive Cloud AI: approvals are Cloud AI's own permission prompts
      (act tools are not in the allow list, see `.claude/settings.json`).
-   - Headless `claude -p`: `--permission-prompt-tool mcp__relay-screen__approve`,
+   - Headless `cloud-cli -p`: `--permission-prompt-tool mcp__relay-screen__approve`,
      which shows a native prompt in M1 and the tray UI in M3.
 3. **Audit log.** Each action appends a JSON line (time, tool, input, result,
    approval, duration) to `runs/<run-id>/actions.jsonl`, with before/after
@@ -192,7 +192,7 @@ relay_screen/
   which returns 100% of its VRAM. Cold start from NVMe is expected to be a few
   seconds and will be measured.
 - **VRAM check:** before loading, NVML reports free VRAM; if a game or another
-  app holds it, Relay picks a smaller quant or declines and escalates to Claude.
+  app holds it, Relay picks a smaller quant or declines and escalates to Cloud AI.
 
 ## 5. relay-core (M2)
 
@@ -201,18 +201,18 @@ Always-on Rust daemon (D-032) that keeps relay-screen warm over localhost MCP
 
 | Lane | Who does it | Example |
 |---|---|---|
-| service | Claude Code + MCP connector | read a Google Sheet, draft a Gmail reply |
+| service | Cloud AI + MCP connector | read a Google Sheet, draft a Gmail reply |
 | screen | relay-screen, following a playbook if one matches | fill a web form |
-| judgment | Claude Code, text only, `--json-schema` output | write "describe your experience" |
+| judgment | Cloud AI, text only, `--json-schema` output | write "describe your experience" |
 
-Claude Code runs headless: `claude -p --output-format stream-json --verbose
+Cloud AI runs headless: `cloud-cli -p --output-format stream-json --verbose
 --mcp-config relay.mcp.json --strict-mcp-config --permission-mode default
 --permission-prompt-tool mcp__relay-screen__approve`. relay-core parses the
 stream (system/init, assistant, user tool_result, result), forwards activity to
 the UI and keeps `session_id` for `--resume`.
 
 Fact fields come from a local `profile.yaml` (name, email, phone, address);
-only the fields a step needs are sent to Claude.
+only the fields a step needs are sent to Cloud AI.
 
 ## 6. relay-ui (M3)
 
@@ -222,11 +222,11 @@ installer (D-044). Shows the activity log, approval prompts, login prompts and
 final screenshots. Phone approvals via ntfy.sh.
 
 It is the only thing the owner touches:
-- a first-run wizard that sets up Claude Code with Anthropic's own installer
+- a first-run wizard that sets up Cloud AI with the official installer
   and an in-app sign-in (D-045), the local model, and the Brave extension;
 - Settings > Local AI, a model picker with fit and benchmark scores (D-046);
-- Settings > Connections, one MCP hub shared with Claude Code through
-  `claude mcp` (D-047);
+- Settings > Connections, one MCP hub shared with Cloud AI through
+  `cloud-cli mcp` (D-047);
 - every other setting (D-048), saved by relay-core.
 
 ## 7. Playbooks
@@ -253,7 +253,7 @@ last_success: 2026-10-20
 
 Steps prefer UIA selectors and fall back to text/vision targets. A run that
 follows a playbook makes no cloud call unless a step's `verify` fails, then it
-escalates to Claude with the screenshot and the playbook. Playbooks are
+escalates to Cloud AI with the screenshot and the playbook. Playbooks are
 personal data and gitignored, except `playbooks/examples/`.
 
 ## 8. Canonical flow (form example)
@@ -263,7 +263,7 @@ personal data and gitignored, except `playbooks/examples/`.
    and navigate.
 3. `verify` detects a login page -> `request_login` -> owner logs in -> continue.
 4. Fact fields from `profile.yaml` typed via UIA/OCR/VLM targets.
-5. Judgment fields: field label + page context + profile -> Claude text -> typed.
+5. Judgment fields: field label + page context + profile -> Cloud AI text -> typed.
 6. Submit is irreversible -> approval -> submit.
 7. Screenshot saved as proof, playbook saved, model unloads after idle.
 

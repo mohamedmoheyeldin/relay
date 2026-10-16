@@ -70,7 +70,7 @@ pub fn browsers() -> Vec<BrowserInfo> {
     Vec::new()
 }
 
-/// How Claude Code starts relay-screen: the bundled Python, with the settings that
+/// How Cloud AI starts relay-screen: the bundled Python, with the settings that
 /// relay-screen reads from its environment.
 pub fn relay_screen_spec(python: &Path, settings: &Settings) -> ServerSpec {
     let mut env = BTreeMap::new();

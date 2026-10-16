@@ -1,9 +1,9 @@
 """The local operator: a vision model on the owner's GPU plans and runs UI tasks (D-067).
 
-Relay's local model drives the mouse, keyboard and apps by itself when Claude is not
+Relay's local model drives the mouse, keyboard and apps by itself when Cloud AI is not
 available (signed out, offline, out of quota). Each step it sees a fresh screenshot,
 answers with one JSON action, and Relay runs that action through the same `Computer`
-Claude uses, so the kill switch, approval prompt and audit log all apply.
+Cloud AI uses, so the kill switch, approval prompt and audit log all apply.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ import base64
 import contextlib
 import io
 import json
+import os
 import re
 import threading
 import time
@@ -40,6 +41,7 @@ ALIGN = 32  # sent sizes are multiples of the vision patch grid, so pixel models
 # so the model sees exactly the image whose pixels it answers in.
 MIN_IMAGE_TOKENS = 1024
 MAX_BAD_REPLIES = 3
+SEEN_CHARS = 400  # of the element list, in each step's "seen" event
 FAILS_IN_A_ROW = 3  # failed steps in a row before the model is told to change approach
 STUCK_REPEATS = 3  # the same action with no visible change this many times in a row
 MAX_TEXT = 2000
@@ -53,7 +55,7 @@ MAX_BATCH = 6  # actions the model may plan in one reply (D-084)
 RICH_ELEMENTS = 8  # with this many element lines, skip the screenshot unless asked
 OWNER_QUIET = 0.8  # s without the owner's own input before Relay uses the real mouse/keys
 OWNER_PATIENCE = 20.0  # s Relay waits for that pause before acting anyway
-CANCEL_POLL = 0.05  # s between stop checks while the model, Claude or a wait runs
+CANCEL_POLL = 0.05  # s between stop checks while the model, Cloud AI or a wait runs
 # Members that send real input to whatever is in front; the target goes in front again
 # first, in case the owner clicked elsewhere meanwhile (D-093).
 INPUT_MEMBERS = frozenset(
@@ -107,9 +109,9 @@ element list in one go
 (a button, link, tab or menu item), found by Windows OCR. Use it when the element list \
 does not have what you need
 - {"action": "look"}  you need to see a screenshot before deciding
-- {"action": "ask_claude", "question": "..."}  ask Claude, the owner's cloud assistant, \
+- {"action": "ask_cloud", "question": "..."}  ask Cloud AI, the owner's cloud assistant, \
 when the task needs judgment or writing you can't do from the screen: what to write in \
-a cover letter or message, which result fits the owner best. Put everything Claude \
+a cover letter or message, which result fits the owner best. Put everything Cloud AI \
 needs in the question; its answer comes back as the result. Not for where to click.
 - {"action": "done", "summary": "..."}  the task is finished; say what you did
 - {"action": "fail", "reason": "..."}  you cannot finish; say why
@@ -133,8 +135,10 @@ task, reply with fail and the reason "sign-in needed".
 the owner before such steps either way.
 - If an action did not change the screen, try something different.
 - Calculator and other apps that take keys: type the whole entry at once, for \
-example type 12*34= in Calculator, instead of pressing its buttons one by one.
+example type 25*4= in Calculator, instead of pressing its buttons one by one.
 - To go to a website, use open_url instead of typing in the address bar.
+- To show a folder in File Explorer or a file dialog, press ctrl+l, type the folder's \
+path or name (for example Downloads), then press Return.
 - When the owner adds a note while you work, follow it from then on.
 - Never click taskbar buttons to switch programs (that minimizes them); use \
 focus_window. Never act on Relay's own window; it is marked in the windows list.
@@ -196,7 +200,7 @@ ACTION_NAMES = (
     "set_value",
     "click_text",
     "look",
-    "ask_claude",
+    "ask_cloud",
     "done",
     "fail",
 )
@@ -268,7 +272,7 @@ class Outcome:
 
 
 class Cancelled(Exception):
-    """The owner pressed Stop while Relay waited on the model, Claude or a pause."""
+    """The owner pressed Stop while Relay waited on the model, Cloud AI or a pause."""
 
 
 class ReplyError(ValueError):
@@ -371,6 +375,10 @@ class Frame:
         ]
 
 
+# RELAY_POINT_FALLBACK=0 turns off the listed-centre and raw-point fallbacks, so a run
+# measures the model's own position clicks (D-106, D-108).
+POINT_FALLBACK = os.environ.get("RELAY_POINT_FALLBACK", "1") != "0"
+LAUNCH_NAMES = frozenset({"launch_app", "open_app", "open"})
 CLICK_NAMES = frozenset({"click", "left_click", "double_click", "right_click"})
 LISTED_CENTER = re.compile(r"center \((\d+), (\d+)\)")
 SNAP_PX = 3
@@ -465,6 +473,10 @@ def to_member(action: Mapping[str, Any], frame: Frame | None, coords: Coords) ->
         )
         if not isinstance(app, str) or not app:
             # Holo also wrote {"action": "launch_app", "app_name": "Notepad"} (D-106).
+            args = action.get("args")
+            if isinstance(args, list) and args and isinstance(args[0], str):
+                app = args[0]
+        if not isinstance(app, str) or not app:
             app = next(
                 (
                     v
@@ -630,6 +642,37 @@ def instant_plan(task: str) -> list[tuple[str, dict[str, Any]]] | None:
     return None
 
 
+CALC_TASK = re.compile(
+    _LEAD
+    + r"(?:(?:open|launch|start|use)\s+(?:the\s+)?calculator\s*(?:,|and|then)\s*(?:then\s+)?)?"
+    r"(?:in\s+(?:the\s+)?calculator\s*,?\s*)?"
+    r"(?:work out|calculate|compute|what is|what's|add up|do)\s+"
+    r"(.+?)(?:\s+in\s+(?:the\s+)?calculator)?\??$",
+    re.IGNORECASE,
+)
+CALC_WORDS = (
+    (r"\b(?:multiplied by|times)\b|[x\u00d7]", "*"),
+    (r"\b(?:divided by|over)\b|\u00f7", "/"),
+    (r"\bplus\b", "+"),
+    (r"\bminus\b", "-"),
+)
+CALC_SUM = re.compile(r"\d+(?:\.\d+)?(?:[+*/-]\d+(?:\.\d+)?)+")
+
+
+def calc_entry(task: str) -> str | None:
+    """'12*34=' for "Open Calculator and work out 12 times 34": typed whole, no model
+    (D-106). None unless the task names Calculator and is one plain sum."""
+    text = task.strip().rstrip(".!")
+    found = CALC_TASK.match(text)
+    if found is None or "calculator" not in text.casefold():
+        return None
+    entry = found.group(1).casefold()
+    for words, sign in CALC_WORDS:
+        entry = re.sub(words, sign, entry)
+    entry = re.sub(r"\s+|,(?=\d{3})", "", entry)
+    return entry + "=" if CALC_SUM.fullmatch(entry) else None
+
+
 EDITORS = frozenset({"notepad", "notepad++", "wordpad", "winword", "code", "sublime_text"})
 NEW_TEXT = re.compile(
     r"\b(write|type|jot|draft|compose|create|make|start)\b.*\b(note|list|text|letter|"
@@ -650,6 +693,7 @@ TYPE_IN_EDITOR = re.compile(
 )
 # A task that saves a file but doesn't say where: Relay asks the owner (D-104).
 SAVES = re.compile(r"\bsave\b", re.IGNORECASE)
+UNASKED = re.compile(r"\b(save|close|exit|quit)\b", re.IGNORECASE)
 PLACE = re.compile(
     r"[a-z]:\\|\\\\|/|\b(folder|desktop|documents|downloads|pictures|music|videos|"
     r"onedrive|drive|in my|to my|same place|where it was)\b",
@@ -718,12 +762,19 @@ def _typed_key(params: Mapping[str, Any]) -> str:
 
 
 def _center(elements: str, element_id: str) -> list[int] | None:
-    found = re.search(rf"^\[{re.escape(element_id)}\] .*?center \((\d+), (\d+)\)", elements, re.M)
+    found = re.search(
+        rf"^\s*\[{re.escape(element_id)}\] .*?center \((\d+), (\d+)\)", elements, re.M
+    )
     return [int(found.group(1)), int(found.group(2))] if found else None
 
 
+# "Open a new tab in the web browser and search the web for ..." (D-106).
+_BROWSER_LEAD = (
+    r"(?:(?:open|start)\s+(?:a\s+new\s+tab|(?:the\s+|a\s+)?(?:web\s+)?browser)"
+    r"(?:\s+in\s+(?:the\s+|my\s+)?(?:web\s+)?browser)?\s+and\s+(?:then\s+)?)?"
+)
 WEB_FIND = re.compile(
-    _LEAD + r"(?:find|search(?: the web)? for|search|look up|look for|compare|book|"
+    _LEAD + _BROWSER_LEAD + r"(?:find|search(?: the web)? for|search|look up|look for|compare|book|"
     r"check (?:the )?prices? (?:of|for)|get me)\s+(?:me\s+)?(?:an?\s+|the\s+|some\s+)?(.{3,200})$",
     re.IGNORECASE,
 )
@@ -733,6 +784,7 @@ ON_THE_PC = re.compile(
     re.IGNORECASE,
 )
 SEARCH_URL = "https://www.google.com/search?q="
+BROWSER_STEMS = frozenset({"brave", "chrome", "msedge", "firefox", "opera", "vivaldi"})
 
 
 def web_search_url(task: str, windows: str = "") -> str | None:
@@ -748,7 +800,10 @@ def web_search_url(task: str, windows: str = "") -> str | None:
     words = set(re.findall(r"[a-z0-9]+", text.casefold()))
     for line in windows.splitlines():
         parts = line.split(" · ")
-        if len(parts) > 1 and parts[1].casefold().removesuffix(".exe") in words - {"find"}:
+        if len(parts) < 2 or any(p.startswith("Relay itself") for p in parts):
+            continue  # "relay diagnostics 1" names Relay's own window, not a program
+        stem = parts[1].casefold().removesuffix(".exe")
+        if stem in words - {"find"} and stem not in BROWSER_STEMS:
             return None  # "find the invoice in Outlook": work in that program
     return SEARCH_URL + urllib.parse.quote_plus(found.group(1))
 
@@ -763,6 +818,104 @@ def _picked(elements: str, element_id: str) -> str:
     if found is None or found.group(1) not in PICK_ROLES:
         return ""
     return f'{found.group(1)} "{found.group(2)}"'
+
+
+LISTING_LINE = re.compile(r'^(\s*)\[(e\d+)\] (\w+)(?: "([^"]*)")?')
+
+
+def _dropdown_option(elements: str, element_id: str) -> tuple[str, list[int]] | None:
+    """('Blue', centre of its ComboBox) when the element is an option inside a dropdown."""
+    lines = elements.splitlines()
+    for i, line in enumerate(lines):
+        found = LISTING_LINE.match(line)
+        if found is None or found.group(2) != element_id:
+            continue
+        if found.group(3) != "ListItem" or not found.group(4):
+            return None
+        indent = len(found.group(1))
+        for above in reversed(lines[:i]):
+            parent = LISTING_LINE.match(above)
+            if parent is None or len(parent.group(1)) >= indent:
+                continue
+            if parent.group(3) == "ComboBox":
+                centre = _center(elements, parent.group(2))
+                return (found.group(4), centre) if centre else None
+            if parent.group(3) not in ("List", "Group", "Pane"):
+                return None
+            indent = len(parent.group(1))
+        return None
+    return None
+
+
+SWITCHES = 4  # focus_window steps in a row before the model is told to act
+
+
+def _switching(steps: list[Step]) -> bool:
+    last = steps[-SWITCHES:]
+    return len(last) == SWITCHES and all(
+        s.action.get("action") in ("focus_window", "focus", "switch_to") for s in last
+    )
+
+
+def _clicked_again(steps: list[Step]) -> bool:
+    """The last two steps were the same position click."""
+    if len(steps) < 2:
+        return False
+    a, b = steps[-2].action, steps[-1].action
+    return a == b and a.get("action") in CLICK_NAMES and not steps[-1].error
+
+
+FIELD_ROLES = ("Edit", "Spinner", "ComboBox", "Document")
+TARGET_ROLES = (*FIELD_ROLES, "Button", "CheckBox", "RadioButton", "Hyperlink", "ListItem")
+NAMED_LINE = re.compile(r'^\s*\[(e\d+)\] (\w+) "([^"]{3,})"[^\n]*?center \((\d+), (\d+)\)', re.M)
+
+
+def _named(
+    elements: str, thought: str, roles: tuple[str, ...], empty: bool = False
+) -> tuple[str, list[int]] | None:
+    """The listed control whose name the thought says, longest name first; with
+    `empty`, only boxes that have nothing in them yet."""
+    said = " ".join(thought.casefold().split())
+    best: tuple[int, str, list[int]] | None = None
+    for found in NAMED_LINE.finditer(elements):
+        element_id, role, name = found.group(1), found.group(2), found.group(3)
+        key = " ".join(name.casefold().rstrip("?:* ").split())
+        if empty and "value=" in found.group(0):
+            continue
+        good = role in roles and len(key) >= 3 and key in said
+        if good and (best is None or len(key) > best[0]):
+            point = [int(found.group(4)), int(found.group(5))]
+            best = (len(key), element_id, point)
+    return (best[1], best[2]) if best else None
+
+
+def _listed_named(elements: str, text: str) -> str | None:
+    """The id of a listed control named exactly `text` (ignoring case), if one is."""
+    want = " ".join(text.casefold().split())
+    for found in re.finditer(r'^\s*\[(e\d+)\] (\w+) "([^"]+)"', elements, re.M):
+        if found.group(2) in TARGET_ROLES and " ".join(found.group(3).casefold().split()) == want:
+            return found.group(1)  # even one on another display, with no centre here
+    return None
+
+
+def _intended_element(elements: str, thought: str) -> list[int] | None:
+    found = _named(elements, thought, TARGET_ROLES)
+    return found[1] if found else None
+
+
+def _only_empty_field(elements: str) -> str | None:
+    """The id of the one empty text box in the listing, if there is exactly one."""
+    found = [
+        m.group(1)
+        for m in NAMED_LINE.finditer(elements)
+        if m.group(2) in ("Edit", "Spinner") and "value=" not in m.group(0)
+    ]
+    return found[0] if len(found) == 1 else None
+
+
+def _intended_field(elements: str, thought: str) -> str | None:
+    found = _named(elements, thought, FIELD_ROLES, empty=True)
+    return found[0] if found else None
 
 
 def _element_label(elements: str, element_id: str) -> str:
@@ -808,8 +961,8 @@ def plain(action: Mapping[str, Any], result: str, error: bool, elements: str) ->
             line = f"Scrolled {a.get('direction', 'down')}"
         case "wait":
             line = f"Waited {a.get('seconds', 1)} s"
-        case "ask_claude":
-            line = f"Asked Claude: {q(a.get('question', ''), 80)}"
+        case "ask_cloud":
+            line = f"Asked Cloud AI: {q(a.get('question', ''), 80)}"
         case _:
             line = describe(action)
     if error:
@@ -824,7 +977,8 @@ def run_instant(task: str, hands: Hands, emit: Event) -> Outcome | None:
     For "open X" an open window of X is brought forward first and the app is launched
     only when there is none.
     """
-    plan = instant_plan(task)
+    entry = calc_entry(task)
+    plan = instant_plan("open Calculator") if entry else instant_plan(task)
     if plan is None:
         return None
     started = time.perf_counter()
@@ -841,6 +995,8 @@ def run_instant(task: str, hands: Hands, emit: Event) -> Outcome | None:
         text = result.text or "done"
         if result.is_error or (member == "focus_window" and "is in front" not in text):
             continue
+        if entry:
+            return _type_entry(entry, Step(1, "", action, text), hands, emit, started)
         step = Step(1, "", action, text)
         ms = round((time.perf_counter() - started) * 1000)
         say = plain(action, text, False, "")
@@ -857,6 +1013,39 @@ def run_instant(task: str, hands: Hands, emit: Event) -> Outcome | None:
         emit({"event": "done", "message": text, "steps": 1, "instant_ms": ms})
         return Outcome("done", text, [step])
     return None
+
+
+def _type_entry(
+    entry: str, opened: Step, hands: Hands, emit: Event, started: float
+) -> Outcome | None:
+    """Calculator is in front: type the whole sum in one go (D-106)."""
+    action = {"action": "type", "text": entry}
+    try:
+        result = hands.run("type", {"text": entry})
+    except (KillSwitchError, ApprovalDeniedError, PromptUnavailableError) as exc:
+        emit({"event": "stopped", "message": str(exc), "steps": 2})
+        return Outcome("stopped", str(exc), [opened, Step(2, "", action, f"STOP: {exc}", True)])
+    except ActionError:
+        return None
+    if result.is_error:
+        return None
+    text = result.text or "done"
+    steps = [opened, Step(2, "", action, text)]
+    for step in steps:
+        emit(
+            {
+                "event": "step",
+                "step": step.n,
+                "thought": "",
+                "action": describe(step.action),
+                "say": plain(step.action, step.result, False, ""),
+                "result": step.result,
+            }
+        )
+    ms = round((time.perf_counter() - started) * 1000)
+    message = f"Typed {entry} into Calculator"
+    emit({"event": "done", "message": message, "steps": 2, "instant_ms": ms})
+    return Outcome("done", message, steps)
 
 
 class LocalAgent:
@@ -890,6 +1079,8 @@ class LocalAgent:
         self.typed: dict[str, int] = {}  # text typed so far -> the step that typed it
         self.save_to = ""  # full path for the Save dialog, once the task and owner name it
         self.task = ""
+        self.last_type_step = 0  # the step that typed last, when it was the latest step
+        self.plan_app = ""  # the program the plan named, for a launch_app with no name
         self.warned: set[str] = set()  # empty fields already pointed out (D-106)
         self.new_doc = False  # a writing task: editors get a new tab first
         self.fresh: set[str] = set()  # editors that already got their new tab
@@ -947,6 +1138,10 @@ class LocalAgent:
             windows = self._windows()
             elements = self._elements(windows)
             self.elements = elements
+            front = next((w for w in windows.splitlines() if "in front" in w.split(" · ")), "")
+            # What the model is shown, for Diagnostics: the window in front and the top
+            # of its element list (D-106).
+            self.emit({"event": "seen", "front": front, "elements": elements[:SEEN_CHARS]})
             show = look or not _rich(elements)
             frame = Frame.from_png(self._screenshot()) if show else None
             screen_text = self._screen_text() if _few(elements) else ""
@@ -1017,6 +1212,36 @@ class LocalAgent:
                 if self._stuck(steps):
                     message = "The same action kept changing nothing, so Relay stopped."
                     return self._finish("failed", message, steps)
+                if _switching(steps):
+                    # Brave, Notepad, Brave, Notepad... in round 10 (D-106).
+                    note = (
+                        f"You switched windows {SWITCHES} times in a row. The window in front "
+                        "is the one you last chose: act in it now (type, invoke, set_value), "
+                        "or reply done if the task is finished."
+                    )
+                    look = True
+                    break
+                if (
+                    not step.error
+                    and member in ("focus_window", "launch_app", "open_url")
+                    and (action, member, params) != actions[-1]
+                ):
+                    # Another window is in front: its element ids are new, and a planned
+                    # set_value on the browser's e2123 went to Notepad's turn (D-106).
+                    note = (
+                        "A different window is in front now, so the rest of your actions "
+                        "were not run. Use the ids in its element list below."
+                    )
+                    break
+                if _clicked_again(steps):
+                    # File Explorer's address bar clicked eight times, never typed in (D-106).
+                    note = (
+                        "You clicked the same spot twice in a row. Clicking it again won't "
+                        "help: if you clicked a box to type in it, type now; otherwise use an "
+                        "element id from the list, a key, or another way."
+                    )
+                    look = True
+                    break
                 if step.error:
                     look = True  # see what went wrong before planning again
                     if len(steps) >= FAILS_IN_A_ROW and all(
@@ -1063,14 +1288,18 @@ class LocalAgent:
                 if i == 0:
                     planned.append((action, "", {}))
                 break
-            if action["action"] in ("ask_claude", "ask"):
+            if action["action"] in ("ask_cloud", "ask"):
                 question = action.get("question") or action.get("text")
                 if not isinstance(question, str) or not question.strip():
-                    raise ReplyError("ask_claude needs a question")
-                action = {**action, "action": "ask_claude", "question": question.strip()}
-                planned.append((action, "ask_claude", {"question": question.strip()[:MAX_TEXT]}))
+                    raise ReplyError("ask_cloud needs a question")
+                action = {**action, "action": "ask_cloud", "question": question.strip()}
+                planned.append((action, "ask_cloud", {"question": question.strip()[:MAX_TEXT]}))
                 break  # the answer changes what comes next
-            hit = _listed_point(elements, action) if action["action"] in CLICK_NAMES else None
+            hit = (
+                _listed_point(elements, action)
+                if action["action"] in CLICK_NAMES and POINT_FALLBACK
+                else None
+            )
             if hit is not None:
                 # The model copied an element's centre from the list: those are already
                 # screenshot pixels, not pixels of the smaller image it was sent (D-106).
@@ -1078,8 +1307,19 @@ class LocalAgent:
                 member = "left_click" if name in ("click", "left_click") else name
                 params: dict[str, Any] = {"coordinate": hit}
             else:
+                if (
+                    action["action"] in LAUNCH_NAMES
+                    and self.plan_app
+                    and not any(
+                        isinstance(v, str) and v.strip()
+                        for k, v in action.items()
+                        if k not in ("action", "thought")
+                    )
+                ):
+                    # A bare launch_app: the plan already named the program (D-106).
+                    action = {**action, "name": self.plan_app}
                 member, params = to_member(action, frame, self.coords)
-                if member in POINT_CLICKS:
+                if member in POINT_CLICKS and POINT_FALLBACK:
                     params = {"coordinate": _likely_point(elements, action, params["coordinate"])}
             element = params.get("element")
             if isinstance(element, str) and f"[{element}]" not in elements:
@@ -1239,8 +1479,8 @@ class LocalAgent:
 
     def _act(self, n: int, thought: str, action: dict[str, Any], member: str, params: dict) -> Step:
         try:
-            if member == "ask_claude":
-                result = self._ask_claude(str(params["question"]))
+            if member == "ask_cloud":
+                result = self._ask_cloud(str(params["question"]))
             elif member == "wait":
                 result = self._pause(float(params.get("duration", 1)))
             else:
@@ -1250,7 +1490,28 @@ class LocalAgent:
                 if member in ("type", "uia_set_value"):
                     self._not_twice(n, str(params.get("text", params.get("value", ""))))
                 if member in POINT_CLICKS:
-                    self._inside_front(params)
+                    try:
+                        self._inside_front(params)
+                    except ActionError:
+                        # The click missed the window, but the thought names a listed
+                        # control: "click on the Full name field" (D-106).
+                        meant = _intended_element(self.elements, thought)
+                        if meant is None:
+                            raise
+                        params = {"coordinate": meant}
+                if member == "type" and self._typing_again(n):
+                    meant_id = _intended_field(self.elements, thought)
+                    if meant_id is not None:
+                        # A second type with no click between went into the field
+                        # before it: the phone number landed in Email (D-106).
+                        member = "uia_set_value"
+                        params = {"element": meant_id, "value": params["text"]}
+                if _opens_save(member, params, self.elements) and not SAVES.search(self.task):
+                    # The laptop note was typed, then the model went for File > Save (D-106).
+                    raise ActionError(
+                        "the task doesn't ask to save, so Relay didn't; if the task is "
+                        "finished, reply done"
+                    )
                 if member in ("click_text", "uia_invoke"):
                     self._fields_first(params)
                 if member == "click_text":
@@ -1272,6 +1533,9 @@ class LocalAgent:
                 self._remember_front()
             if not error and member in ("type", "uia_set_value"):
                 self.typed.setdefault(_typed_key(params), n)
+            self.last_type_step = n if not error and member == "type" else 0
+            if not error and member == "type" and "no visible change" in text:
+                text = self._type_into_field(thought, str(params.get("text", "")), text)
             if not error and member == "uia_set_value" and self._address_bar(params):
                 # A search or address in the browser's bar does nothing until Enter,
                 # and models kept pressing the search icon instead (D-097).
@@ -1283,6 +1547,8 @@ class LocalAgent:
             text, error = f"STOP: {exc}", True
         except ActionError as exc:
             text, error = f"failed: {exc}", True
+        except Exception as exc:  # a UI Automation COMError ended a whole task (D-106)
+            text, error = f"failed: {exc.__class__.__name__}: {exc}", True
         element = params.get("element")
         target = _picked(self.elements, element) if isinstance(element, str) else ""
         if not error and self.save_to and self.typed and _opens_save(member, params, self.elements):
@@ -1318,24 +1584,26 @@ class LocalAgent:
         label = _element_label(self.elements, str(params.get("element", "")))
         return label.strip('"') == ADDRESS_BAR
 
-    def _ask_claude(self, question: str) -> ActionResult:
-        """Claude's answer, or an error the model can work around: the local AI keeps going
-        when Claude is signed out or not installed (D-067, D-093)."""
+    def _ask_cloud(self, question: str) -> ActionResult:
+        """Cloud AI's answer, or an error the model can work around: the local AI keeps going
+        when Cloud AI is signed out or not installed (D-067, D-093)."""
         if self.ask is None:
-            raise ActionError("Claude can't be asked from here; decide from the screen")
+            raise ActionError("Cloud AI can't be asked from here; decide from the screen")
         ask = self.ask
-        self.emit({"event": "note", "text": "Asking Claude: " + question[:200]})
+        self.emit({"event": "note", "text": "Asking Cloud AI: " + question[:200]})
         try:
             answer = self._unless_stopped(lambda: ask(question)).strip()
         except Cancelled:
             raise
         except Exception as exc:
-            self.emit({"event": "note", "text": "Claude isn't available, so the local AI decides."})
+            self.emit(
+                {"event": "note", "text": "Cloud AI isn't available, so the local AI decides."}
+            )
             raise ActionError(
-                f"Claude isn't available ({str(exc)[:120]}); decide yourself from the screen"
+                f"Cloud AI isn't available ({str(exc)[:120]}); decide yourself from the screen"
             ) from exc
         if not answer:
-            raise ActionError("Claude gave no answer; decide yourself from the screen")
+            raise ActionError("Cloud AI gave no answer; decide yourself from the screen")
         return ActionResult(answer[:MAX_TEXT])
 
     def _make_plan(self, task: str, apps: str) -> str:
@@ -1361,7 +1629,11 @@ class LocalAgent:
         if not isinstance(plan, dict):
             return ""
         steps = [str(x) for x in plan.get("steps") or [] if str(x).strip()][:6]
+        # Plans kept adding "Save the file" to tasks that never said save, and the model
+        # then followed the plan, not the task (D-106).
+        steps = [x for x in steps if not UNASKED.search(x) or UNASKED.search(task)]
         goal, app = str(plan.get("goal") or ""), str(plan.get("app") or "")
+        self.plan_app = app.strip()[:80]
         done_when = str(plan.get("done_when") or "")
         question = str(plan.get("question") or "").strip()
         default = str(plan.get("default") or "").strip()
@@ -1407,7 +1679,7 @@ class LocalAgent:
         return "No answer; choose sensibly and say what you chose."
 
     def _unless_stopped(self, work: Callable[[], str]) -> str:
-        """Run a slow call (the model, Claude) and give up on it the moment Stop is pressed.
+        """Run a slow call (the model, Cloud AI) and give up on it the moment Stop is pressed.
 
         The call itself finishes in the background; its answer is dropped.
         """
@@ -1440,6 +1712,9 @@ class LocalAgent:
     def _invoke(self, element: str) -> ActionResult:
         """Press an element; one with no press action (an address bar) gets a click on its
         center instead, so the model doesn't have to work that out (D-093)."""
+        option = _dropdown_option(self.elements, element)
+        if option is not None:
+            return self._pick_option(*option)
         try:
             return self.hands.run("uia_invoke", {"element": element})
         except ActionError as exc:
@@ -1448,6 +1723,19 @@ class LocalAgent:
                 raise
         self._bring_back()
         return self.hands.run("left_click", {"coordinate": point})
+
+    def _pick_option(self, name: str, box: list[int]) -> ActionResult:
+        """Choose a dropdown option the way a person does: open the box, type the
+        option's name, press Enter (D-106). Invoking or selecting a web page's option
+        said OK but left "Choose..." picked, and the form went without its colour."""
+        self._wait_for_owner()
+        self._bring_back()
+        self.hands.run("key", {"text": "Escape"})  # a popup left open from before
+        self.hands.run("left_click", {"coordinate": box})
+        self.hands.run("type", {"text": name})
+        result = self.hands.run("key", {"text": "Return"})
+        self.last_input = time.monotonic()
+        return ActionResult(f"Picked {json.dumps(name, ensure_ascii=False)} · {result.text}")
 
     def _wait_for_owner(self) -> None:
         """Let the owner finish what they are doing before Relay moves the real mouse
@@ -1521,6 +1809,23 @@ class LocalAgent:
         with contextlib.suppress(ActionError):
             self.hands.run("focus_window", {"window": self.target})
 
+    def _type_into_field(self, thought: str, value: str, text: str) -> str:
+        """Typing went nowhere (no box had the focus): put the text into the empty box
+        the thought names, or the page's only empty box (D-106). The library search
+        typed "Dune" four times into nothing."""
+        field = _intended_field(self.elements, thought) or _only_empty_field(self.elements)
+        if field is None:
+            return text
+        result = self.hands.run("uia_set_value", {"element": field, "value": value})
+        if result.is_error:
+            return text
+        label = _element_label(self.elements, field)
+        return f"{text}; nothing had the focus, so Relay put it into {label}"
+
+    def _typing_again(self, n: int) -> bool:
+        """The step before this one also typed, so the focus is still on that field."""
+        return bool(self.last_type_step) and self.last_type_step == n - 1
+
     def _fields_first(self, params: Mapping[str, Any]) -> None:
         """Before Next or Submit, point out fields the task names that are still empty.
 
@@ -1560,6 +1865,11 @@ class LocalAgent:
         found = self.hands.run("find_text", {"text": text}).text or ""
         points = [[int(x), int(y)] for x, y in re.findall(r"center \((\d+), (\d+)\)", found)]
         if not points:
+            listed = _listed_named(self.elements, text)
+            if listed is not None:
+                # OCR reads only the active display; the Explorer window on the other
+                # monitor listed "incoming" but OCR never saw it (D-106).
+                return self._invoke(listed)
             raise ActionError(f"no text like {text!r} on the screen")
         check = getattr(self.hands, "outside_front", None)
         inside = [p for p in points if not (callable(check) and check(p))]
@@ -1598,6 +1908,12 @@ class LocalAgent:
         last = steps[-STUCK_REPEATS:]
         if len(last) < STUCK_REPEATS:
             return False
+        if (
+            len(steps) >= 2 * SWITCHES
+            and _switching(steps[-2 * SWITCHES : -SWITCHES])
+            and (_switching(steps))
+        ):
+            return True  # still only switching windows after being told to act
         first = last[0]
         if first.target and all(
             s.target == first.target and s.action["action"] == first.action["action"] for s in last
