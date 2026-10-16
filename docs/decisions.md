@@ -1435,3 +1435,11 @@ The owner chose the full rebuild with every recommendation:
   cache is read the old way.
 - `uia_tree` gains `root` and `interactive` parameters. It is a Relay tool,
   not a computer-toolset member, so D-009 is unaffected.
+
+## D-090 The app list comes from the Shell, not PowerShell
+*2026-10-16 · accepted · owner ("why PowerShell") · amends D-030*
+
+- The installed-apps catalog is read from the Shell's `shell:AppsFolder` over
+  COM (`Shell.Application`). That is the folder `Get-StartApps` reads, so the
+  names and AppIDs are the same.
+- PowerShell runs only when COM fails or finds nothing.
