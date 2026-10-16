@@ -9,6 +9,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_opener::OpenerExt;
 
+use relay_core::operator::{Operator, Route};
 use relay_core::settings::{ActiveModel, Settings};
 use relay_core::{
     browser, catalog, chat, claude, doctor, gpu, local_agent, local_ai, mcp, paths, system, updates,
@@ -649,6 +650,65 @@ struct ClaudeOutcome {
     unavailable: bool,
 }
 
+/// The operator service: started on first use, and again after it exits. A service
+/// that fails to start is left alone for a while so messages don't wait on it.
+pub async fn operator(app: &AppHandle) -> Option<Arc<Operator>> {
+    let st = app.state::<AppState>();
+    let mut slot = st.operator.lock().await;
+    if let Some(op) = slot.as_ref().filter(|op| op.is_alive()) {
+        return Some(op.clone());
+    }
+    let recently_failed = st
+        .operator_failed
+        .lock()
+        .expect("operator lock")
+        .is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(600));
+    if recently_failed {
+        return None;
+    }
+    let python = state::python_path(app).filter(|p| p.exists())?;
+    let events_app = app.clone();
+    let started = Operator::start(&python, &st.settings(), move |event| {
+        emit_chat(&events_app, Some(event))
+    })
+    .await;
+    // A Python that can't run the service exits right away.
+    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+    match started {
+        Ok(op) if op.is_alive() => {
+            *slot = Some(op.clone());
+            Some(op)
+        }
+        _ => {
+            *st.operator_failed.lock().expect("operator lock") = Some(std::time::Instant::now());
+            None
+        }
+    }
+}
+
+/// Run a message as an operator task in the chat.
+async fn operator_turn(
+    app: &AppHandle,
+    op: &Arc<Operator>,
+    prompt: &str,
+    mut turn: tokio::sync::MutexGuard<'_, Option<chat::Turn>>,
+) -> Res<()> {
+    let events_app = app.clone();
+    let (handle, task) = op
+        .task(prompt, move |event| emit_chat(&events_app, Some(event)))
+        .await
+        .map_err(anyhow_err)?;
+    *turn = Some(handle);
+    drop(turn);
+    let done_app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let _ = task.await;
+        *done_app.state::<AppState>().turn.lock().await = None;
+        emit_chat(&done_app, None);
+    });
+    Ok(())
+}
+
 #[tauri::command]
 async fn chat_send(app: AppHandle, prompt: String) -> Res<()> {
     let st = app.state::<AppState>();
@@ -657,6 +717,12 @@ async fn chat_send(app: AppHandle, prompt: String) -> Res<()> {
         return Err("Relay is still working on the last message.".into());
     }
     st.stopped.store(false, Ordering::SeqCst);
+    // Screen tasks go straight to the local operator; the rest to Claude.
+    if let Some(op) = operator(&app).await {
+        if op.route(&prompt).await == Route::Operator {
+            return operator_turn(&app, &op, &prompt, turn).await;
+        }
+    }
     let s = st.settings();
     let opts = chat::TurnOptions {
         resume: st.session.lock().expect("session lock").clone(),
@@ -744,9 +810,33 @@ async fn run_local(app: &AppHandle, prompt: &str, reason: String) {
     let st = app.state::<AppState>();
     let s = st.settings();
     let events_app = app.clone();
+    let op = operator(app).await;
     let mut turn = st.turn.lock().await;
     if st.stopped.load(Ordering::SeqCst) {
         return;
+    }
+    if let Some(op) = op {
+        let events_app = app.clone();
+        match op
+            .task(prompt, move |event| emit_chat(&events_app, Some(event)))
+            .await
+        {
+            Ok((handle, task)) => {
+                *turn = Some(handle);
+                drop(turn);
+                let _ = task.await;
+                return;
+            }
+            Err(e) => {
+                emit_chat(
+                    app,
+                    Some(chat::ChatEvent::Error {
+                        message: format!("{e:#}"),
+                    }),
+                );
+                return;
+            }
+        }
     }
     match local_agent::start(&python, &s, prompt, move |event| {
         emit_chat(&events_app, Some(event))
@@ -783,6 +873,12 @@ async fn chat_stop(state: State<'_, AppState>) -> Res<()> {
 #[tauri::command]
 async fn popup_say(app: AppHandle, text: String) -> Res<()> {
     let st = app.state::<AppState>();
+    // The local operator takes the message into the running task.
+    if let Some(chat::Turn::Operator { op, id }) = st.turn.lock().await.as_ref() {
+        op.say(id, &text).await.map_err(anyhow_err)?;
+        let _ = app.emit("chat-user", &text);
+        return Ok(());
+    }
     if st.turn.lock().await.is_some() {
         chat_stop(app.state::<AppState>()).await?;
         // The turn's task clears `turn` once Claude or the local AI has exited.

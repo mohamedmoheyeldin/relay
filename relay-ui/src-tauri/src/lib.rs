@@ -93,9 +93,16 @@ pub fn run() {
         .invoke_handler(commands::handler())
         .build(tauri::generate_context!())
         .expect("error while running Relay")
-        .run(|_, event| {
+        .run(|app, event| {
             if let tauri::RunEvent::Exit = event {
                 approvals::stop();
+                // Unload the local model with Relay rather than leave it in VRAM.
+                let op = tauri::async_runtime::block_on(async {
+                    app.state::<AppState>().operator.lock().await.take()
+                });
+                if let Some(op) = op {
+                    tauri::async_runtime::block_on(op.quit());
+                }
             }
         });
 }
