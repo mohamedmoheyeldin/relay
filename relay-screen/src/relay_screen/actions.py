@@ -96,7 +96,7 @@ _ALLOWED_PARAMS: dict[str, frozenset[str]] = {
     "key": frozenset({"text", "repeat"}),
     "hold_key": frozenset({"text", "duration"}),
     **{name: frozenset({"coordinate", "text"}) for name in _CLICKS},
-    "uia_tree": frozenset({"window", "depth", "filter"}),
+    "uia_tree": frozenset({"window", "depth", "filter", "root", "interactive"}),
     "uia_find": frozenset({"query", "role", "window"}),
     "uia_invoke": frozenset({"element"}),
     "uia_set_value": frozenset({"element", "value"}),
@@ -494,12 +494,20 @@ class Computer:
         return self.uia
 
     def _do_uia_tree(
-        self, window: str | None = None, depth: int = 6, filter: str | None = None
+        self,
+        window: str | None = None,
+        depth: int = 6,
+        filter: str | None = None,
+        root: str | None = None,
+        interactive: bool = False,
     ) -> ActionResult:
         if not isinstance(depth, int) or isinstance(depth, bool):
             raise ActionError("depth must be an integer")
         displays = self.state.displays()
-        return ActionResult(self._uia().tree(self._geometry(), window, depth, filter, displays))
+        listing = self._uia().tree(
+            self._geometry(), window, depth, filter, displays, root, bool(interactive)
+        )
+        return ActionResult(listing)
 
     def _do_uia_find(
         self, query: str, role: str | None = None, window: str | None = None

@@ -1412,3 +1412,26 @@ The owner chose the full rebuild with every recommendation:
    Implementation pending.
 5. **Quick wins first, but no separate release.** The owner gets one
    complete build.
+
+## D-089 Browsers through UI Automation, read in one cached call
+*2026-10-16 · accepted · owner (redesign §6 item 3, no extension) · builds on D-017, D-088*
+
+- **Web pages.** When a browser is in front, the operator reads the page, not
+  the window chrome:
+  - It finds the web `Document` element and lists it with
+    `uia_tree(root=<id>, interactive=True)`. That keeps only what can be used:
+    fields, buttons, links, checkboxes, list and menu items.
+  - It adds the address bar ("Address and search bar") with its value.
+  - The page gets up to 8000 characters of the prompt.
+- Chromium builds this tree because Relay sets the screen-reader flag (D-017).
+  So Brave, Chrome and Edge need no extension, token or policy.
+- **Cached reads.** `uia_tree` and `uia_find` read each root's whole subtree in
+  one UIA CacheRequest:
+  - name, role, automation id, enabled, bounds and value;
+  - the "pattern available" flags.
+
+  Before, they made a cross-process call for each property of each element.
+  Acting on an element goes to the live element. An app that refuses the
+  cache is read the old way.
+- `uia_tree` gains `root` and `interactive` parameters. It is a Relay tool,
+  not a computer-toolset member, so D-009 is unaffected.

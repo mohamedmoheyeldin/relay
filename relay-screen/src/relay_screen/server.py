@@ -446,16 +446,27 @@ def build_server(services: Services | None = None) -> FastMCP:
 
     @mcp.tool()
     async def uia_tree(
-        window: str | None = None, depth: int = 6, filter: str | None = None
+        window: str | None = None,
+        depth: int = 6,
+        filter: str | None = None,
+        root: str | None = None,
+        interactive: bool = False,
     ) -> CallToolResult:
         """List the accessibility tree of the foreground window (or the open window whose
         title contains `window`), with bounds in screenshot pixels.
 
         Each element has an id like e12 for uia_invoke / uia_set_value. `filter` keeps
-        only elements whose name, role or automation id contains it. Prefer this and
-        uia_find over screenshots when an app exposes its controls.
+        only elements whose name, role or automation id contains it. `root` lists from an
+        element id instead of the window (for example a web page's Document), and
+        `interactive` keeps only controls that can be acted on. Prefer this and uia_find
+        over screenshots when an app exposes its controls.
         """
-        return await run("uia_tree", {"window": window, "depth": depth, "filter": filter})
+        params = {"window": window, "depth": depth, "filter": filter}
+        if root:
+            params.update(root=root)
+        if interactive:
+            params.update(interactive=True)
+        return await run("uia_tree", params)
 
     @mcp.tool()
     async def uia_find(

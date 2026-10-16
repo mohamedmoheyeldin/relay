@@ -41,6 +41,10 @@ MAX_APPS_CHARS = 2500
 MAX_WINDOWS_CHARS = 1500
 MAX_BATCH = 6  # actions the model may plan in one reply (D-084)
 RICH_ELEMENTS = 8  # with this many element lines, skip the screenshot unless asked
+MAX_PAGE_CHARS = 8000  # a web page's controls, ~2.5k tokens
+PAGE_DEPTH = 40
+BROWSERS = frozenset({"brave", "chrome", "msedge", "firefox", "opera", "vivaldi", "arc"})
+ADDRESS_BAR = "Address and search bar"  # Chromium's name for it
 
 REL1000 = (
     "X and Y are positions on the screenshot from 0 to 1000: 0,0 is the top left corner "
@@ -357,6 +361,20 @@ def _few(elements: str) -> bool:
     return not elements.startswith("Elements") or elements.count("\n") < FEW_ELEMENTS
 
 
+def _cut(listing: str, limit: int) -> str:
+    if len(listing) <= limit:
+        return listing
+    return listing[:limit].rsplit("\n", 1)[0] + "\n… (list cut)"
+
+
+def _browser_in_front(windows: str) -> bool:
+    for line in windows.splitlines():
+        parts = line.split(" · ")
+        if len(parts) > 2 and "in front" in parts:
+            return parts[1].casefold().removesuffix(".exe") in BROWSERS
+    return False
+
+
 def _rich(elements: str) -> bool:
     return elements.startswith("Elements") and elements.count("\n") >= RICH_ELEMENTS
 
@@ -534,7 +552,7 @@ class LocalAgent:
                 look = True
             began = time.perf_counter()
             windows = self._windows()
-            elements = self._elements()
+            elements = self._elements(windows)
             self.elements = elements
             show = look or not _rich(elements)
             frame = Frame.from_png(self._screenshot()) if show else None
@@ -632,15 +650,46 @@ class LocalAgent:
             raise ActionError("the screenshot came back empty")
         return shot.image
 
-    def _elements(self) -> str:
-        """The focused window's UI Automation elements, or "" when UIA can't read it."""
+    def _elements(self, windows: str = "") -> str:
+        """The focused window's UI Automation elements, or "" when UIA can't read it.
+
+        A browser in front is read from its page: the address bar, then the controls
+        of the web document, so the model works the site with no extension (D-089).
+        """
+        if _browser_in_front(windows):
+            page = self._page()
+            if page:
+                return page
         try:
             listing = self.hands.run("uia_tree", {"depth": UIA_DEPTH}).text or ""
         except Exception:
             return ""
-        if len(listing) > MAX_UIA_CHARS:
-            listing = listing[:MAX_UIA_CHARS].rsplit("\n", 1)[0] + "\n… (list cut)"
-        return listing
+        return _cut(listing, MAX_UIA_CHARS)
+
+    def _page(self) -> str:
+        try:
+            docs = self.hands.run("uia_find", {"query": "document", "role": "Document"}).text
+            address = self.hands.run("uia_find", {"query": ADDRESS_BAR, "role": "Edit"}).text
+        except Exception:
+            return ""
+        doc = next(
+            (m.group(1) for m in re.finditer(r"^\[(e\d+)\] Document.*center \(", docs or "", re.M)),
+            None,
+        )
+        if doc is None:
+            return ""
+        try:
+            listing = self.hands.run(
+                "uia_tree", {"root": doc, "depth": PAGE_DEPTH, "interactive": True}
+            ).text
+        except Exception:
+            return ""
+        if not listing or not listing.startswith("Elements"):
+            return ""
+        head, _, body = listing.partition("\n")
+        bar = next((line for line in (address or "").splitlines() if line.startswith("[e")), "")
+        lines = [head, *([bar] if bar else []), body]
+        return _cut("\n".join(lines), MAX_PAGE_CHARS)
 
     def _screen_text(self) -> str:
         """Lines of text on the screen (Windows OCR), for windows UIA can't read."""
