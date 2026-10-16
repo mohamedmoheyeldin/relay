@@ -441,7 +441,15 @@ def to_member(action: Mapping[str, Any], frame: Frame | None, coords: Coords) ->
         if frame is None:
             raise ReplyError("you have not seen the screen yet; use an element id or look")
         member = "left_click" if name in ("click", "left_click") else name
-        return member, {"coordinate": frame.to_screen(action.get("x"), action.get("y"), coords)}
+        x, y = action.get("x"), action.get("y")
+        point = action.get("coordinate") or action.get("point") or action.get("position")
+        if (x is None or y is None) and isinstance(point, list | tuple) and len(point) == 2:
+            x, y = point  # {"action": "click", "coordinate": [567, 178]} (D-112)
+        if (x is None or y is None) and action.get("element"):
+            raise ReplyError(
+                "click takes x and y; to press a listed element use invoke with its id"
+            )
+        return member, {"coordinate": frame.to_screen(x, y, coords)}
     if name == "type":
         text = action.get("text")
         if not isinstance(text, str) or not text:
@@ -920,6 +928,39 @@ def _listed_named(elements: str, text: str, roles: tuple[str, ...] = TARGET_ROLE
     return None
 
 
+ROW_NAMES = 3  # names before a repeated button that tell its row apart
+
+
+def _with_rows(elements: str) -> str:
+    """Repeated buttons ("Reserve" on every row) get the names listed just before them:
+    `(row: Dune · Paperback · Frank Herbert)`. The model reserved the wrong copy when
+    every row's button looked the same (D-112)."""
+    lines = elements.splitlines()
+    named = [LISTING_LINE.match(line) for line in lines]
+    counts: dict[str, int] = {}
+    for found in named:
+        if found and found.group(3) in PRESS_ROLES and found.group(4):
+            counts[found.group(4)] = counts.get(found.group(4), 0) + 1
+    if not any(n > 1 for n in counts.values()):
+        return elements
+    out = list(lines)
+    for i, found in enumerate(named):
+        if not (
+            found and found.group(3) in PRESS_ROLES and counts.get(found.group(4) or "", 0) > 1
+        ):
+            continue
+        context: list[str] = []
+        for above in reversed(named[:i]):
+            if above is None or not above.group(4):
+                continue
+            if above.group(4) == found.group(4) or len(context) >= ROW_NAMES:
+                break  # the row before ends at its own button
+            context.append(above.group(4))
+        if context:
+            out[i] = f"{lines[i]} (row: {' · '.join(reversed(context))})"
+    return "\n".join(out)
+
+
 def _role(elements: str, element_id: str) -> str:
     found = re.search(rf"\[{re.escape(element_id)}\] (\w+)", elements)
     return found.group(1) if found else ""
@@ -1189,7 +1230,7 @@ class LocalAgent:
                 look = True
             began = time.perf_counter()
             windows = self._windows()
-            elements = self._elements(windows)
+            elements = _with_rows(self._elements(windows))
             self.elements = elements
             front = next((w for w in windows.splitlines() if "in front" in w.split(" · ")), "")
             # What the model is shown, for Diagnostics: the window in front and the top

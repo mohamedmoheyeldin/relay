@@ -1941,3 +1941,7 @@ any program, so the fixes are general:
 - Round 17 (23 of 24): the remembered thought is labelled as written before the last
   actions, because after the done-check the model took an old "I'm in Downloads" as
   the present. click_text on a listed text box clicks into it instead of invoking it.
+- Round 18: repeated buttons in a list ("Reserve" on every row) carry the names
+  listed just before them, `(row: Dune · Paperback · Frank Herbert)`, because the
+  model picked the wrong copy twice. A click given as `coordinate: [x, y]` is
+  accepted, and a click given an element id is told to use invoke.

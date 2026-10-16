@@ -1392,3 +1392,24 @@ def test_click_text_on_a_listed_text_box_clicks_into_it() -> None:
     hands = FakeHands({"uia_tree": tree, "find_text": "No text found"})
     run(hands, Script({"action": "click_text", "text": "Address Bar"}, done()))
     assert ("left_click", {"coordinate": [40, 8]}) in hands.acts()
+
+
+def test_repeated_buttons_show_their_row() -> None:
+    from relay_screen.agent.local import _with_rows
+
+    listing = "\n".join(
+        [
+            "Elements:",
+            '  [e1] DataItem "Dune"',
+            '  [e2] DataItem "Hardback"',
+            '  [e3] Button "Reserve" {invoke}',
+            '  [e4] DataItem "Dune Messiah"',
+            '  [e5] DataItem "Paperback"',
+            '  [e6] Button "Reserve" {invoke}',
+            '  [e7] Button "Search" {invoke}',
+        ]
+    )
+    out = _with_rows(listing).splitlines()
+    assert out[3].endswith("(row: Dune · Hardback)")
+    assert out[6].endswith("(row: Dune Messiah · Paperback)")
+    assert out[7] == '  [e7] Button "Search" {invoke}'
