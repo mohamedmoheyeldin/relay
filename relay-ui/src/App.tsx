@@ -9,7 +9,7 @@ import { ApprovalTray } from "@/components/relay/approval";
 import { ChatScreen, type OpenChat, forgetChat } from "./screens/chat";
 import { DragStrip, WindowControls } from "@/components/relay/window-controls";
 import { RelayMark, Sidebar } from "@/components/relay/sidebar";
-import { useClaude } from "@/lib/claude";
+import { useCloud } from "@/lib/cloud";
 import { SettingsScreen } from "./screens/settings";
 import { Wizard } from "./screens/wizard";
 
@@ -64,7 +64,7 @@ export default function App() {
     const [closeAsk, setCloseAsk] = useState(false);
     const [update, setUpdate] = useState<UpdateInfo | null>(null);
     const [collapsed, setCollapsed] = useState(readCollapsed);
-    // The conversation on screen; Relay opens on a fresh one, like the Claude app.
+    // The conversation on screen; Relay opens on a fresh one, like the reference chat app.
     const [chat, setChat] = useState<OpenChat>(() => ({ id: newId(), fresh: true }));
     const [chats, setChats] = useState<ChatSummary[]>([]);
     const loadChats = useCallback(() => {
@@ -74,7 +74,7 @@ export default function App() {
     }, []);
     useEffect(loadChats, [loadChats]);
     const [renamingId, setRenamingId] = useState<string | null>(null);
-    // Back and forward, like the Claude app's arrows: every chat or Settings visit.
+    // Back and forward, like the reference chat app's arrows: every chat or Settings visit.
     type Place = { view: "chat"; chat: OpenChat } | { view: "settings" };
     const [trail, setTrail] = useState<{ places: Place[]; at: number }>(() => ({ places: [{ view: "chat", chat }], at: 0 }));
     const show = (p: Place) => {
@@ -124,7 +124,7 @@ export default function App() {
             return !c;
         });
     };
-    const { signedIn: ready, refresh: refreshClaude } = useClaude();
+    const { signedIn: ready, refresh: refreshCloud } = useCloud();
 
     useEffect(() => {
         Promise.all([api.getSettings(), api.appInfo()]).then(([s, i]) => {
@@ -211,7 +211,7 @@ export default function App() {
                             save={save}
                             onFinish={async () => {
                                 setSettings(await api.getSettings());
-                                refreshClaude();
+                                refreshCloud();
                                 setView("chat");
                             }}
                         />
@@ -225,8 +225,8 @@ export default function App() {
                             onRename={() => current && (collapsed ? (toggleSidebar(), setRenamingId(current.id)) : setRenamingId(current.id))}
                             onPin={() => current && pinChat(current.id, !current.pinned)}
                             onDelete={() => current && deleteChat(current.id)}
-                            claudeSettings={settings.claude}
-                            onClaudeSettings={(claude) => save({ ...settings, claude })}
+                            cloudSettings={settings.cloud}
+                            onCloudSettings={(cloud) => save({ ...settings, cloud })}
                             approvalMode={settings.safety.approval_mode}
                             onSetup={() => setView("setup")}
                             onLocalAi={() => {
@@ -244,7 +244,7 @@ export default function App() {
                             page={settingsPage}
                             setPage={(p) => {
                                 setSettingsPage(p);
-                                if (p === "claude") refreshClaude();
+                                if (p === "cloud") refreshCloud();
                             }}
                         />
                     )}

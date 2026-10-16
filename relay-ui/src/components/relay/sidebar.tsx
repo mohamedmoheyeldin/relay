@@ -1,4 +1,4 @@
-// The left sidebar, laid out like the Claude desktop app: a row of icon buttons, a
+// The left sidebar, laid out like the reference chat app: a row of icon buttons, a
 // short list (New chat, Search), pinned chats, recents, and Settings at the bottom.
 // Account details stay in Settings.
 import { type ReactNode, useEffect, useRef, useState } from "react";
@@ -69,7 +69,7 @@ const Row = ({ icon: Icon, label, onClick, active }: { icon: typeof Plus; label:
     </button>
 );
 
-/** The menu on a chat: Pin, Rename and Delete, as in the Claude app. Also used by the chat's title bar. */
+/** The menu on a chat: Pin, Rename and Delete, as in the reference chat app. Also used by the chat's title bar. */
 export const ChatMenu = ({
     title,
     pinned,

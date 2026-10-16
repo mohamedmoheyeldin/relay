@@ -5,7 +5,7 @@ import { Download01, RefreshCw01 } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
 import { CheckRow, type CheckStatus, JobProgress, Notice } from "@/components/relay/ui";
 import { type Check, api, errorText } from "@/lib/api";
-import { useClaude } from "@/lib/claude";
+import { useCloud } from "@/lib/cloud";
 import { bytes, gb } from "@/lib/format";
 import { useJobs } from "@/lib/jobs";
 import { downloadRecommended, downloadable, isInstalled, modelJob, runtimeJob, useLocalAi } from "./local-ai";
@@ -49,7 +49,7 @@ export const LocalAiChecks = ({ autoDownload = false }: { autoDownload?: boolean
         setBusy(false);
     };
     const running = [runtimeJob, ...picks.map((p) => modelJob(p.model_id))].filter((id) => jobs[id]?.state === "running");
-    // The local model is what runs tasks when Claude can't, so setup gets it without a click.
+    // The local model is what runs tasks when Cloud AI can't, so setup gets it without a click.
     const auto = autoDownload && !!state && !state.error && !ready && available.length > 0 && running.length === 0;
     useEffect(() => {
         if (!auto || started.current) return;
@@ -67,7 +67,7 @@ export const LocalAiChecks = ({ autoDownload = false }: { autoDownload?: boolean
                         ? "Checking your graphics card…"
                         : state.gpu
                           ? `${state.gpu.name} · ${gb(state.gpu.vram_total_mb)} video memory, ${gb(state.gpu.vram_free_mb)} free`
-                          : "No NVIDIA GPU found. Relay still works: Claude reads the screen itself."
+                          : "No NVIDIA GPU found. Relay still works: Cloud AI reads the screen itself."
                 }
             />
             <CheckRow
@@ -110,10 +110,10 @@ export const LocalAiChecks = ({ autoDownload = false }: { autoDownload?: boolean
     );
 };
 
-const SHOWN_ELSEWHERE = new Set(["Relay", "Claude Code installed", "Claude Code signed in", "GPU", "Settings file"]);
+const SHOWN_ELSEWHERE = new Set(["Relay", "Cloud AI installed", "Cloud AI signed in", "GPU", "Settings file"]);
 
 export const SelfTest = () => {
-    const { check } = useClaude();
+    const { check } = useCloud();
     const [checks, setChecks] = useState<Check[] | null>(null);
     const [running, setRunning] = useState(false);
     const run = useCallback(async () => {
@@ -124,7 +124,7 @@ export const SelfTest = () => {
             setRunning(false);
         }
     }, []);
-    // Run once the Claude check has settled: it registers relay-screen first.
+    // Run once the Cloud AI check has settled: it registers relay-screen first.
     const settled = check.status === "ok" || check.status === "error";
     useEffect(() => {
         run();

@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 
+from relay_screen import cli_names
 from relay_screen.runtime import catalog, doctor, sources, supervisor
 from relay_screen.runtime.download import DownloadError, download
 from relay_screen.runtime.gpu import GIB, Gpu
@@ -472,6 +473,9 @@ def test_a_crashed_server_is_dropped_and_restarted(tmp_path: Path) -> None:
 GPU = Gpu("NVIDIA GeForce RTX 5080", "581.57", (13, 0), 16 * GIB, 13 * GIB)
 
 
+CLI = cli_names.COMMAND
+
+
 def fake_run(outputs: dict[str, str | None]):
     return lambda command: outputs.get(" ".join(command))
 
@@ -480,8 +484,8 @@ def test_doctor_reports_a_ready_pc(tmp_path: Path) -> None:
     store = installed_store(tmp_path)
     run = fake_run(
         {
-            "claude --version": "2.1.300 (Claude Code)\n",
-            "claude auth status": json.dumps({"loggedIn": True, "authMethod": "oauth_token"}),
+            f"{CLI} --version": "2.1.300 (Cloud AI)\n",
+            f"{CLI} auth status": json.dumps({"loggedIn": True, "authMethod": "oauth_token"}),
         }
     )
     results = {c.name: c for c in doctor.checks(store, GPU, run)}
@@ -492,26 +496,26 @@ def test_doctor_reports_a_ready_pc(tmp_path: Path) -> None:
     assert results["Runtime"].level == "fail"
     assert results["Model m"].level == "ok"
     assert results["Model UI-Venus-1.5-8B"].level == "warn"
-    assert results["Claude Code"].detail == "2.1.300 (Claude Code)"
-    assert results["Claude sign-in"].detail == "signed in (oauth token)"
+    assert results["Cloud AI"].detail == "2.1.300 (Cloud AI)"
+    assert results["Cloud AI sign-in"].detail == "signed in (oauth token)"
     text = doctor.render(list(results.values()))
     assert text.endswith("1 problem(s) to fix.")
 
 
-def test_doctor_without_gpu_or_claude(tmp_path: Path) -> None:
+def test_doctor_without_gpu_or_cloud(tmp_path: Path) -> None:
     results = {c.name: c for c in doctor.checks(Store(RelayPaths.at(tmp_path)), None, fake_run({}))}
     assert results["GPU"].level == "fail"
     assert results["Runtime"].level == "warn"
-    assert results["Claude Code"].level == "fail"
-    assert "Claude sign-in" not in results
+    assert results["Cloud AI"].level == "fail"
+    assert "Cloud AI sign-in" not in results
 
 
 def test_doctor_reads_only_the_signed_in_flag(tmp_path: Path) -> None:
     run = fake_run(
-        {"claude --version": "2.1.300", "claude auth status": json.dumps({"loggedIn": False})}
+        {f"{CLI} --version": "2.1.300", f"{CLI} auth status": json.dumps({"loggedIn": False})}
     )
     results = {c.name: c for c in doctor.checks(Store(RelayPaths.at(tmp_path)), GPU, run)}
-    assert results["Claude sign-in"].level == "fail"
+    assert results["Cloud AI sign-in"].level == "fail"
 
 
 # --- app interface ----------------------------------------------------------

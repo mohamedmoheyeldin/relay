@@ -3,13 +3,13 @@
 //! task. The app starts it once, hidden, and talks JSON lines over stdin/stdout:
 //!
 //! - commands: `task`, `say` (a follow-up into a running task), `stop`, `route` (does
-//!   this message go to the operator or to Claude), `state`, `quit`;
+//!   this message go to the operator or to Cloud AI), `state`, `quit`;
 //! - events, each with the id of the task or request they belong to: `accepted`,
 //!   `step`, `note`, `done` / `failed` / `stopped`, `unavailable`, `route`, `state`,
 //!   and `timing` (diagnostics, ignored).
 //!
-//! Steps of `ui_task` calls Claude makes are forwarded by the service with ids it
-//! makes up (`"source":"claude"`); they go to the catch-all handler.
+//! Steps of `ui_task` calls Cloud AI makes are forwarded by the service with ids it
+//! makes up (`"source":"cloud"`); they go to the catch-all handler.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -39,7 +39,7 @@ struct Task {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Route {
     Operator,
-    Claude,
+    Cloud,
 }
 
 pub struct Operator {
@@ -84,7 +84,7 @@ pub fn to_chat(v: &Value) -> Vec<ChatEvent> {
 }
 
 impl Operator {
-    /// Start the service. Events of tasks this app didn't start (Claude's `ui_task`
+    /// Start the service. Events of tasks this app didn't start (Cloud AI's `ui_task`
     /// calls) go to `other`.
     pub async fn start(
         python: &Path,
@@ -206,13 +206,13 @@ impl Operator {
         reply
     }
 
-    /// Whether a message is a screen task for the operator or work for Claude. With
-    /// `claude` false (signed out) the operator takes everything. No answer in time
-    /// means Claude, as before the operator existed.
-    pub async fn route(&self, text: &str, claude: bool) -> Route {
+    /// Whether a message is a screen task for the operator or work for Cloud AI. With
+    /// `cloud-cli` false (signed out) the operator takes everything. No answer in time
+    /// means Cloud AI, as before the operator existed.
+    pub async fn route(&self, text: &str, cloud: bool) -> Route {
         let reply = self
             .request(
-                json!({ "op": "route", "text": text, "claude": claude }),
+                json!({ "op": "route", "text": text, "cloud": cloud }),
                 Duration::from_secs(3),
             )
             .await;
@@ -222,7 +222,7 @@ impl Operator {
             .and_then(Value::as_str)
         {
             Some("operator") => Route::Operator,
-            _ => Route::Claude,
+            _ => Route::Cloud,
         }
     }
 

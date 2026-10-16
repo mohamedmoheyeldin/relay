@@ -6,7 +6,7 @@
 //! the same request it would show in its native prompt; the chat shows a card, the
 //! owner answers there, and the answer goes back. If the app isn't running, relay-screen
 //! falls back to its native prompt. While the app runs, input injected by software
-//! (SendInput, which is how Relay and Claude click and type) is dropped when it targets
+//! (SendInput, which is how Relay and Cloud AI click and type) is dropped when it targets
 //! Relay's window, so automation can never answer its own approvals, as with the
 //! native prompt.
 
@@ -170,7 +170,7 @@ async fn ask(app: &AppHandle, request: &mut Request) -> String {
         .expect("approvals lock")
         .insert(request.id, tx);
     // Bring Relay forward for the card, then hand the screen back to whatever window
-    // Relay was working in, so the next step lands where Claude expects it.
+    // Relay was working in, so the next step lands where Cloud AI expects it.
     let previous = focus::foreground();
     crate::show_main(app);
     let _ = app.emit("approval", request.clone());

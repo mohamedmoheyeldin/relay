@@ -2,7 +2,7 @@
 
 Elements get short ids (``e12``) that later calls (``uia_invoke``, ``uia_set_value``)
 refer to. Bounds are reported in screenshot pixels of the active display, like every
-other coordinate Relay gives Claude. Output is capped so a large window stays well
+other coordinate Relay gives Cloud AI. Output is capped so a large window stays well
 under the MCP output limit.
 
 The Windows side uses the ``uiautomation`` package (D-013); everything else here is
@@ -130,7 +130,7 @@ def screenshot_box(
 ) -> str:
     """Bounds as screenshot px of the active display, or why there are none.
 
-    An element on another monitor names that display, so Claude can select_display it.
+    An element on another monitor names that display, so Cloud AI can select_display it.
     """
     if rect is None or rect.width <= 0 or rect.height <= 0:
         return "no bounds"

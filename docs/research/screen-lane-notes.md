@@ -22,7 +22,7 @@ and M2. They feed D-017 to D-021 and the final architecture proposal.
    compare" part of the action contract: after click/type, re-read the UIA
    element or a crop and return a short success/unclear verdict with the tool
    result.
-5. **Playbooks as Agent Skills.** Use the same `SKILL.md` folder format Claude
+5. **Playbooks as Agent Skills.** Use the same `SKILL.md` folder format Cloud AI
    Code uses, so the cloud brain loads Relay's playbooks (architecture §7)
    natively.
 6. **Office through an API, not pixels.** For Word/Excel/PowerPoint, an add-in

@@ -78,7 +78,7 @@ class _JsonProgress:
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="relay-screen", description="Relay's local model runtime.")
     sub = p.add_subparsers(dest="command", required=True)
-    d = sub.add_parser("doctor", help="check GPU, runtime, models and Claude Code")
+    d = sub.add_parser("doctor", help="check GPU, runtime, models and Cloud AI")
     d.add_argument("--verify", action="store_true", help="re-hash every model file")
 
     r = sub.add_parser("runtime", help="the llama.cpp runtime").add_subparsers(

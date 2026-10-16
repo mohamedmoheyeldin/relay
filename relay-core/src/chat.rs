@@ -1,4 +1,4 @@
-//! One chat turn: `claude -p --output-format stream-json` (architecture §5).
+//! One chat turn: `cloud-cli -p --output-format stream-json` (architecture §5).
 //!
 //! The prompt goes in on stdin. Each stdout line is one JSON event, turned into a
 //! [`ChatEvent`] for the chat window. The session id from the first event is kept so
@@ -12,9 +12,9 @@ use serde::Serialize;
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-use crate::{claude, mcp, paths, proc};
+use crate::{cloud, mcp, paths, proc};
 
-/// Added to Claude Code's system prompt for Relay chats (D-081).
+/// Added to Cloud AI's system prompt for Relay chats (D-081).
 pub const SYSTEM_PROMPT: &str =
     "You are running inside Relay on the owner's Windows PC. You are the planner; Relay's local \
 AI is the hands. Every task on the screen, in any program or website, goes to the local AI with \
@@ -26,7 +26,7 @@ tell the owner it will be ready shortly. Use connectors only to read information
 for, never instead of doing what they asked on screen. Never ask the owner to install, enable or \
 set up anything. Keep replies short and say what was done.";
 
-/// Built-in and relay-screen tools a Relay chat never offers Claude (D-081): no shell or
+/// Built-in and relay-screen tools a Relay chat never offers Cloud AI (D-081): no shell or
 /// scripts, no file writing, no browser lane that needs an extension, and no direct
 /// clicks or keys, so screen work goes to the local AI through ui_task.
 pub const DISALLOWED_TOOLS: &[&str] = &[
@@ -62,7 +62,7 @@ pub struct TurnOptions {
     pub effort: String,
 }
 
-/// The `claude` arguments for a turn (the prompt itself goes on stdin).
+/// The `cloud-cli` arguments for a turn (the prompt itself goes on stdin).
 pub fn args(opts: &TurnOptions) -> Vec<String> {
     let mut args: Vec<String> = [
         "-p",
@@ -107,7 +107,7 @@ pub enum ChatEvent {
     Text {
         text: String,
     },
-    /// Part of the text Claude is writing now; the full `Text` follows.
+    /// Part of the text Cloud AI is writing now; the full `Text` follows.
     TextDelta {
         text: String,
     },
@@ -132,7 +132,7 @@ pub enum ChatEvent {
     Error {
         message: String,
     },
-    /// Claude couldn't run, so the local operator takes the task (D-067).
+    /// Cloud AI couldn't run, so the local operator takes the task (D-067).
     Fallback {
         reason: String,
     },
@@ -227,7 +227,7 @@ pub fn parse_line(line: &str) -> Vec<ChatEvent> {
                 }
             })
             .collect(),
-        // Subagents stream too; only Claude's own reply goes to the chat.
+        // Subagents stream too; only Cloud AI's own reply goes to the chat.
         Some("stream_event") if v["parent_tool_use_id"].is_null() => {
             let e = &v["event"];
             match (e["type"].as_str(), e["delta"]["type"].as_str()) {
@@ -289,8 +289,8 @@ fn tool_result_body(content: Option<&Value>) -> (String, Option<String>) {
     }
 }
 
-/// A running turn. Dropping it does not stop Claude; call [`Turn::stop`].
-/// A running turn: a Claude (or one-shot local agent) process, or a task in the
+/// A running turn. Dropping it does not stop Cloud AI; call [`Turn::stop`].
+/// A running turn: a Cloud AI (or one-shot local agent) process, or a task in the
 /// operator service.
 pub enum Turn {
     Process(Box<tokio::process::Child>),
@@ -326,17 +326,17 @@ pub async fn start(
     opts: &TurnOptions,
     on_event: impl Fn(ChatEvent) + Send + Sync + 'static,
 ) -> Result<(Turn, tokio::task::JoinHandle<()>)> {
-    let claude: PathBuf = claude::find().context("Claude Code is not installed")?;
+    let cloud: PathBuf = cloud::find().context("Cloud AI is not installed")?;
     let workdir = paths::work_dir();
     std::fs::create_dir_all(&workdir)?;
-    let mut cmd = proc::command(&claude);
+    let mut cmd = proc::command(&cloud);
     cmd.current_dir(&workdir)
         .args(args(opts))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(false);
-    let mut child = cmd.spawn().context("could not start claude")?;
+    let mut child = cmd.spawn().context("could not start Cloud AI")?;
     let mut stdin = child.stdin.take().expect("piped stdin");
     stdin.write_all(prompt.as_bytes()).await?;
     drop(stdin);
@@ -363,7 +363,7 @@ pub async fn start(
         let stderr = err_task.await.unwrap_or_default();
         if !saw_done {
             let message = if stderr.trim().is_empty() {
-                "Claude stopped before finishing.".to_string()
+                "Cloud AI stopped before finishing.".to_string()
             } else {
                 truncate(stderr.trim(), 800)
             };
@@ -425,12 +425,12 @@ mod tests {
 
     #[test]
     fn parses_stream_json() {
-        let init = r#"{"type":"system","subtype":"init","session_id":"s1","model":"claude-x","mcp_servers":[{"name":"relay-screen","status":"connected"}]}"#;
+        let init = r#"{"type":"system","subtype":"init","session_id":"s1","model":"cloud-x","mcp_servers":[{"name":"relay-screen","status":"connected"}]}"#;
         assert_eq!(
             parse_line(init),
             vec![ChatEvent::Started {
                 session_id: "s1".into(),
-                model: "claude-x".into(),
+                model: "cloud-x".into(),
                 mcp_servers: vec!["relay-screen".into()],
             }]
         );

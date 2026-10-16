@@ -58,7 +58,7 @@ def zoom(
     """Capture a screenshot-space region at full resolution, scaled to fit the screenshot box.
 
     The box is the display's normal screenshot size, which already fits the image budget,
-    so the zoomed image does too. Coordinates Claude sends after a zoom stay in the full
+    so the zoomed image does too. Coordinates Cloud AI sends after a zoom stay in the full
     screenshot's space, so the zoomed image needs no geometry of its own.
     """
     physical = geometry.region_to_physical(*region)

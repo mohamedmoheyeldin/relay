@@ -1,20 +1,20 @@
-// Claude Code install, sign-in and check (D-045). Used by the wizard and Settings > Claude.
+// Cloud AI install, sign-in and check (D-045). Used by the wizard and Settings > Cloud AI.
 import { useEffect, useRef, useState } from "react";
 import { Download01, LogIn01, RefreshCw01 } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
 import { CheckRow, type CheckStatus, JobProgress, LogLines, Notice } from "@/components/relay/ui";
 import { api, errorText } from "@/lib/api";
-import { isAuthError, useClaude } from "@/lib/claude";
+import { isAuthError, useCloud } from "@/lib/cloud";
 import { clearJob, useJobs, waitForJob } from "@/lib/jobs";
 import { SignIn } from "./sign-in";
 
 /**
- * The three Claude checks as checklist rows: installed, signed in, answers.
+ * The three Cloud AI checks as checklist rows: installed, signed in, answers.
  * They run on their own; a button only shows where something needs the owner.
  * With `autoSignIn`, the sign-in starts by itself when it is the next thing to do.
  */
-export const ClaudeChecks = ({ autoSignIn = false }: { autoSignIn?: boolean }) => {
-    const { state, loading, check, signedIn, refresh, runCheck } = useClaude({ autoCheck: true });
+export const CloudChecks = ({ autoSignIn = false }: { autoSignIn?: boolean }) => {
+    const { state, loading, check, signedIn, refresh, runCheck } = useCloud({ autoCheck: true });
     const jobs = useJobs();
     const [signingIn, setSigningIn] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -27,7 +27,7 @@ export const ClaudeChecks = ({ autoSignIn = false }: { autoSignIn?: boolean }) =
         }
     }, [autoSignIn, state]);
 
-    const runJob = async (job: "claude-install" | "claude-update", start: () => Promise<void>) => {
+    const runJob = async (job: "cloud-install" | "cloud-update", start: () => Promise<void>) => {
         setError(null);
         clearJob(job);
         try {
@@ -39,13 +39,13 @@ export const ClaudeChecks = ({ autoSignIn = false }: { autoSignIn?: boolean }) =
         await refresh();
     };
 
-    const installJob = jobs["claude-install"];
-    const updateJob = jobs["claude-update"];
+    const installJob = jobs["cloud-install"];
+    const updateJob = jobs["cloud-update"];
     const installing = installJob?.state === "running";
     const updating = updateJob?.state === "running";
 
     const installed: CheckStatus = !state ? "running" : installing ? "running" : state.installed ? "ok" : "error";
-    // `claude auth status` can still say "signed in" after the session expired; the
+    // `cloud-cli auth status` can still say "signed in" after the session expired; the
     // test message is what notices.
     const expired = !!state?.auth.loggedIn && check.status === "error" && isAuthError(check.text);
     const auth: CheckStatus = !state?.installed ? "waiting" : signingIn ? "running" : state.auth.loggedIn && !expired ? "ok" : "warn";
@@ -61,24 +61,24 @@ export const ClaudeChecks = ({ autoSignIn = false }: { autoSignIn?: boolean }) =
         <>
             <CheckRow
                 status={installed}
-                title="Claude Code installed"
+                title="Cloud AI installed"
                 detail={
                     !state
-                        ? "Looking for Claude Code…"
+                        ? "Looking for Cloud AI…"
                         : installing
-                          ? "Installing with Anthropic's official installer…"
+                          ? "Installing with the official installer…"
                           : state.installed
                             ? `Version ${state.version ?? "unknown"}`
-                            : "Not found on this PC. Relay installs it with Anthropic's official installer."
+                            : "Not found on this PC. Relay installs it with the official installer."
                 }
                 action={
                     state &&
                     (!state.installed ? (
-                        <Button size="sm" iconLeading={Download01} isLoading={installing} showTextWhileLoading onClick={() => runJob("claude-install", api.claudeInstall)}>
-                            Install Claude Code
+                        <Button size="sm" iconLeading={Download01} isLoading={installing} showTextWhileLoading onClick={() => runJob("cloud-install", api.cloudInstall)}>
+                            Install Cloud AI
                         </Button>
                     ) : (
-                        <Button size="sm" color="secondary" iconLeading={RefreshCw01} isLoading={updating} showTextWhileLoading onClick={() => runJob("claude-update", api.claudeUpdate)}>
+                        <Button size="sm" color="secondary" iconLeading={RefreshCw01} isLoading={updating} showTextWhileLoading onClick={() => runJob("cloud-update", api.cloudUpdate)}>
                             Update
                         </Button>
                     ))
@@ -95,17 +95,17 @@ export const ClaudeChecks = ({ autoSignIn = false }: { autoSignIn?: boolean }) =
             </CheckRow>
             <CheckRow
                 status={auth}
-                title="Signed in to Claude"
+                title="Signed in to Cloud AI"
                 detail={
                     !state?.installed
-                        ? "After Claude Code is installed."
+                        ? "After Cloud AI is installed."
                         : signingIn
                           ? "Waiting for you in your browser…"
                           : expired
-                            ? "Your sign-in expired. Sign in again to keep using Claude."
+                            ? "Your sign-in expired. Sign in again to keep using Cloud AI."
                               : state.auth.loggedIn
                               ? [state.auth.email, state.auth.subscriptionType && `${state.auth.subscriptionType} plan`].filter(Boolean).join(" · ") || "Signed in"
-                              : "Use your Claude subscription. Relay never sees your password or token."
+                              : "Use your Cloud AI subscription. Relay never sees your password or token."
                 }
                 action={
                     state?.installed &&
@@ -128,15 +128,15 @@ export const ClaudeChecks = ({ autoSignIn = false }: { autoSignIn?: boolean }) =
             </CheckRow>
             <CheckRow
                 status={answers}
-                title="Claude answers"
+                title="Cloud AI answers"
                 detail={
                     !signedIn
                         ? "After you sign in."
                         : check.status === "ok"
-                          ? `Claude replied "${check.text}".`
+                          ? `Cloud AI replied "${check.text}".`
                           : check.status === "error"
                             ? check.text
-                            : "Sending Claude a one-word test message…"
+                            : "Sending Cloud AI a one-word test message…"
                 }
                 action={
                     signedIn &&

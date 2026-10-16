@@ -1,7 +1,7 @@
 """Exit when the process that started us is gone (D-105).
 
-Claude Code starts relay-screen as an MCP server for each `claude -p` run. When that
-run is stopped or times out, only claude.exe is killed, and on Windows its children
+Cloud AI starts relay-screen as an MCP server for each `cloud-cli -p` run. When that
+run is stopped or times out, only cloud-cli.exe is killed, and on Windows its children
 live on: the round-5 run found 11 of them holding 2.2 GB. So relay-screen watches its
 parent and leaves with it, and leaves as soon as its stdin closes.
 """

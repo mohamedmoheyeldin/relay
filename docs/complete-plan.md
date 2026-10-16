@@ -11,11 +11,11 @@ everything is in.
 - **Talk to Relay** in the chat or the floating pill (Ctrl+Shift+Space). The
   pill shows each step live and has Stop and a box for corrections.
 - **Screen tasks go to the local AI at once.** Examples: open or switch to a
-  program, go to a site, search, fill a form, move through an app. Claude is
+  program, go to a site, search, fill a form, move through an app. Cloud AI is
   not consulted first.
-- **Claude only for thinking.** Examples: what to write in a cover letter,
+- **Cloud AI only for thinking.** Examples: what to write in a cover letter,
   which of several results fits, a plan for a long job. The local AI asks
-  Claude mid-task when it needs that, and gets text back.
+  Cloud AI mid-task when it needs that, and gets text back.
 - **No permissions, no setup.**
   - No extension, token, policy or PowerShell windows.
   - A card appears only before a step that can't be undone and that the owner
@@ -47,8 +47,8 @@ targets.
 | 5 | Background awareness in the service: foreground history, open windows, app catalog, browser address | plan thread, **done** |
 | 6 | Cached UI Automation (one CacheRequest per read, uncached fallback); web pages listed from the document element (D-089) | plan thread, **done** |
 | 7 | App catalog from the Shell's AppsFolder (COM), PowerShell only as a fallback (D-090) | plan thread, **done** |
-| 8 | Ask-Claude action from the operator (`claude -p`, no tools, text answer) | plan thread, **done** |
-| 9 | Router: operator or Claude, in the service | plan thread, **done** |
+| 8 | Ask-Cloud AI action from the operator (`cloud-cli -p`, no tools, text answer) | plan thread, **done** |
+| 9 | Router: operator or Cloud AI, in the service | plan thread, **done** |
 | 10 | Pill overlay, chat on service events, start/stop the service, route messages | app thread |
 | 11 | Drop the browser lane, the extension policy (removed on update) and the token step | app thread |
 | 12 | One installer: runtime + Holo3.1-9B download, no prompts | app thread |

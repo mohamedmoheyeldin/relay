@@ -1,7 +1,7 @@
-// Plain-words lines for Claude's tool calls in the chat ("Searching Dice for ..."), so the
+// Plain-words lines for Cloud AI's tool calls in the chat ("Searching Dice for ..."), so the
 // chat reads like a conversation. The raw call stays one click away.
 
-/** Tools that are Claude's own bookkeeping, not work the owner cares about. */
+/** Tools that are Cloud AI's own bookkeeping, not work the owner cares about. */
 const HIDDEN = new Set(["ToolSearch", "TodoWrite", "mcp__relay-screen__ping", "mcp__relay-screen__safety_status", "mcp__relay-screen__list_displays"]);
 
 export const isHiddenTool = (name: string) => HIDDEN.has(name);
@@ -118,9 +118,9 @@ const browser = (tool: string, a: Args): Line => {
     }
 };
 
-// Any other connector: "mcp__claude_ai_Dice__search_jobs" -> "Searching Dice for “...”".
+// Any other connector: "mcp__cloud_ai_Dice__search_jobs" -> "Searching Dice for “...”".
 const connector = (server: string, tool: string, a: Args): Line => {
-    const service = title(words(server.replace(/^claude_ai_/, "").replace(/^plugin_[^_]+_/, "")));
+    const service = title(words(server.replace(/^cloud_ai_/, "").replace(/^plugin_[^_]+_/, "")));
     const [verb, ...rest] = words(tool).split(" ");
     const thing = rest.join(" ");
     const query = str(a.keyword) || str(a.query) || str(a.q) || str(a.search) || str(a.text);

@@ -25,7 +25,7 @@ import { type AppInfo, type Check, type Playbook, type Settings, type UpdateInfo
 import { bytes } from "@/lib/format";
 import { clearJob, useJobs } from "@/lib/jobs";
 import { cx } from "@/utils/cx";
-import { ClaudeChecks } from "./claude-setup";
+import { CloudChecks } from "./cloud-setup";
 import { useTheme } from "@/providers/theme-provider";
 import { ConnectionsPage } from "./connections";
 import { DiagnosticsRuns } from "./diagnostics-runs";
@@ -97,7 +97,7 @@ const GeneralPage = ({ settings, save, rerunSetup }: PageProps) => (
                 {(item) => <Select.Item id={item.id} label={item.label} />}
             </Select>
         </Section>
-        <Section title="Setup" description="Open the setup checks again: Claude, the local model and the self-test.">
+        <Section title="Setup" description="Open the setup checks again: Cloud AI, the local model and the self-test.">
             <div>
                 <Button size="sm" color="secondary" onClick={rerunSetup}>
                     Run setup again
@@ -107,32 +107,32 @@ const GeneralPage = ({ settings, save, rerunSetup }: PageProps) => (
     </>
 );
 
-const ClaudePage = ({ settings, save }: PageProps) => {
-    const [model, setModel] = useState(settings.claude.model);
+const CloudPage = ({ settings, save }: PageProps) => {
+    const [model, setModel] = useState(settings.cloud.model);
     return (
         <>
-            <Section title="Claude Code" description="Relay uses your own Claude Code and Claude subscription. It never sees your password or token.">
+            <Section title="Cloud AI" description="Relay uses your own Cloud AI subscription. It never sees your password or token.">
                 <Card className="overflow-hidden p-0">
-                    <ClaudeChecks />
+                    <CloudChecks />
                 </Card>
             </Section>
-            <Section title="Model and effort" description="Passed to Claude Code for each task. Leave empty to use Claude Code's own default.">
+            <Section title="Model and effort" description="Passed to Cloud AI for each task. Leave empty to use Cloud AI's own default.">
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:items-end">
                     <Input
                         label="Model"
-                        placeholder="Claude Code default (for example opus or sonnet)"
+                        placeholder="Cloud AI default (for example opus or sonnet)"
                         size="sm"
                         value={model}
                         onChange={setModel}
-                        onBlur={() => save({ ...settings, claude: { ...settings.claude, model: model.trim() } })}
+                        onBlur={() => save({ ...settings, cloud: { ...settings.cloud, model: model.trim() } })}
                     />
                     <Select
                         label="Effort"
                         size="sm"
-                        selectedKey={settings.claude.effort || "default"}
-                        onSelectionChange={(k) => save({ ...settings, claude: { ...settings.claude, effort: k === "default" ? "" : String(k) } })}
+                        selectedKey={settings.cloud.effort || "default"}
+                        onSelectionChange={(k) => save({ ...settings, cloud: { ...settings.cloud, effort: k === "default" ? "" : String(k) } })}
                         items={[
-                            { id: "default", label: "Claude Code default" },
+                            { id: "default", label: "Cloud AI default" },
                             { id: "low", label: "Low" },
                             { id: "medium", label: "Medium" },
                             { id: "high", label: "High" },
@@ -192,7 +192,7 @@ const SafetyPage = ({ settings, save }: PageProps) => {
                 <Card className="flex flex-col gap-2">
                     <KeyValue label="Mouse" value="Move the mouse into the top-left corner of the main screen" />
                     <KeyValue label="Keyboard" value="Press Ctrl + Alt + Pause" />
-                    <p className="text-xs text-tertiary">After a stop, Claude asks you before Relay acts again.</p>
+                    <p className="text-xs text-tertiary">After a stop, Cloud AI asks you before Relay acts again.</p>
                 </Card>
             </Section>
             <Section title="Phone approvals" description="Answer approval requests from your phone with the ntfy app.">
@@ -420,9 +420,9 @@ const DiagnosticsPage = ({ info }: PageProps) => {
 
 const PAGES: { id: string; label: string; icon: FC<{ className?: string }>; description: string }[] = [
     { id: "general", label: "General", icon: Settings01, description: "Startup, the tray and language." },
-    { id: "claude", label: "Account", icon: Stars01, description: "Your Claude sign-in, Claude Code, and the model Relay asks for." },
+    { id: "cloud", label: "Account", icon: Stars01, description: "Your Cloud AI sign-in and the model Relay asks for." },
     { id: "local-ai", label: "Local AI", icon: CpuChip01, description: "The models that run on your GPU to find and check things on screen." },
-    { id: "connections", label: "Connectors", icon: Link01, description: "MCP servers and connectors, shared with Claude Code." },
+    { id: "connections", label: "Connectors", icon: Link01, description: "MCP servers and connectors, shared with Cloud AI." },
     { id: "safety", label: "Safety", icon: Shield01, description: "Approvals, the kill switch and phone approvals." },
     { id: "playbooks", label: "Playbooks", icon: BookOpen01, description: "Tasks Relay has learned to repeat." },
     { id: "privacy", label: "Privacy", icon: Lock01, description: "Activity logs and screenshots." },
@@ -479,7 +479,7 @@ export const SettingsScreen = ({
                 <div key={current.id} className="@container mx-auto max-w-4xl px-4 pt-6 pb-16 animate-in fade-in slide-in-from-bottom-1 duration-300 sm:px-10 md:pt-14">
                     <PageHeader title={current.label} description={current.description} />
                     {current.id === "general" && <GeneralPage {...props} />}
-                    {current.id === "claude" && <ClaudePage {...props} />}
+                    {current.id === "cloud" && <CloudPage {...props} />}
                     {current.id === "local-ai" && <LocalAiPage settings={settings} save={save} />}
                     {current.id === "connections" && <ConnectionsPage />}
                     {current.id === "safety" && <SafetyPage {...props} />}

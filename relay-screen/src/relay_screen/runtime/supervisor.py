@@ -3,10 +3,10 @@
 D-006 and D-042: a model loads when a task that may need it starts (or on its first
 call) and its process stops 60 s after the task ends, which frees all of its VRAM.
 Before a load, NVML must report enough free VRAM; Relay never lets a model spill into
-system RAM, so with no NVIDIA GPU or too little VRAM it refuses and Claude does the
+system RAM, so with no NVIDIA GPU or too little VRAM it refuses and Cloud AI does the
 looking instead. D-036: several models can be resident at once.
 
-D-084: the local operator runs inside relay-screen, and Claude starts a new
+D-084: the local operator runs inside relay-screen, and Cloud AI starts a new
 relay-screen for every chat turn, so a model owned by one process reloaded on each
 turn. With `shared` set, the server is started outside the process's job, its port
 and pid go in a small record file, and later processes adopt the running server

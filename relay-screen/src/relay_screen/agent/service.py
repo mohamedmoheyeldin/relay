@@ -7,7 +7,7 @@ The app starts it once and talks JSON lines over stdin/stdout:
     {"op": "task", "id": "t1", "text": "go to dice.com and search python jobs"}
     {"op": "say", "id": "t1", "text": "use the remote filter too"}
     {"op": "stop", "id": "t1"}
-    {"op": "route", "id": "r1", "text": "<owner message>", "claude": false}  (claude optional)
+    {"op": "route", "id": "r1", "text": "<owner message>", "cloud": false}  (cloud optional)
     {"op": "state", "id": "s1"}
     {"op": "quit"}
 
@@ -18,12 +18,12 @@ Every event it writes carries the id it belongs to:
     {"id": "t1", "event": "note", "text": "Loading the local model..."}
     {"id": "t1", "event": "done" | "failed" | "stopped", "message": ..., "steps": n}
     {"id": "t1", "event": "unavailable", "message": ...}
-    {"id": "r1", "event": "route", "to": "operator" | "claude", "why": ...}
+    {"id": "r1", "event": "route", "to": "operator" | "cloud", "why": ...}
     {"id": "s1", "event": "state", "foreground": ..., "browser_url": ..., ...}
 
 It also listens on a localhost port named in `operator.json` (with a token), so the
-`ui_task` tool in the relay-screen Claude starts each chat turn hands its tasks here:
-one mouse, one operator, and the app sees those steps too ("source": "claude").
+`ui_task` tool in the relay-screen Cloud AI starts each chat turn hands its tasks here:
+one mouse, one operator, and the app sees those steps too ("source": "cloud").
 The interface stays the same when the operator moves into relay-core (D-088).
 """
 
@@ -46,6 +46,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
+from relay_screen import cli_names
 from relay_screen.agent.local import (
     ADDRESS_BAR,
     BROWSERS,
@@ -64,10 +65,10 @@ OWNER_SOURCES = ("app", "diagnostics")
 
 POLL_SECONDS = 1.0  # foreground watch
 RECENT = 20  # foreground changes kept in memory (never written to disk)
-ASK_TIMEOUT = 120.0  # s for one ask-Claude answer
+ASK_TIMEOUT = 120.0  # s for one ask-Cloud AI answer
 ANSWER_LIMIT = 4000
 
-# Claude for thinking: writing, judging, explaining, planning (D-088).
+# Cloud AI for thinking: writing, judging, explaining, planning (D-088).
 THINK = re.compile(
     r"\b(write|draft|compose|reply to|summari[sz]e|explain|why|what is|what's|what are|"
     r"how do|how does|how can|research|compare|analy[sz]e|plan|recommend|translate|"
@@ -84,26 +85,26 @@ SCREEN = re.compile(
 )
 
 
-def route(text: str, claude_ready: bool = True) -> tuple[str, str]:
-    """Whether an owner message goes straight to the local AI or to Claude first.
+def route(text: str, cloud_ready: bool = True) -> tuple[str, str]:
+    """Whether an owner message goes straight to the local AI or to Cloud AI first.
 
-    With Claude signed out or missing everything goes to the local AI, which works on
+    With Cloud AI signed out or missing everything goes to the local AI, which works on
     its own (D-067, D-093).
     """
     stripped = text.strip()
     if not stripped:
-        return "claude", "empty message"
-    if not claude_ready:
-        return "operator", "Claude isn't available, so the local AI does it"
+        return "cloud", "empty message"
+    if not cloud_ready:
+        return "operator", "Cloud AI isn't available, so the local AI does it"
     if instant_plan(stripped) is not None:
         return "operator", "a single move on the screen"
     if stripped.endswith("?"):
-        return "claude", "a question"
+        return "cloud", "a question"
     if THINK.search(stripped):
-        return "claude", "needs thinking or writing first"
+        return "cloud", "needs thinking or writing first"
     if SCREEN.search(stripped):
         return "operator", "work on the screen"
-    return "claude", "not a screen task"
+    return "cloud", "not a screen task"
 
 
 class Runner(Protocol):
@@ -124,7 +125,7 @@ class Running:
     text: str
     source: str
     write: Write
-    offline: bool = False  # the local AI may not ask Claude (diagnostics, D-096)
+    offline: bool = False  # the local AI may not ask Cloud AI (diagnostics, D-096)
     quiet: bool = False  # not shown in the owner's chat (diagnostics, D-096)
     notes: list[str] = field(default_factory=list)
     stop: threading.Event = field(default_factory=threading.Event)
@@ -228,12 +229,12 @@ def _title(line: str) -> str:
     return title if isinstance(title, str) else head
 
 
-def claude_exe() -> str | None:
-    if found := os.environ.get("RELAY_CLAUDE"):
+def cloud_exe() -> str | None:
+    if found := os.environ.get("RELAY_CLOUD_CLI"):
         return found
-    if found := shutil.which("claude"):
+    if found := shutil.which(cli_names.COMMAND):
         return found
-    home = Path.home() / ".local" / "bin" / ("claude.exe" if sys.platform == "win32" else "claude")
+    home = Path.home() / ".local" / "bin" / cli_names.EXE
     return str(home) if home.is_file() else None
 
 
@@ -242,11 +243,11 @@ NO_TOOLS = (
 )
 
 
-def ask_claude(question: str, task: str, run: Callable[..., Any] = subprocess.run) -> str:
-    """One question to Claude through the owner's `claude` CLI, text only, no tools (D-002)."""
-    exe = claude_exe()
+def ask_cloud(question: str, task: str, run: Callable[..., Any] = subprocess.run) -> str:
+    """One question to Cloud AI through the owner's Cloud AI CLI, text only, no tools (D-002)."""
+    exe = cloud_exe()
     if exe is None:
-        raise RuntimeError("Claude Code is not installed")
+        raise RuntimeError("Cloud AI is not installed")
     prompt = (
         "Relay's local AI is doing a task on the owner's PC and needs your judgment. "
         f"The task: {task}\nIts question: {question}\n"
@@ -275,7 +276,7 @@ def ask_claude(question: str, task: str, run: Callable[..., Any] = subprocess.ru
     answer = done.stdout.decode("utf-8", errors="replace").strip()
     if done.returncode != 0 or not answer:
         error = done.stderr.decode("utf-8", errors="replace").strip()
-        raise RuntimeError(error[:300] or "Claude gave no answer")
+        raise RuntimeError(error[:300] or "Cloud AI gave no answer")
     return answer[:ANSWER_LIMIT]
 
 
@@ -291,11 +292,11 @@ class OperatorService:
         grant: Callable[[str | None], None] | None = None,
     ) -> None:
         self.runner = runner
-        # The owner's own task text approves the risky steps it names (D-091); Claude's
-        # hand-offs are Claude's words, so they never grant anything.
+        # The owner's own task text approves the risky steps it names (D-091); Cloud AI's
+        # hand-offs are Cloud AI's words, so they never grant anything.
         self.grant = grant or (lambda text: None)
         # The kill switch stops the task in progress. The service lives for the whole
-        # session, so a new task the owner sends from the app re-arms it; Claude's
+        # session, so a new task the owner sends from the app re-arms it; Cloud AI's
         # hand-offs never do (D-086).
         self.rearm = rearm or (lambda: None)
         self.awareness = awareness
@@ -303,7 +304,7 @@ class OperatorService:
         self.running: Running | None = None
         self.last: tuple[str, Outcome] | None = None  # (task, outcome) for follow-ups
         self.stopping = threading.Event()
-        self.claude_ok = True  # false after Claude failed to answer (signed out, missing)
+        self.cloud_ok = True  # false after Cloud AI failed to answer (signed out, missing)
         self._lock = threading.Lock()
         self._busy = threading.Lock()
         self._ids = 0
@@ -332,7 +333,7 @@ class OperatorService:
                 running.stop.set()
             return None
         if op == "route":
-            ready = command.get("claude") is not False and self.claude_ok
+            ready = command.get("cloud") is not False and self.cloud_ok
             to, why = route(text, ready)
             out({"id": cid, "event": "route", "to": to, "why": why})
             return None
@@ -411,7 +412,7 @@ class OperatorService:
                 line["source"] = running.source
             out(line)
             if out is not self.write and not running.quiet:
-                self.write(line)  # the app sees Claude's ui_task steps too
+                self.write(line)  # the app sees Cloud AI's ui_task steps too
 
         emit({"event": "accepted", "text": running.text})
         self.grant(running.text if running.source in OWNER_SOURCES else None)
@@ -477,7 +478,7 @@ def serve_port(service: OperatorService, home: Path) -> socket.socket:
             if not isinstance(command, dict) or command.get("token") != token:
                 send({"event": "error", "message": "bad token"})
                 return
-            command.setdefault("source", "claude")
+            command.setdefault("source", "cloud")
             thread = service.handle(command, send)
             if thread is not None:
                 thread.join()
@@ -516,7 +517,7 @@ def hand_off(
     with conn, conn.makefile("rwb") as stream:
         command = {"token": token, "op": "task", "text": task, "max_steps": max_steps}
         if os.environ.get("RELAY_DIAGNOSTICS"):
-            command["quiet"] = True  # a test run's Claude: keep it out of the owner's chat
+            command["quiet"] = True  # a test run's Cloud AI: keep it out of the owner's chat
         stream.write((json.dumps(command) + "\n").encode("utf-8"))
         stream.flush()
         for raw in stream:
@@ -594,11 +595,11 @@ def main(argv: list[str]) -> int:
 
     def ask(question: str, task: str) -> str:
         try:
-            answer = ask_claude(question, task)
+            answer = ask_cloud(question, task)
         except Exception:
-            service.claude_ok = False  # route the next messages to the local AI
+            service.cloud_ok = False  # route the next messages to the local AI
             raise
-        service.claude_ok = True
+        service.cloud_ok = True
         return answer
 
     awareness = Awareness(hands)

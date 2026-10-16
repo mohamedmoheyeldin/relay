@@ -1,4 +1,4 @@
-"""The local operator as a service Claude can hand whole UI tasks to (D-069, D-084).
+"""The local operator as a service Cloud AI can hand whole UI tasks to (D-069, D-084).
 
 relay-screen's `ui_task` tool keeps one of these for the life of the MCP server.
 One-move tasks ("go to dice.com", "open Notepad") run at once with no model. For the

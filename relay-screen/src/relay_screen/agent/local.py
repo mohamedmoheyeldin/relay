@@ -1,9 +1,9 @@
 """The local operator: a vision model on the owner's GPU plans and runs UI tasks (D-067).
 
-Relay's local model drives the mouse, keyboard and apps by itself when Claude is not
+Relay's local model drives the mouse, keyboard and apps by itself when Cloud AI is not
 available (signed out, offline, out of quota). Each step it sees a fresh screenshot,
 answers with one JSON action, and Relay runs that action through the same `Computer`
-Claude uses, so the kill switch, approval prompt and audit log all apply.
+Cloud AI uses, so the kill switch, approval prompt and audit log all apply.
 """
 
 from __future__ import annotations
@@ -55,7 +55,7 @@ MAX_BATCH = 6  # actions the model may plan in one reply (D-084)
 RICH_ELEMENTS = 8  # with this many element lines, skip the screenshot unless asked
 OWNER_QUIET = 0.8  # s without the owner's own input before Relay uses the real mouse/keys
 OWNER_PATIENCE = 20.0  # s Relay waits for that pause before acting anyway
-CANCEL_POLL = 0.05  # s between stop checks while the model, Claude or a wait runs
+CANCEL_POLL = 0.05  # s between stop checks while the model, Cloud AI or a wait runs
 # Members that send real input to whatever is in front; the target goes in front again
 # first, in case the owner clicked elsewhere meanwhile (D-093).
 INPUT_MEMBERS = frozenset(
@@ -109,9 +109,9 @@ element list in one go
 (a button, link, tab or menu item), found by Windows OCR. Use it when the element list \
 does not have what you need
 - {"action": "look"}  you need to see a screenshot before deciding
-- {"action": "ask_claude", "question": "..."}  ask Claude, the owner's cloud assistant, \
+- {"action": "ask_cloud", "question": "..."}  ask Cloud AI, the owner's cloud assistant, \
 when the task needs judgment or writing you can't do from the screen: what to write in \
-a cover letter or message, which result fits the owner best. Put everything Claude \
+a cover letter or message, which result fits the owner best. Put everything Cloud AI \
 needs in the question; its answer comes back as the result. Not for where to click.
 - {"action": "done", "summary": "..."}  the task is finished; say what you did
 - {"action": "fail", "reason": "..."}  you cannot finish; say why
@@ -198,7 +198,7 @@ ACTION_NAMES = (
     "set_value",
     "click_text",
     "look",
-    "ask_claude",
+    "ask_cloud",
     "done",
     "fail",
 )
@@ -270,7 +270,7 @@ class Outcome:
 
 
 class Cancelled(Exception):
-    """The owner pressed Stop while Relay waited on the model, Claude or a pause."""
+    """The owner pressed Stop while Relay waited on the model, Cloud AI or a pause."""
 
 
 class ReplyError(ValueError):
@@ -941,8 +941,8 @@ def plain(action: Mapping[str, Any], result: str, error: bool, elements: str) ->
             line = f"Scrolled {a.get('direction', 'down')}"
         case "wait":
             line = f"Waited {a.get('seconds', 1)} s"
-        case "ask_claude":
-            line = f"Asked Claude: {q(a.get('question', ''), 80)}"
+        case "ask_cloud":
+            line = f"Asked Cloud AI: {q(a.get('question', ''), 80)}"
         case _:
             line = describe(action)
     if error:
@@ -1247,12 +1247,12 @@ class LocalAgent:
                 if i == 0:
                     planned.append((action, "", {}))
                 break
-            if action["action"] in ("ask_claude", "ask"):
+            if action["action"] in ("ask_cloud", "ask"):
                 question = action.get("question") or action.get("text")
                 if not isinstance(question, str) or not question.strip():
-                    raise ReplyError("ask_claude needs a question")
-                action = {**action, "action": "ask_claude", "question": question.strip()}
-                planned.append((action, "ask_claude", {"question": question.strip()[:MAX_TEXT]}))
+                    raise ReplyError("ask_cloud needs a question")
+                action = {**action, "action": "ask_cloud", "question": question.strip()}
+                planned.append((action, "ask_cloud", {"question": question.strip()[:MAX_TEXT]}))
                 break  # the answer changes what comes next
             hit = (
                 _listed_point(elements, action)
@@ -1438,8 +1438,8 @@ class LocalAgent:
 
     def _act(self, n: int, thought: str, action: dict[str, Any], member: str, params: dict) -> Step:
         try:
-            if member == "ask_claude":
-                result = self._ask_claude(str(params["question"]))
+            if member == "ask_cloud":
+                result = self._ask_cloud(str(params["question"]))
             elif member == "wait":
                 result = self._pause(float(params.get("duration", 1)))
             else:
@@ -1535,24 +1535,26 @@ class LocalAgent:
         label = _element_label(self.elements, str(params.get("element", "")))
         return label.strip('"') == ADDRESS_BAR
 
-    def _ask_claude(self, question: str) -> ActionResult:
-        """Claude's answer, or an error the model can work around: the local AI keeps going
-        when Claude is signed out or not installed (D-067, D-093)."""
+    def _ask_cloud(self, question: str) -> ActionResult:
+        """Cloud AI's answer, or an error the model can work around: the local AI keeps going
+        when Cloud AI is signed out or not installed (D-067, D-093)."""
         if self.ask is None:
-            raise ActionError("Claude can't be asked from here; decide from the screen")
+            raise ActionError("Cloud AI can't be asked from here; decide from the screen")
         ask = self.ask
-        self.emit({"event": "note", "text": "Asking Claude: " + question[:200]})
+        self.emit({"event": "note", "text": "Asking Cloud AI: " + question[:200]})
         try:
             answer = self._unless_stopped(lambda: ask(question)).strip()
         except Cancelled:
             raise
         except Exception as exc:
-            self.emit({"event": "note", "text": "Claude isn't available, so the local AI decides."})
+            self.emit(
+                {"event": "note", "text": "Cloud AI isn't available, so the local AI decides."}
+            )
             raise ActionError(
-                f"Claude isn't available ({str(exc)[:120]}); decide yourself from the screen"
+                f"Cloud AI isn't available ({str(exc)[:120]}); decide yourself from the screen"
             ) from exc
         if not answer:
-            raise ActionError("Claude gave no answer; decide yourself from the screen")
+            raise ActionError("Cloud AI gave no answer; decide yourself from the screen")
         return ActionResult(answer[:MAX_TEXT])
 
     def _make_plan(self, task: str, apps: str) -> str:
@@ -1628,7 +1630,7 @@ class LocalAgent:
         return "No answer; choose sensibly and say what you chose."
 
     def _unless_stopped(self, work: Callable[[], str]) -> str:
-        """Run a slow call (the model, Claude) and give up on it the moment Stop is pressed.
+        """Run a slow call (the model, Cloud AI) and give up on it the moment Stop is pressed.
 
         The call itself finishes in the background; its answer is dropped.
         """

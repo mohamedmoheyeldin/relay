@@ -8,7 +8,7 @@
 
 A local-first AI desktop operator for Windows. Relay works your PC the way you
 do, in any program or website, with a fast local AI doing the clicking and
-Claude doing the thinking.
+Cloud AI doing the thinking.
 
 ![Platform](https://img.shields.io/badge/platform-Windows%2011-0078D4)
 ![Status](https://img.shields.io/badge/status-active%20rebuild-orange)
@@ -37,9 +37,9 @@ needs no extra device:
 - **An always-on local operator owns UI and OS automation.** It reads programs
   directly through Windows UI Automation and acts in milliseconds, using a
   local model on your own GPU only when it has to look at the screen.
-- **Claude handles only the heavy reasoning.** Planning a long task, writing
-  the text that goes into a form, choosing between ambiguous results. Claude is
-  reached through the official Claude Code CLI on your own subscription.
+- **Cloud AI handles only the heavy reasoning.** Planning a long task, writing
+  the text that goes into a form, choosing between ambiguous results. Cloud AI is
+  reached through the official Cloud AI CLI on your own subscription.
 - **No permission prompts and no setup.** One installer sets everything up.
   Relay asks only before a step that can't be undone (send, pay, delete,
   submit), with a card in the chat.
@@ -56,7 +56,7 @@ flowchart LR
     you(["You<br/>chat or floating popup"]) --> app["<b>Relay app</b><br/>routes each request"]
 
     app -- "screen and OS work" --> op
-    app -- "heavy reasoning" --> claude
+    app -- "heavy reasoning" --> cloud
 
     subgraph op["<b>Local operator</b> · on your PC"]
         direction TB
@@ -66,12 +66,12 @@ flowchart LR
         t0 --> t1 --> t2
     end
 
-    subgraph cloud["<b>Claude</b> · your subscription"]
-        claude["Claude Code CLI<br/>+ MCP connectors"]
+    subgraph cloud["<b>Cloud AI</b> · your subscription"]
+        cloud["Cloud AI CLI<br/>+ MCP connectors"]
     end
 
     op --> pc(["Any Windows app<br/>or website"])
-    op <-. "Tier 3: asks for judgment" .-> claude
+    op <-. "Tier 3: asks for judgment" .-> cloud
 ```
 
 - **Reads the app, not the pixels.** Windows UI Automation gives exact names,
@@ -79,7 +79,7 @@ flowchart LR
   Screenshots and the vision model are the fallback.
 - **Several actions per model call.** Each is checked before it runs, and the
   batch stops at the first surprise.
-- **Claude thinks, Relay acts.** Claude plans and writes; it never clicks.
+- **Cloud AI thinks, Relay acts.** Cloud AI plans and writes; it never clicks.
 - **Your browser, your logins.** Relay works where you are already signed in.
 - **Stop any time.** Mouse to the top-left corner or Ctrl+Alt+Pause stops
   Relay instantly, and every action goes to a local audit log.
@@ -101,9 +101,9 @@ what runs today and what is still being built.
 | Browsers driven through UI Automation with one cached read per page, no extension needed (D-089) | ✅ Built |
 | App catalog read natively from the Shell, no PowerShell (D-090) | ✅ Built |
 | **Floating popup**: live step, Stop and a box to redirect Relay, opened with Ctrl+Shift+Space | ✅ Built |
-| **Desktop app** 0.1.10: chat with streamed replies, Claude sign-in inside the app, local model picker and download, MCP hub, Settings, in-chat approval cards for irreversible steps | ✅ Built |
-| Claude limited to planning and reasoning, with no shell, scripts or direct clicks in chat (D-081) | ✅ Built |
-| **Windows installer** (`Relay-Setup.exe`) that installs Claude Code, the runtime and the model | 🔨 Final build waits for the rebuild |
+| **Desktop app** 0.1.10: chat with streamed replies, Cloud AI sign-in inside the app, local model picker and download, MCP hub, Settings, in-chat approval cards for irreversible steps | ✅ Built |
+| Cloud AI limited to planning and reasoning, with no shell, scripts or direct clicks in chat (D-081) | ✅ Built |
+| **Windows installer** (`Relay-Setup.exe`) that installs Cloud AI, the runtime and the model | 🔨 Final build waits for the rebuild |
 | Removing the old browser-extension lane and its policy install | 🔨 In progress |
 | Your own words count as approval ("send", "submit", "pay") (D-088) | 🔨 In progress |
 | Operator moved into relay-core (Rust) with always-on live perception | 🔨 In progress |
@@ -120,7 +120,7 @@ See [docs/roadmap.md](docs/roadmap.md) for milestones.
 
 - Windows 11
 - An NVIDIA GPU (developed on an RTX 5080 with 16 GB of VRAM)
-- A Claude subscription; Relay's setup installs and signs in to Claude Code
+- A Cloud AI subscription; Relay's setup installs and signs in to Cloud AI
   for you
 
 ### Install
@@ -145,7 +145,7 @@ pnpm install
 pnpm tauri dev                      # start the desktop app
 ```
 
-To use relay-screen from Claude Code directly, run `claude` in the repository
+To use relay-screen from Cloud AI directly, run `cloud-cli` in the repository
 and approve the `relay-screen` project MCP server. More detail in
 [docs/setup.md](docs/setup.md).
 
@@ -154,7 +154,7 @@ and approve the `relay-screen` project MCP server. More detail in
 | Path | What it holds |
 |---|---|
 | [`relay-screen/`](relay-screen/) | Python MCP server: computer-use tools, UI Automation, OCR, safety, and the local operator |
-| [`relay-core/`](relay-core/) | Rust library: Claude Code driver, MCP hub, model catalog, downloads and runtime, settings |
+| [`relay-core/`](relay-core/) | Rust library: Cloud AI driver, MCP hub, model catalog, downloads and runtime, settings |
 | [`relay-ui/`](relay-ui/) | Desktop app: Tauri 2 + React + TypeScript |
 | [`relay-setup/`](relay-setup/) | The small setup app that wraps the installer |
 | [`playbooks/`](playbooks/) | Saved task playbooks (only `examples/` is committed) |
@@ -176,8 +176,8 @@ and approve the `relay-screen` project MCP server. More detail in
 
 ## Privacy and ground rules
 
-- Claude is reached only through the official `claude` CLI with your own
-  login. Relay never calls the Anthropic API and never reads or stores your
+- Cloud AI is reached only through the official Cloud AI CLI with your own
+  login. Relay never calls the cloud AI's web API and never reads or stores your
   OAuth token.
 - Screen work, perception and the local model stay on your PC.
 - No credentials in the repository. Personal data (playbooks, `profile.yaml`,

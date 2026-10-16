@@ -1,4 +1,4 @@
-// The chat window: one conversation with Claude, with Relay's activity shown inline.
+// The chat window: one conversation with Cloud AI, with Relay's activity shown inline.
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
@@ -9,7 +9,7 @@ import { Markdown } from "@/components/relay/markdown";
 import { Notice, Spinner } from "@/components/relay/ui";
 import { type ChatEvent, type ChatSummary, type Settings, api, errorText } from "@/lib/api";
 import { describeTool, isHiddenTool } from "@/lib/describe-tool";
-import { isAuthError, refreshClaude, useClaude } from "@/lib/claude";
+import { isAuthError, refreshCloud, useCloud } from "@/lib/cloud";
 import { ChatMenu, RelayMark } from "@/components/relay/sidebar";
 import { SignIn } from "./sign-in";
 import { cx } from "@/utils/cx";
@@ -146,7 +146,7 @@ const LocalStep = ({ item }: { item: Extract<Item, { kind: "step" }> }) => {
     );
 };
 
-type ClaudeSettings = Settings["claude"];
+type CloudSettings = Settings["cloud"];
 
 const PlanCard = ({ item }: { item: Extract<Item, { kind: "plan" }> }) => (
     <div className="rounded-xl px-4 py-3 text-sm ring-1 ring-secondary animate-in fade-in duration-200">
@@ -177,9 +177,9 @@ const FileChip = ({ path, onRemove }: { path: string; onRemove?: () => void }) =
     </span>
 );
 
-// Claude Code takes these aliases for --model; empty means its own default.
+// Cloud AI takes these aliases for --model; empty means its own default.
 const MODELS = [
-    { id: "", label: "Default", hint: "Claude Code's choice" },
+    { id: "", label: "Default", hint: "Cloud AI's choice" },
     { id: "opus", label: "Opus", hint: "Most capable" },
     { id: "sonnet", label: "Sonnet", hint: "Fast and smart" },
     { id: "haiku", label: "Haiku", hint: "Fastest" },
@@ -194,8 +194,8 @@ const EFFORTS = [
 const pickerItem =
     "flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-secondary outline-hidden data-[focused]:bg-tertiary data-[focused]:text-primary";
 
-/** The model and effort picker next to Send, like the Claude app's. */
-const ModelPicker = ({ settings, onChange }: { settings: ClaudeSettings; onChange: (next: ClaudeSettings) => void }) => {
+/** The model and effort picker next to Send, like the reference chat app's. */
+const ModelPicker = ({ settings, onChange }: { settings: CloudSettings; onChange: (next: CloudSettings) => void }) => {
     const model = MODELS.find((m) => m.id === settings.model)?.label ?? settings.model;
     const effort = EFFORTS.find((e) => e.id === settings.effort)?.label ?? settings.effort;
     return (
@@ -285,8 +285,8 @@ export const ChatScreen = ({
     onRename,
     onPin,
     onDelete,
-    claudeSettings,
-    onClaudeSettings,
+    cloudSettings,
+    onCloudSettings,
     approvalMode = "risky",
 }: {
     ready: boolean;
@@ -302,9 +302,9 @@ export const ChatScreen = ({
     onRename: () => void;
     onPin: () => void;
     onDelete: () => void;
-    /** Settings > Claude, for the model and effort picker in the composer. */
-    claudeSettings: ClaudeSettings;
-    onClaudeSettings: (next: ClaudeSettings) => void;
+    /** Settings > Cloud AI, for the model and effort picker in the composer. */
+    cloudSettings: CloudSettings;
+    onCloudSettings: (next: CloudSettings) => void;
 }) => {
     const [files, setFiles] = useState<string[]>([]);
     const [items, setItems] = useState<Item[]>([]);
@@ -315,14 +315,14 @@ export const ChatScreen = ({
     // Auth failures at or before this index were fixed by signing in again.
     const [signedInAt, setSignedInAt] = useState(-1);
     const bottom = useRef<HTMLDivElement>(null);
-    const claude = useClaude();
+    const cloud = useCloud();
 
     let lastAuthFailure = -1;
     items.forEach((it, i) => {
         if ((it.kind === "error" || (it.kind === "done" && !it.ok)) && isAuthError(it.text)) lastAuthFailure = i;
     });
-    const signedOut = !!claude.state?.installed && !claude.state.auth.loggedIn;
-    // Signed out is fine (the note at the top says so); an expired sign-in Claude just hit is worth a button.
+    const signedOut = !!cloud.state?.installed && !cloud.state.auth.loggedIn;
+    // Signed out is fine (the note at the top says so); an expired sign-in Cloud AI just hit is worth a button.
     const needsSignIn = ready && !signedOut && lastAuthFailure > signedInAt;
 
     useEffect(() => {
@@ -354,12 +354,12 @@ export const ChatScreen = ({
                             it.kind === "tool" && it.id === e.tool_use_id ? { ...it, result: { ok: !e.is_error, text: e.text, image: e.image } } : it,
                         );
                     case "done":
-                        if (e.is_error && isAuthError(e.result)) refreshClaude().catch(() => {});
+                        if (e.is_error && isAuthError(e.result)) refreshCloud().catch(() => {});
                         return [...prev, { kind: "done", ok: !e.is_error, text: e.is_error ? e.result : "", seconds: e.duration_ms ? e.duration_ms / 1000 : null }];
                     case "error":
                         return [...prev, { kind: "error", text: e.message }];
                     case "fallback":
-                        refreshClaude().catch(() => {});
+                        refreshCloud().catch(() => {});
                         return [...prev, { kind: "fallback", reason: e.reason }];
                     case "local_note": {
                         // The plan and the question also come as notes; they're shown once.
@@ -416,7 +416,7 @@ export const ChatScreen = ({
         setInput("");
         setFiles([]);
         setBusy(true);
-        // Files go along as paths on this PC; Claude and the local AI open them from there.
+        // Files go along as paths on this PC; Cloud AI and the local AI open them from there.
         const prompt = attached.length ? `${text}\n\nAttached files:\n${attached.map((f) => `- ${f}`).join("\n")}` : text;
         try {
             await api.chatSend(prompt);
@@ -547,7 +547,7 @@ export const ChatScreen = ({
                     <Plus className="size-4" />
                 </button>
                 <span className="ml-auto" />
-                <ModelPicker settings={claudeSettings} onChange={onClaudeSettings} />
+                <ModelPicker settings={cloudSettings} onChange={onCloudSettings} />
             </div>
             <p className="mt-1 text-center text-[11px] text-quaternary">{APPROVAL_NOTE[approvalMode] ?? APPROVAL_NOTE.risky}</p>
         </div>
@@ -579,7 +579,7 @@ export const ChatScreen = ({
                     {loadError && <Notice tone="error">{loadError}</Notice>}
                     {!ready && (
                         <p className="text-center text-xs text-tertiary">
-                            Claude isn't signed in, so the local AI does screen tasks on its own. Writing and judgment need Claude:{" "}
+                            Cloud AI isn't signed in, so the local AI does screen tasks on its own. Writing and judgment need Cloud AI:{" "}
                             <button className="cursor-pointer font-medium underline" onClick={onSetup}>
                                 sign in
                             </button>
@@ -637,7 +637,7 @@ export const ChatScreen = ({
                             return (
                                 <div key={i} className="flex items-center gap-2 pt-1 text-sm font-medium text-brand-secondary animate-in fade-in duration-300">
                                     <CpuChip01 className="size-4 shrink-0" />
-                                    Local AI (Claude unavailable)
+                                    Local AI (Cloud AI unavailable)
                                     <span className="font-normal text-tertiary">· {it.reason}</span>
                                 </div>
                             );
@@ -691,7 +691,7 @@ export const ChatScreen = ({
                             />
                         ) : (
                             <Notice tone="warning">
-                                {signedOut ? "Claude Code isn't signed in." : "Your Claude sign-in has expired, so Claude can't answer."}{" "}
+                                {signedOut ? "Cloud AI isn't signed in." : "Your Cloud AI sign-in has expired, so Cloud AI can't answer."}{" "}
                                 <button className="cursor-pointer font-semibold underline" onClick={() => setSigningIn(true)}>
                                     Sign in again
                                 </button>

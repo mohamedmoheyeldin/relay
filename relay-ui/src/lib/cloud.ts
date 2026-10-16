@@ -1,35 +1,35 @@
-// Claude Code's state and the "does Claude answer" check, shared by every screen
+// Cloud AI's state and the "does Cloud AI answer" check, shared by every screen
 // so the check runs once per sign-in instead of once per screen.
 import { useEffect, useState } from "react";
-import { type ClaudeState, api, errorText } from "./api";
+import { type CloudState, api, errorText } from "./api";
 
-/** Claude Code's words when its sign-in is missing, expired or revoked. */
+/** Cloud AI's words when its sign-in is missing, expired or revoked. */
 export const isAuthError = (text: string) =>
     /failed to authenticate|oauth session expired|could not be refreshed|not logged in|please run \/login|invalid api key|authentication_error|token (has )?expired/i.test(text);
 
 export type CheckState = { status: "idle" } | { status: "running" } | { status: "ok"; text: string } | { status: "error"; text: string };
 
 interface Store {
-    state: ClaudeState | null;
+    state: CloudState | null;
     loading: boolean;
     check: CheckState;
 }
 
 let store: Store = { state: null, loading: false, check: { status: "idle" } };
 const listeners = new Set<(s: Store) => void>();
-let inflight: Promise<ClaudeState> | null = null;
+let inflight: Promise<CloudState> | null = null;
 
 function set(next: Partial<Store>) {
     store = { ...store, ...next };
     for (const l of listeners) l(store);
 }
 
-/** Ask Claude Code for its install and sign-in state again. */
-export function refreshClaude(): Promise<ClaudeState> {
+/** Ask Cloud AI for its install and sign-in state again. */
+export function refreshCloud(): Promise<CloudState> {
     if (inflight) return inflight;
     set({ loading: true });
     inflight = api
-        .claudeState()
+        .cloudState()
         .then((state) => {
             const wasIn = !!store.state?.auth.loggedIn;
             set({ state, loading: false });
@@ -44,30 +44,30 @@ export function refreshClaude(): Promise<ClaudeState> {
     return inflight;
 }
 
-/** Send Claude a one-word test message. Only one runs at a time. */
-export async function runClaudeCheck(): Promise<void> {
+/** Send Cloud AI a one-word test message. Only one runs at a time. */
+export async function runCloudCheck(): Promise<void> {
     if (store.check.status === "running") return;
     set({ check: { status: "running" } });
     try {
-        const text = await api.claudeVerify();
+        const text = await api.cloudVerify();
         set({ check: { status: "ok", text: text.trim() || "OK" } });
     } catch (e) {
         set({ check: { status: "error", text: errorText(e) } });
     }
 }
 
-export function useClaude(options: { autoCheck?: boolean } = {}) {
+export function useCloud(options: { autoCheck?: boolean } = {}) {
     const [s, setS] = useState(store);
     useEffect(() => {
         listeners.add(setS);
-        if (!store.state) refreshClaude().catch(() => {});
+        if (!store.state) refreshCloud().catch(() => {});
         return () => {
             listeners.delete(setS);
         };
     }, []);
     const signedIn = !!s.state?.installed && !!s.state.auth.loggedIn;
     useEffect(() => {
-        if (options.autoCheck && signedIn && store.check.status === "idle") runClaudeCheck();
+        if (options.autoCheck && signedIn && store.check.status === "idle") runCloudCheck();
     }, [options.autoCheck, signedIn]);
-    return { ...s, signedIn, refresh: refreshClaude, runCheck: runClaudeCheck };
+    return { ...s, signedIn, refresh: refreshCloud, runCheck: runCloudCheck };
 }

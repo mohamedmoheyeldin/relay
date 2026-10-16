@@ -10,7 +10,7 @@ See `docs/architecture.md` §6.
   Connections pages; `lib/api.ts` wraps every Tauri command; `components/base` etc.
   are Untitled UI React components (MIT, see `components/LICENSE-untitledui.txt`).
 - `src-tauri/` the Rust shell: tray, close-to-tray, single instance, autostart, jobs
-  with progress events, the in-app terminal used for `claude auth login`, and the
+  with progress events, the in-app terminal used for `cloud-cli auth login`, and the
   `relay.exe mcp-launch` subcommand that hands Credential Manager secrets to MCP servers.
   The real work lives in the `relay-core` crate.
 - `resources/python/` the bundled CPython 3.12 + relay-screen, filled by

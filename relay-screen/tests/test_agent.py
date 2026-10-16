@@ -488,7 +488,7 @@ def test_reply_schema_lists_only_actions_relay_runs() -> None:
     from relay_screen.agent.local import ACTION_NAMES, REPLY_SCHEMA
 
     frame = Frame.from_png(png())
-    special = {"look", "done", "fail", "ask_claude", "plan"}
+    special = {"look", "done", "fail", "ask_cloud", "plan"}
     for name in set(ACTION_NAMES) - special:
         action = {"action": name, "x": 1, "y": 1, "text": "a", "keys": "a", "name": "a"}
         action |= {"url": "a.com", "window": "a", "element": "e1", "value": "v"}
@@ -827,13 +827,13 @@ def test_stop_ends_a_slow_model_call_at_once() -> None:
     assert time.perf_counter() - started < 3  # the model call alone would take 5 s
 
 
-def test_claude_signed_out_leaves_the_local_ai_going() -> None:
+def test_cloud_signed_out_leaves_the_local_ai_going() -> None:
     def ask(question: str) -> str:
         raise RuntimeError("Invalid API key · Please run /login")
 
     hands = FakeHands()
     model = Script(
-        {"thought": "", "action": "ask_claude", "question": "what to write?"},
+        {"thought": "", "action": "ask_cloud", "question": "what to write?"},
         {"thought": "", "action": "done", "summary": "wrote it myself"},
     )
     events: list[dict[str, Any]] = []

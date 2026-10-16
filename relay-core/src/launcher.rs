@@ -1,9 +1,9 @@
 //! `relay mcp-launch <server> -- <command> [args...]`
 //!
-//! Claude Code starts local MCP servers that have secrets through this launcher (D-047).
+//! Cloud AI starts local MCP servers that have secrets through this launcher (D-047).
 //! It reads the server's secret names from settings, fetches the values from
 //! Credential Manager, and runs the real command with them as environment variables,
-//! passing stdin and stdout straight through. Claude Code's config only ever holds the
+//! passing stdin and stdout straight through. Cloud AI's config only ever holds the
 //! launcher command line.
 
 use std::process::{Command, Stdio};

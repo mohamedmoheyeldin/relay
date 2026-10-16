@@ -3,7 +3,7 @@
 Mode "risky" asks only before acts that look irreversible: pressing or
 clicking a control named like send, submit, pay, buy, delete and so on. Mode "ask"
 asks before every act, and "off" never asks. Relay asks with its own prompt window,
-which ignores synthetic input, so Claude can never approve its own actions. In a
+which ignores synthetic input, so Cloud AI can never approve its own actions. In a
 batch the gate asks before each action; the owner may approve the rest of the batch
 in one go.
 """
@@ -163,7 +163,7 @@ class ApprovalGate:
     def grant(self, task: str | None) -> None:
         """The owner's words count as approval: a task saying "...and submit it" lets
         a Submit button run without a card, for that task only (D-091). None clears it.
-        Only text the owner wrote may be passed here, never Claude's or a page's."""
+        Only text the owner wrote may be passed here, never Cloud AI's or a page's."""
         words = RISKY.findall(task) if task else []
         self.granted = frozenset(w.casefold() for w in words)
 
@@ -240,7 +240,7 @@ class SubprocessPrompter:
     """Shows the native prompt (safety/prompt.py) in a child process and waits.
 
     Raises PromptUnavailableError when the prompt could not be shown, so a broken
-    prompt is never reported to Claude as the owner saying no.
+    prompt is never reported to Cloud AI as the owner saying no.
     """
 
     def ask(self, request: PromptRequest) -> Decision:

@@ -5,13 +5,13 @@
 Each run drives the same local operator the app uses (the running operator service when
 Relay is open, else one started in this process) through real tasks: Notepad, File
 Explorer, a browser tab and web search, a web form served from this process, every
-monitor, the router, a Claude round trip, Claude handing a task to the local AI, and the
-local AI alone as if Claude were signed out. Results are checked from outside the agent.
+monitor, the router, a Cloud AI round trip, Cloud AI handing a task to the local AI, and the
+local AI alone as if Cloud AI were signed out. Results are checked from outside the agent.
 
 Everything goes in a timestamped folder under Downloads\\Relay-diagnostics: per-step
-screenshots, every operator event with its time, timings, the Claude transcript, the
+screenshots, every operator event with its time, timings, the Cloud AI transcript, the
 runtime and audit log lines written during the run, an environment snapshot,
-summary.json (for the app and for Claude) and report.html (for the owner). latest.json
+summary.json (for the app and for Cloud AI) and report.html (for the owner). latest.json
 next to the folders names the newest run.
 
 This opens windows and moves the mouse, so it only runs when the owner asks (D-049).
@@ -39,7 +39,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
-from relay_screen import __version__
+from relay_screen import __version__, cli_names
 from relay_screen.agent.bench import Desktop
 from relay_screen.agent.local import Hands
 from relay_screen.agent.service import NO_TOOLS, record_path, route
@@ -48,13 +48,13 @@ from relay_screen.diagnostics import app as app_tests
 SCHEMA = 1
 FINAL = ("done", "failed", "stopped", "unavailable")
 ANSWER = "Use your default choice. This is Relay's diagnostics run and nobody is watching."
-CLAUDE_TIMEOUT = 420.0
+CLOUD_TIMEOUT = 420.0
 TASK_TIMEOUT = 900.0
 EXPLORER_TEST = "relay-explorer-test"  # a folder the other-monitor scenario opens
 SHOT_WIDTH = 1600  # recorded screenshots are scaled down to this width
 LOG_TAIL = 4_000_000  # bytes of a log copied into the run at most
 
-Kind = Literal["operator", "displays", "route", "claude-text", "claude-ui", "app"]
+Kind = Literal["operator", "displays", "route", "cloud-text", "cloud-ui", "app"]
 Event = Callable[[dict[str, Any]], None]
 
 
@@ -65,7 +65,7 @@ class Scenario:
     kind: Kind
     task: str = ""
     checks: tuple[dict[str, Any], ...] = ()
-    offline: bool = False  # the local AI may not ask Claude (as if signed out)
+    offline: bool = False  # the local AI may not ask Cloud AI (as if signed out)
     max_steps: int = 20
     close_tab: str = ""  # a browser tab whose title has this is closed afterwards
     answer: str = ""  # the owner's answer if the operator asks (else ANSWER)
@@ -75,13 +75,13 @@ class Scenario:
 
 
 # The full run's areas, in the order they run and are shown (D-101).
-AREAS = ("Relay app", "Real-world tasks", "Claude and signed out", "System")
+AREAS = ("Relay app", "Real-world tasks", "Cloud AI and signed out", "System")
 
 
 def area_of(s: Scenario) -> str:
     if s.kind == "app":
         return AREAS[0]
-    if s.kind.startswith("claude") or s.offline:
+    if s.kind.startswith("cloud") or s.offline:
         return AREAS[2]
     if s.kind in ("displays", "route"):
         return AREAS[3]
@@ -89,7 +89,7 @@ def area_of(s: Scenario) -> str:
 
 
 def scenarios(stamp: str, site: str) -> list[Scenario]:
-    """Everything, area by area: the app, real tasks, Claude, then the system checks."""
+    """Everything, area by area: the app, real tasks, Cloud AI, then the system checks."""
     return sorted(_scenarios(stamp, site), key=lambda s: AREAS.index(area_of(s)))
 
 
@@ -97,12 +97,12 @@ def _scenarios(stamp: str, site: str) -> list[Scenario]:
     """Every scenario. `stamp` makes the typed text unique to this run."""
     note = f"Relay diagnostics {stamp}"
     query = f"relay diagnostics {stamp}"
-    claude_note = f"Claude sent this {stamp}"
+    cloud_note = f"Cloud AI sent this {stamp}"
     form_url = f"{site}/form"
     saved = f"relay-diag-{stamp}.txt"
     return [
         Scenario("displays", "Every monitor: screenshot and pointer", "displays"),
-        Scenario("route", "Routing: local AI or Claude", "route"),
+        Scenario("route", "Routing: local AI or Cloud AI", "route"),
         Scenario(
             "notepad-instant",
             "Open Notepad (instant, no model)",
@@ -148,7 +148,7 @@ def _scenarios(stamp: str, site: str) -> list[Scenario]:
         ),
         Scenario(
             "local-only",
-            "Local AI alone (Claude signed out)",
+            "Local AI alone (Cloud AI signed out)",
             "operator",
             "Open Calculator and work out 12 times 34.",
             ({"uia_text": {"window": "Calculator", "contains": "Display is 408"}},),
@@ -249,13 +249,13 @@ def _scenarios(stamp: str, site: str) -> list[Scenario]:
             max_steps=20,
             close_tab="library",
         ),
-        Scenario("claude-text", "Claude round trip", "claude-text"),
+        Scenario("cloud-text", "Cloud AI round trip", "cloud-text"),
         Scenario(
-            "claude-ui",
-            "Claude hands a task to the local AI",
-            "claude-ui",
-            f"Open Notepad and type: {claude_note}",
-            ({"uia_text": {"window": "Notepad", "contains": claude_note}},),
+            "cloud-ui",
+            "Cloud AI hands a task to the local AI",
+            "cloud-ui",
+            f"Open Notepad and type: {cloud_note}",
+            ({"uia_text": {"window": "Notepad", "contains": cloud_note}},),
         ),
         Scenario("app-navigation", "Relay app: sidebar, Back and Forward", "app"),
         Scenario("app-settings", "Relay app: every Settings page and toggle", "app"),
@@ -280,7 +280,7 @@ class OperatorLink(Protocol):
     ) -> None: ...
 
 
-class ClaudeLink(Protocol):
+class CloudLink(Protocol):
     def status(self) -> dict[str, Any]: ...
 
     def ask(self, question: str) -> str: ...
@@ -293,7 +293,7 @@ class Tools:
     hands: Hands
     desktop: Desktop
     link: OperatorLink
-    claude: ClaudeLink | None
+    cloud: CloudLink | None
     capture: Callable[[], bytes | None] = lambda: None
     displays: Callable[[], list[dict[str, Any]]] = lambda: []
     select_display: Callable[[int], object] = lambda display_id: None
@@ -590,7 +590,7 @@ def front_window(hands: Hands, want: str) -> str | None:
 
 
 def progress(s: Scenario, event: Mapping[str, Any]) -> dict[str, Any]:
-    """An operator or Claude event as the run reports it: `kind` is the event's own name."""
+    """An operator or Cloud AI event as the run reports it: `kind` is the event's own name."""
     return {**event, "event": "progress", "scenario": s.id, "kind": event.get("event")}
 
 
@@ -730,7 +730,7 @@ def cleanup(s: Scenario, tools: Tools, before: set[int]) -> None:
 
 # Notepad tabs the scenarios write: their titles start with the test text (D-106).
 TEST_DOC = re.compile(
-    r"^\*?(?:(?:Relay diagnostics|First line|Claude sent this|Relay saved this) \d{6}"
+    r"^\*?(?:(?:Relay diagnostics|First line|Cloud AI sent this|Relay saved this) \d{6}"
     r"|Nimbus 14\b|relay-diag-\d{6}\.txt)"
 )
 MAX_TEST_DOCS = 40
@@ -844,9 +844,9 @@ ROUTES: tuple[tuple[str, bool, str], ...] = (
     ("open Notepad", True, "operator"),
     ("go to dice.com and search python jobs", True, "operator"),
     ("click the Save button", True, "operator"),
-    ("write a cover letter for the job on screen", True, "claude"),
-    ("what is the capital of France?", True, "claude"),
-    ("summarize this page", True, "claude"),
+    ("write a cover letter for the job on screen", True, "cloud"),
+    ("what is the capital of France?", True, "cloud"),
+    ("summarize this page", True, "cloud"),
     ("write a cover letter for the job on screen", False, "operator"),
 )
 
@@ -860,11 +860,13 @@ def run_route(s: Scenario, tools: Tools, rec: Recorder, emit: Event) -> Result:
         began = time.perf_counter()
         to, why = route(text, ready)
         micros = round((time.perf_counter() - began) * 1_000_000)
-        row = {"text": text, "claude_ready": ready, "to": to, "why": why, "us": micros}
+        row = {"text": text, "cloud_ready": ready, "to": to, "why": why, "us": micros}
         rows.append(row)
         rec.event({"event": "route", **row})
         if to != want:
-            failed.append(f"{text!r} (Claude {'on' if ready else 'off'}) went to {to}, not {want}")
+            failed.append(
+                f"{text!r} (Cloud AI {'on' if ready else 'off'}) went to {to}, not {want}"
+            )
     worst = max((r["us"] for r in rows), default=0)
     return Result(
         s.id,
@@ -878,17 +880,17 @@ def run_route(s: Scenario, tools: Tools, rec: Recorder, emit: Event) -> Result:
     )
 
 
-def run_claude_text(s: Scenario, tools: Tools, rec: Recorder, emit: Event) -> Result:
+def run_cloud_text(s: Scenario, tools: Tools, rec: Recorder, emit: Event) -> Result:
     del emit
-    if tools.claude is None:
-        return _skipped(s, "Claude Code is not installed")
+    if tools.cloud is None:
+        return _skipped(s, "Cloud AI is not installed")
     start = tools.clock()
-    status = tools.claude.status()
-    rec.event({"event": "claude_status", **status})
+    status = tools.cloud.status()
+    rec.event({"event": "cloud_status", **status})
     if not status.get("logged_in"):
-        return _skipped(s, "Claude Code is not signed in", details={"claude": status})
+        return _skipped(s, "Cloud AI is not signed in", details={"cloud": status})
     try:
-        answer = tools.claude.ask("Reply with the single word READY.")
+        answer = tools.cloud.ask("Reply with the single word READY.")
     except Exception as exc:
         seconds = round(tools.clock() - start, 2)
         rec.event({"event": "error", "message": str(exc)})
@@ -901,21 +903,21 @@ def run_claude_text(s: Scenario, tools: Tools, rec: Recorder, emit: Event) -> Re
         s.title,
         s.kind,
         "passed" if ok else "failed",
-        f"Claude answered in {seconds} s",
+        f"Cloud AI answered in {seconds} s",
         seconds,
         failed_checks=[] if ok else [f"unexpected answer {answer[:80]!r}"],
         timings={"round_trip_s": seconds},
-        details={"claude": status, "answer": answer[:500]},
+        details={"cloud": status, "answer": answer[:500]},
     )
 
 
-def run_claude_ui(s: Scenario, tools: Tools, rec: Recorder, emit: Event) -> Result:
-    """The whole cloud path: Claude Code, relay-screen's ui_task, the local operator."""
-    if tools.claude is None:
-        return _skipped(s, "Claude Code is not installed")
-    status = tools.claude.status()
+def run_cloud_ui(s: Scenario, tools: Tools, rec: Recorder, emit: Event) -> Result:
+    """The whole cloud path: Cloud AI, relay-screen's ui_task, the local operator."""
+    if tools.cloud is None:
+        return _skipped(s, "Cloud AI is not installed")
+    status = tools.cloud.status()
     if not status.get("logged_in"):
-        return _skipped(s, "Claude Code is not signed in", details={"claude": status})
+        return _skipped(s, "Cloud AI is not signed in", details={"cloud": status})
     before = set(tools.desktop.titles())
     rec.shot("before")
     prompt = (
@@ -931,7 +933,7 @@ def run_claude_ui(s: Scenario, tools: Tools, rec: Recorder, emit: Event) -> Resu
             emit(progress(s, event))
 
     try:
-        run = tools.claude.run_task(prompt, rec.folder, on_line)
+        run = tools.cloud.run_task(prompt, rec.folder, on_line)
     except Exception as exc:
         run = {"error": f"{type(exc).__name__}: {exc}"}
     seconds = round(tools.clock() - start, 2)
@@ -941,7 +943,7 @@ def run_claude_ui(s: Scenario, tools: Tools, rec: Recorder, emit: Event) -> Resu
     if run.get("error"):
         failed.insert(0, str(run["error"])[:300])
     if "mcp__relay-screen__ui_task" not in run.get("tools", []):
-        failed.append("Claude did not call ui_task")
+        failed.append("Cloud AI did not call ui_task")
     cleanup(s, tools, before)
     return Result(
         s.id,
@@ -953,12 +955,12 @@ def run_claude_ui(s: Scenario, tools: Tools, rec: Recorder, emit: Event) -> Resu
         failed_checks=failed,
         timings={
             "total_s": seconds,
-            "claude_ms": run.get("duration_ms"),
-            "claude_api_ms": run.get("duration_api_ms"),
+            "cloud_ms": run.get("duration_ms"),
+            "cloud_api_ms": run.get("duration_api_ms"),
             "first_tool_s": run.get("first_tool_s"),
             "turns": run.get("num_turns"),
         },
-        details={"task": s.task, "claude": {k: v for k, v in run.items() if k != "result"}},
+        details={"task": s.task, "cloud": {k: v for k, v in run.items() if k != "result"}},
     )
 
 
@@ -968,11 +970,11 @@ def run_app(s: Scenario, tools: Tools, rec: Recorder, emit: Event) -> Result:
     if tools.app is None:
         return _skipped(s, "Relay's window can't be driven here")
     signed_in = False
-    if tools.claude is not None:
-        status = tools.claude.status()
+    if tools.cloud is not None:
+        status = tools.cloud.status()
         signed_in = bool(status.get("logged_in"))
-    if s.id in app_tests.NEEDS_CLAUDE and not signed_in:
-        return _skipped(s, "Claude Code is not signed in")
+    if s.id in app_tests.NEEDS_CLOUD and not signed_in:
+        return _skipped(s, "Cloud AI is not signed in")
     why = tools.app.ready()
     if why:
         return _skipped(s, why)
@@ -1014,8 +1016,8 @@ RUNNERS: dict[str, Callable[[Scenario, Tools, Recorder, Event], Result]] = {
     "operator": run_operator,
     "displays": run_displays,
     "route": run_route,
-    "claude-text": run_claude_text,
-    "claude-ui": run_claude_ui,
+    "cloud-text": run_cloud_text,
+    "cloud-ui": run_cloud_ui,
     "app": run_app,
 }
 
@@ -1081,7 +1083,7 @@ def group_processes(
     """Relay's processes by role, with their RAM (working set), private bytes and VRAM.
 
     `python_dir` is the folder of Relay's own Python: other programs' Python (the
-    Claude desktop app's MCP servers, say) is not Relay's and isn't counted.
+    reference chat app's MCP servers, say) is not Relay's and isn't counted.
     """
     by_pid = {int(p["pid"]): p for p in procs}
 
@@ -1114,8 +1116,8 @@ def group_processes(
             continue
         elif name in PYTHONS and "relay.exe" in up:
             role = "local AI service"
-        elif name in PYTHONS and ("claude.exe" in up or me in _pids(p, by_pid)):
-            role = "relay-screen for Claude"
+        elif name in PYTHONS and (cli_names.WINDOWS_EXE in up or me in _pids(p, by_pid)):
+            role = "relay-screen for Cloud AI"
         elif name.startswith("llama-server"):
             role = "llama-server"
         else:
@@ -1263,7 +1265,7 @@ def overview(results: Sequence[Result]) -> dict[str, Any]:
     perceive = sum(int(r.timings.get("perceive_ms_total") or 0) for r in operator)
     act = sum(int(r.timings.get("act_ms_total") or 0) for r in operator)
     slowest = max(results, key=lambda r: r.seconds, default=None)
-    claude = {r.id: r.seconds for r in results if r.kind.startswith("claude") and r.passed}
+    cloud = {r.id: r.seconds for r in results if r.kind.startswith("cloud") and r.passed}
     return {
         "models": sorted({r.model for r in operator if r.model}),
         "operator_tasks": len(operator),
@@ -1274,7 +1276,7 @@ def overview(results: Sequence[Result]) -> dict[str, Any]:
         "model_ms_per_call": round(think / calls) if calls else None,
         "time_split_ms": {"perceive": perceive, "think": think, "act": act},
         "slowest": {"id": slowest.id, "seconds": slowest.seconds} if slowest else None,
-        "claude_seconds": claude,
+        "cloud_seconds": cloud,
     }
 
 
@@ -1453,8 +1455,8 @@ class LocalLink:
             self._operator.supervisor.stop_all()
 
 
-class ClaudeCli:
-    """Claude Code through the owner's `claude` CLI (D-002): no API, no tokens."""
+class CloudCli:
+    """Cloud AI through the owner's Cloud AI CLI (D-002): no API, no tokens."""
 
     def __init__(self, exe: str, python: str, run: Callable[..., Any] = subprocess.run) -> None:
         self.exe = exe
@@ -1489,9 +1491,9 @@ class ClaudeCli:
         return found
 
     def ask(self, question: str) -> str:
-        from relay_screen.agent.service import ask_claude
+        from relay_screen.agent.service import ask_cloud
 
-        return ask_claude(question, "Relay's diagnostics run", run=self._run)
+        return ask_cloud(question, "Relay's diagnostics run", run=self._run)
 
     def run_task(self, prompt: str, folder: Path, on_line: Event) -> dict[str, Any]:
         config = {
@@ -1517,7 +1519,7 @@ class ClaudeCli:
         ]  # fmt: skip
         start = time.monotonic()
         found: dict[str, Any] = {"tools": []}
-        transcript = (folder / "claude.jsonl").open("w", encoding="utf-8")
+        transcript = (folder / "cloud.jsonl").open("w", encoding="utf-8")
         proc = subprocess.Popen(
             cmd,
             stdin=subprocess.PIPE,
@@ -1531,7 +1533,7 @@ class ClaudeCli:
             timed_out.set()
             proc.kill()
 
-        killer = threading.Timer(CLAUDE_TIMEOUT, kill)
+        killer = threading.Timer(CLOUD_TIMEOUT, kill)
         killer.start()
         try:
             assert proc.stdin and proc.stdout and proc.stderr
@@ -1547,27 +1549,27 @@ class ClaudeCli:
                 except ValueError:
                     continue
                 if isinstance(line, dict):
-                    parse_claude_line(line, found, round(time.monotonic() - start, 2), on_line)
+                    parse_cloud_line(line, found, round(time.monotonic() - start, 2), on_line)
             proc.wait()
             error = proc.stderr.read().decode("utf-8", "replace").strip()
         finally:
             killer.cancel()
             transcript.close()
         if proc.returncode != 0 and not found.get("result"):
-            found["error"] = error[:500] or f"claude exited with {proc.returncode}"
+            found["error"] = error[:500] or f"Cloud AI exited with {proc.returncode}"
         if timed_out.is_set():
-            found["error"] = f"Claude did not finish within {CLAUDE_TIMEOUT:.0f} s"
+            found["error"] = f"Cloud AI did not finish within {CLOUD_TIMEOUT:.0f} s"
         return found
 
 
-def parse_claude_line(line: Mapping[str, Any], found: dict[str, Any], t: float, on: Event) -> None:
-    """Pick what matters out of one `claude -p --output-format stream-json` line."""
+def parse_cloud_line(line: Mapping[str, Any], found: dict[str, Any], t: float, on: Event) -> None:
+    """Pick what matters out of one `cloud-cli -p --output-format stream-json` line."""
     kind = line.get("type")
     if kind == "system" and line.get("subtype") == "init":
         found["model"] = line.get("model")
         servers = line.get("mcp_servers")
         found["mcp_servers"] = servers
-        on({"event": "claude_init", "model": line.get("model"), "mcp_servers": servers})
+        on({"event": "cloud_init", "model": line.get("model"), "mcp_servers": servers})
     elif kind == "assistant":
         message = line.get("message")
         for block in message.get("content", []) if isinstance(message, dict) else []:
@@ -1579,7 +1581,7 @@ def parse_claude_line(line: Mapping[str, Any], found: dict[str, Any], t: float, 
                 found.setdefault("first_tool_s", t)
                 on({"event": "tool_use", "tool": name, "input": block.get("input")})
             elif block.get("type") == "text":
-                on({"event": "claude_text", "text": str(block.get("text"))[:2000]})
+                on({"event": "cloud_text", "text": str(block.get("text"))[:2000]})
     elif kind == "user":
         message = line.get("message")
         for block in message.get("content", []) if isinstance(message, dict) else []:
@@ -1594,13 +1596,13 @@ def parse_claude_line(line: Mapping[str, Any], found: dict[str, Any], t: float, 
         for key in ("subtype", "is_error", "duration_ms", "duration_api_ms", "num_turns", "result"):
             if key in line:
                 found[key] = line[key]
-        on({"event": "claude_result", **{k: found.get(k) for k in ("is_error", "duration_ms")}})
+        on({"event": "cloud_result", **{k: found.get(k) for k in ("is_error", "duration_ms")}})
 
 
 # -- the environment ---------------------------------------------------------------
 
 
-def environment(home: Path, link: str, claude: ClaudeLink | None) -> dict[str, Any]:
+def environment(home: Path, link: str, cloud: CloudLink | None) -> dict[str, Any]:
     """What the run ran on. Never secrets: no tokens, no settings beyond Local AI and
     the approval mode."""
     found: dict[str, Any] = {
@@ -1641,8 +1643,8 @@ def environment(home: Path, link: str, claude: ClaudeLink | None) -> dict[str, A
     with contextlib.suppress(Exception):
         servers = home / "servers"
         found["warm_models"] = sorted(p.stem for p in servers.glob("*.json"))
-    if claude is not None:
-        found["claude"] = claude.status()
+    if cloud is not None:
+        found["cloud"] = cloud.status()
     return found
 
 

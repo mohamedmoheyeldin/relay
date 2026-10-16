@@ -1,6 +1,6 @@
 //! Saved chats: one JSON file per conversation in `%LOCALAPPDATA%\Relay\chats`, so
 //! the sidebar can list them and the owner can go back to one. The chat screen owns
-//! what a conversation shows (`items`); Relay adds the Claude session it resumes.
+//! what a conversation shows (`items`); Relay adds the Cloud AI session it resumes.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -18,7 +18,7 @@ pub struct Chat {
     /// Milliseconds since 1970, set on every save.
     #[serde(default)]
     pub updated: u64,
-    /// The Claude Code session this conversation continues, if Claude answered in it.
+    /// The Cloud AI session this conversation continues, if Cloud AI answered in it.
     #[serde(default)]
     pub session: Option<String>,
     /// What the chat screen shows, as it sent it.

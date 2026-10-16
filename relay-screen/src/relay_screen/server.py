@@ -1,7 +1,7 @@
 """MCP server entry point.
 
-Claude Code starts this over stdio (see the repo's .mcp.json). Tools are exposed to
-Claude as ``mcp__relay-screen__<tool>``. The computer tools mirror the members of
+Cloud AI starts this over stdio (see the repo's .mcp.json). Tools are exposed to
+Cloud AI as ``mcp__relay-screen__<tool>``. The computer tools mirror the members of
 ``computer_toolset_20260801`` by name and parameters (D-009); ``batch`` runs several
 of them in one call with the toolset's stop-at-first-failure rule.
 """
@@ -264,7 +264,7 @@ def build_server(services: Services | None = None) -> FastMCP:
         ),
     )
     holder: dict[str, Services] = {}
-    # Browser tools the owner allowed for the rest of this request (one claude -p run).
+    # Browser tools the owner allowed for the rest of this request (one cloud-cli -p run).
     trusted_browser: list[str] = []
     if services is not None:
         holder["s"] = services
@@ -275,14 +275,14 @@ def build_server(services: Services | None = None) -> FastMCP:
         return holder["s"]
 
     async def run(name: str, params: dict[str, Any]) -> CallToolResult:
-        """Run one member off the event loop; drop parameters Claude left unset."""
+        """Run one member off the event loop; drop parameters Cloud AI left unset."""
         params = {k: v for k, v in params.items() if v is not None}
         try:
             computer = svc().computer()
             result = await anyio.to_thread.run_sync(computer.run, name, params)
         except ActionError as exc:
             return _error(str(exc))
-        except Exception as exc:  # e.g. InputBlockedError: report it to Claude
+        except Exception as exc:  # e.g. InputBlockedError: report it to Cloud AI
             return _error(f"{exc.__class__.__name__}: {exc}")
         return _single(result)
 
@@ -631,7 +631,7 @@ def build_server(services: Services | None = None) -> FastMCP:
     async def rearm() -> CallToolResult:
         """After the owner stopped Relay with the kill switch, ask them to re-arm it.
 
-        The owner answers in Relay's own prompt; Claude cannot re-arm Relay itself.
+        The owner answers in Relay's own prompt; Cloud AI cannot re-arm Relay itself.
         """
         s = svc()
         switch, gate = s.killswitch, s.gate
@@ -641,7 +641,7 @@ def build_server(services: Services | None = None) -> FastMCP:
             return _error("No approval prompt is available to ask the owner.")
         if s.driver is not None and switch.in_zone(*s.driver.backend.cursor()):
             return _error("The mouse is still in the kill-switch corner; the owner must move it.")
-        detail = f"Relay was stopped ({switch.reason}). Let Claude act on your PC again?"
+        detail = f"Relay was stopped ({switch.reason}). Let Cloud AI act on your PC again?"
         ok = await anyio.to_thread.run_sync(gate.confirm, "Re-arm Relay?", detail, "Re-arm")
         if not ok:
             return _error("The owner did not re-arm Relay. Stay stopped and ask them in chat.")
@@ -652,7 +652,7 @@ def build_server(services: Services | None = None) -> FastMCP:
     async def approve(
         tool_name: str, input: dict[str, Any], tool_use_id: str | None = None
     ) -> CallToolResult:
-        """Permission prompt for headless runs (claude -p --permission-prompt-tool).
+        """Permission prompt for headless runs (cloud-cli -p --permission-prompt-tool).
 
         Relay's own tools are allowed here because Relay's gate asks the owner itself, and
         so are browser-lane tools that only look at or open a page. In "risky" mode other
@@ -663,8 +663,8 @@ def build_server(services: Services | None = None) -> FastMCP:
         for browser tools the prompt also offers to allow the browser for the rest of
         this request.
 
-        Claude Code wants exactly one text block back. A `str` return would also carry
-        `structuredContent`, which Claude Code rejects as "an invalid result", so the
+        Cloud AI wants exactly one text block back. A `str` return would also carry
+        `structuredContent`, which Cloud AI rejects as "an invalid result", so the
         answer goes out as a bare CallToolResult.
         """
 
@@ -688,7 +688,7 @@ def build_server(services: Services | None = None) -> FastMCP:
         if not browser and s.gate.mode == "risky" and not _tool_risky(tool_name, input):
             return answer(allow)
         detail = describe(tool_name, input)
-        title = f"Claude wants to use {tool_name}"
+        title = f"Cloud AI wants to use {tool_name}"
         always = "Allow the browser for this request" if browser else ""
         try:
             decision = await anyio.to_thread.run_sync(s.gate.ask, title, detail, "Allow", always)
@@ -735,9 +735,9 @@ def main() -> None:
     set_dpi_awareness()
     from relay_screen.lifetime import exit_with_parent
 
-    exit_with_parent()  # a stopped `claude -p` must not leave this process behind (D-105)
+    exit_with_parent()  # a stopped `cloud-cli -p` must not leave this process behind (D-105)
     build_server().run(transport="stdio")
-    # stdin closed: Claude is done with us. Leave now instead of waiting on worker
+    # stdin closed: Cloud AI is done with us. Leave now instead of waiting on worker
     # threads (UIA, the model's warm-up), which kept old servers alive.
     sys.stdout.flush()
     os._exit(0)

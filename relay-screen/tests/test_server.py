@@ -205,19 +205,19 @@ async def test_approve_tool_contract(owner_displays):
         server, "approve", {"tool_name": "mcp__relay-screen__left_click", "input": {"x": 1}}
     )
     assert json.loads(text(relay)) == {"behavior": "allow", "updatedInput": {"x": 1}}
-    # Claude Code accepts exactly one text block and no structured content.
+    # Cloud AI accepts exactly one text block and no structured content.
     assert len(relay.content) == 1 and relay.structuredContent is None
     assert prompter.titles == []  # Relay asks per act itself
     bash = {"tool_name": "Bash", "input": {"command": "dir"}, "tool_use_id": "t1"}
     assert json.loads(text(await call(server, "approve", bash)))["behavior"] == "allow"
     denied = json.loads(text(await call(server, "approve", bash)))
     assert denied == {"behavior": "deny", "message": "The owner denied this tool call."}
-    assert prompter.titles == ["Claude wants to use Bash"] * 2
+    assert prompter.titles == ["Cloud AI wants to use Bash"] * 2
     look = {"tool_name": "mcp__relay-browser__browser_snapshot", "input": {}}
     assert json.loads(text(await call(server, "approve", look)))["behavior"] == "allow"
     go = {"tool_name": "mcp__relay-browser__browser_navigate", "input": {"url": "https://x.y"}}
     assert json.loads(text(await call(server, "approve", go)))["behavior"] == "allow"
-    assert prompter.titles == ["Claude wants to use Bash"] * 2  # looking needs no prompt
+    assert prompter.titles == ["Cloud AI wants to use Bash"] * 2  # looking needs no prompt
 
 
 async def test_approve_can_allow_the_browser_for_the_request(owner_displays):
@@ -226,7 +226,7 @@ async def test_approve_can_allow_the_browser_for_the_request(owner_displays):
     click = {"tool_name": "mcp__relay-browser__browser_click", "input": {"ref": "e1"}}
     for _ in range(4):
         assert json.loads(text(await call(server, "approve", click)))["behavior"] == "allow"
-    assert prompter.titles == ["Claude wants to use mcp__relay-browser__browser_click"] * 2
+    assert prompter.titles == ["Cloud AI wants to use mcp__relay-browser__browser_click"] * 2
     assert prompter.batch_labels == ["Allow the browser for this request"] * 2
     bash = {"tool_name": "Bash", "input": {"command": "dir"}}
     assert json.loads(text(await call(server, "approve", bash)))["behavior"] == "deny"
@@ -329,7 +329,7 @@ async def test_risky_mode_lets_harmless_browser_calls_through(owner_displays):
     assert await ask("browser_type", {"element": "Search", "text": "turing"}) == "allow"
     assert prompter.titles == []
     assert await ask("browser_click", {"element": "Send button", "ref": "e9"}) == "allow"
-    assert prompter.titles == ["Claude wants to use mcp__relay-browser__browser_click"]
+    assert prompter.titles == ["Cloud AI wants to use mcp__relay-browser__browser_click"]
 
 
 async def test_risky_mode_asks_only_before_irreversible_tools(owner_displays):
@@ -343,23 +343,23 @@ async def test_risky_mode_asks_only_before_irreversible_tools(owner_displays):
         return json.loads(text(await call(server, "approve", args)))["behavior"]
 
     harmless = [
-        ("mcp__claude_ai_Dice__search_jobs", {"keyword": "Forward Deployed Engineer"}),
+        ("mcp__cloud_ai_Dice__search_jobs", {"keyword": "Forward Deployed Engineer"}),
         ("PowerShell", {"command": 'Start-Process "https://www.dice.com/jobs?q=x"'}),
         ("PowerShell", {"command": "Get-Process brave | select Id, MainWindowTitle"}),
         ("Bash", {"command": "ls -la && git status"}),
-        ("mcp__claude_ai_Gmail__get_message", {"id": "1"}),
-        ("mcp__claude_ai_Gmail__create_draft", {"to": "a@b.c"}),
+        ("mcp__cloud_ai_Gmail__get_message", {"id": "1"}),
+        ("mcp__cloud_ai_Gmail__create_draft", {"to": "a@b.c"}),
         ("WebFetch", {"url": "https://x.y"}),
         ("Write", {"file_path": "C:/Users/o/Downloads/jobs.csv"}),
     ]
     for tool, params in harmless:
         assert await ask(tool, params) == "allow", tool
     assert prompter.titles == []
-    assert await ask("mcp__claude_ai_Gmail__send_message", {"to": "a@b.c"}) == "allow"
+    assert await ask("mcp__cloud_ai_Gmail__send_message", {"to": "a@b.c"}) == "allow"
     assert await ask("PowerShell", {"command": "Remove-Item -Recurse C:/x"}) == "allow"
     assert await ask("Bash", {"command": "git push origin main"}) == "allow"
     assert prompter.titles == [
-        "Claude wants to use mcp__claude_ai_Gmail__send_message",
-        "Claude wants to use PowerShell",
-        "Claude wants to use Bash",
+        "Cloud AI wants to use mcp__cloud_ai_Gmail__send_message",
+        "Cloud AI wants to use PowerShell",
+        "Cloud AI wants to use Bash",
     ]

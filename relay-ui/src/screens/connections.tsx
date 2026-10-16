@@ -1,4 +1,4 @@
-// Settings > Connections: one MCP hub shared with Claude Code (D-047).
+// Settings > Connections: one MCP hub shared with Cloud AI (D-047).
 import { useCallback, useEffect, useState } from "react";
 import { LinkExternal01, LogIn01, LogOut01, PauseCircle, PlayCircle, Plus, Power01, PuzzlePiece01, RefreshCw01, Trash01 } from "@untitledui/icons";
 import { Badge } from "@/components/base/badges/badges";
@@ -8,6 +8,7 @@ import { Select } from "@/components/base/select/select";
 import { Toggle } from "@/components/base/toggle/toggle";
 import { Card, Notice, Section, Skeleton, Spinner } from "@/components/relay/ui";
 import { type CatalogServer, type McpEntry, type McpStatus, type Plugin, type ServerSpec, api, errorText } from "@/lib/api";
+import { ACCOUNT_CONNECTORS_URL } from "@/lib/cli-names";
 import { clearJob, useJobs, waitForJob } from "@/lib/jobs";
 
 const statusBadge = (s: McpStatus, text: string) => {
@@ -33,14 +34,14 @@ const statusBadge = (s: McpStatus, text: string) => {
     );
 };
 
-const displayName = (e: McpEntry) => e.name.replace(/^claude\.ai /, "").replace(/^plugin:[^:]+:/, "");
+const displayName = (e: McpEntry) => e.name.replace(/^cloud\.ai /, "").replace(/^plugin:[^:]+:/, "");
 const pluginLabel = (id: string) => id.split("@")[0];
 
 /** What a row says under its name when its status needs explaining. */
 const explain = (e: McpEntry): string | null => {
     switch (e.status) {
         case "needs_auth":
-            return e.kind === "claude_ai" ? "Sign in on claude.ai to use it." : "Sign in once and Claude Code keeps you signed in.";
+            return e.kind === "cloud_ai" ? "Sign in on the Cloud AI website to use it." : "Sign in once and Cloud AI keeps you signed in.";
         case "not_configured":
             return `The ${e.plugin ? pluginLabel(e.plugin) : "plugin"} plugin needs settings for this server before it can start. If you don't use it, turn the plugin off.`;
         case "failed":
@@ -102,17 +103,17 @@ const Row = ({ e, onChange, setError }: { e: McpEntry; onChange: () => void; set
                     {note && <div className={e.status === "failed" ? "mt-1 text-xs text-error-primary" : "mt-1 text-xs text-tertiary"}>{note}</div>}
                 </div>
                 <div className="flex flex-wrap gap-2">
-                    {e.status === "needs_auth" && e.kind !== "claude_ai" && (
+                    {e.status === "needs_auth" && e.kind !== "cloud_ai" && (
                         <Button size="sm" iconLeading={LogIn01} isLoading={signingIn} showTextWhileLoading onClick={signIn}>
                             Sign in
                         </Button>
                     )}
-                    {e.kind === "claude_ai" && (
-                        <Button size="sm" color="secondary" iconTrailing={LinkExternal01} onClick={() => api.openPath("https://claude.ai/settings/connectors")}>
-                            Manage on claude.ai
+                    {e.kind === "cloud_ai" && (
+                        <Button size="sm" color="secondary" iconTrailing={LinkExternal01} onClick={() => api.openPath(ACCOUNT_CONNECTORS_URL)}>
+                            Manage online
                         </Button>
                     )}
-                    {e.status === "connected" && isWeb && e.kind !== "claude_ai" && (
+                    {e.status === "connected" && isWeb && e.kind !== "cloud_ai" && (
                         <Button size="sm" color="tertiary" iconLeading={LogOut01} isLoading={busy === "logout"} onClick={() => run("logout", () => api.mcpLogout(e.name))}>
                             Sign out
                         </Button>
@@ -184,7 +185,7 @@ const Plugins = ({ onChange }: { onChange: () => void }) => {
         onChange();
     };
     return (
-        <Section title="Claude Code plugins" description="A plugin can bring servers, skills and commands. Turning one off turns off everything it brings, for Claude Code too.">
+        <Section title="Cloud AI plugins" description="A plugin can bring servers, skills and commands. Turning one off turns off everything it brings, for Cloud AI too.">
             {error && <Notice tone="error">{error}</Notice>}
             <Card className="overflow-hidden p-0">
                 {list === null ? (
@@ -327,11 +328,11 @@ const AddServer = ({ catalog, onAdded }: { catalog: CatalogServer[]; onAdded: ()
                     </div>
                 </div>
             )}
-            {transport !== "stdio" && <p className="text-xs text-tertiary">If the server needs a sign-in, Claude Code asks for it the first time it connects.</p>}
+            {transport !== "stdio" && <p className="text-xs text-tertiary">If the server needs a sign-in, Cloud AI asks for it the first time it connects.</p>}
             {error && <Notice tone="error">{error}</Notice>}
             <div>
                 <Button size="sm" iconLeading={Plus} onClick={add} isLoading={busy} isDisabled={!name || (transport === "stdio" ? !command : !url)}>
-                    Add to Claude and Relay
+                    Add to Cloud AI and Relay
                 </Button>
             </div>
         </Card>
@@ -360,15 +361,15 @@ export const ConnectionsPage = () => {
 
     const groups: { title: string; description: string; kinds: McpEntry["kind"][] }[] = [
         { title: "Relay", description: "Relay's own tools: the screen and the browser. They can be paused but not removed.", kinds: ["builtin"] },
-        { title: "Your servers", description: "Local and web MCP servers. Whatever is here, Claude can use too.", kinds: ["local"] },
-        { title: "Claude connectors", description: "Connectors from your Claude account, like Gmail and Calendar. Manage them on claude.ai.", kinds: ["claude_ai"] },
-        { title: "Plugin servers", description: "Servers that come with Claude Code plugins. Sign in to the ones you use; turn off plugins you don't need.", kinds: ["plugin"] },
+        { title: "Your servers", description: "Local and web MCP servers. Whatever is here, Cloud AI can use too.", kinds: ["local"] },
+        { title: "Cloud AI connectors", description: "Connectors from your Cloud AI account, like Gmail and Calendar. Manage them on the Cloud AI website.", kinds: ["cloud_ai"] },
+        { title: "Plugin servers", description: "Servers that come with Cloud AI plugins. Sign in to the ones you use; turn off plugins you don't need.", kinds: ["plugin"] },
     ];
 
     return (
         <>
             <div className="flex flex-wrap items-center justify-between gap-3 pt-4">
-                <p className="text-sm text-tertiary">This list is Claude Code's own MCP list, so a change here is a change for Claude too.</p>
+                <p className="text-sm text-tertiary">This list is Cloud AI's own MCP list, so a change here is a change for Cloud AI too.</p>
                 <Button size="sm" color="secondary" iconLeading={RefreshCw01} onClick={refresh} isLoading={loading}>
                     Refresh
                 </Button>
@@ -379,7 +380,7 @@ export const ConnectionsPage = () => {
                 </div>
             )}
             {entries === null && !error && (
-                <Section title="Servers" description="Asking Claude Code for its servers. It checks each one, which takes a few seconds.">
+                <Section title="Servers" description="Asking Cloud AI for its servers. It checks each one, which takes a few seconds.">
                     <Card className="flex flex-col gap-4 p-5">
                         {[48, 64, 40].map((w) => (
                             <div key={w} className="flex items-center gap-3">
@@ -399,7 +400,7 @@ export const ConnectionsPage = () => {
                             <Card className="overflow-hidden p-0">
                                 {rows.length === 0 ? (
                                     <p className="px-5 py-4 text-sm text-tertiary">
-                                        {g.kinds[0] === "builtin" ? "relay-screen is not registered yet. It is added when Claude Code is installed." : "None yet."}
+                                        {g.kinds[0] === "builtin" ? "relay-screen is not registered yet. It is added when Cloud AI is installed." : "None yet."}
                                     </p>
                                 ) : (
                                     rows.map((e) => <Row key={e.name} e={e} onChange={refresh} setError={setError} />)
@@ -409,7 +410,7 @@ export const ConnectionsPage = () => {
                     );
                 })}
             <Plugins onChange={refresh} />
-            <Section title="Add a server" description="Pick a well-known server or enter one by hand. It is added for Claude Code at user scope.">
+            <Section title="Add a server" description="Pick a well-known server or enter one by hand. It is added for Cloud AI at user scope.">
                 <AddServer catalog={catalog} onAdded={refresh} />
             </Section>
         </>

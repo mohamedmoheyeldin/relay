@@ -1,4 +1,4 @@
-# Copy to profile.yaml (gitignored) and fill in. Only the fields a step needs are sent to Claude.
+# Copy to profile.yaml (gitignored) and fill in. Only the fields a step needs are sent to Cloud AI.
 name: Jane Example
 email: jane@example.com
 phone: "+1 555 0100"

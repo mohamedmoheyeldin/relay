@@ -1,6 +1,6 @@
 """Coordinate math between screenshot pixels and physical desktop pixels.
 
-Claude sees screenshots of one display, resized to fit an image budget. Every
+Cloud AI sees screenshots of one display, resized to fit an image budget. Every
 coordinate it sends back is in that screenshot's pixel space (computer_toolset
 semantics, docs/decisions.md D-009). This module is the only place that converts
 between that space and physical pixels on the Windows virtual desktop.
@@ -53,7 +53,7 @@ class Rect:
 
 @dataclass(frozen=True)
 class ImageBudget:
-    """Size limits for images returned to Claude."""
+    """Size limits for images returned to Cloud AI."""
 
     long_edge: int = DEFAULT_LONG_EDGE
     max_pixels: int = MAX_PIXELS
@@ -79,7 +79,7 @@ def fit_size(width: int, height: int, budget: ImageBudget) -> tuple[int, int]:
 
 @dataclass(frozen=True)
 class ScreenshotGeometry:
-    """How a display's physical pixels map onto the screenshot Claude sees."""
+    """How a display's physical pixels map onto the screenshot Cloud AI sees."""
 
     display: Rect
     width: int

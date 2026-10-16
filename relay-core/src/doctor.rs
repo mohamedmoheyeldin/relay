@@ -5,7 +5,7 @@ use std::path::Path;
 use serde::Serialize;
 
 use crate::settings::Settings;
-use crate::{claude, gpu, local_ai, mcp, paths};
+use crate::{cloud, gpu, local_ai, mcp, paths};
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct Check {
@@ -24,11 +24,11 @@ fn check(name: &str, ok: bool, detail: impl Into<String>) -> Check {
 
 pub async fn run(settings: &Settings, python: Option<&Path>, app_version: &str) -> Vec<Check> {
     let mut checks = vec![check("Relay", true, format!("version {app_version}"))];
-    let state = claude::state().await;
+    let state = cloud::state().await;
     checks.push(match &state.version {
-        Some(v) => check("Claude Code installed", true, format!("version {v}")),
+        Some(v) => check("Cloud AI installed", true, format!("version {v}")),
         None => check(
-            "Claude Code installed",
+            "Cloud AI installed",
             false,
             "Not found. Run the setup again.",
         ),
@@ -36,7 +36,7 @@ pub async fn run(settings: &Settings, python: Option<&Path>, app_version: &str) 
     if state.installed {
         checks.push(if state.auth.logged_in {
             check(
-                "Claude Code signed in",
+                "Cloud AI signed in",
                 true,
                 state
                     .auth
@@ -46,9 +46,9 @@ pub async fn run(settings: &Settings, python: Option<&Path>, app_version: &str) 
             )
         } else {
             check(
-                "Claude Code signed in",
+                "Cloud AI signed in",
                 false,
-                "Not signed in. Use Settings > Claude.",
+                "Not signed in. Use Settings > Cloud AI.",
             )
         });
         let registered = mcp::exists(mcp::RELAY_SCREEN).await;
@@ -58,7 +58,7 @@ pub async fn run(settings: &Settings, python: Option<&Path>, app_version: &str) 
             .iter()
             .any(|s| s.name == mcp::RELAY_SCREEN);
         checks.push(check(
-            "relay-screen connected to Claude",
+            "relay-screen connected to Cloud AI",
             registered || paused,
             if registered {
                 "registered at user scope"
@@ -152,7 +152,7 @@ async fn approval_prompt(python: &Path) -> Check {
         return check(
             "Approval prompt",
             true,
-            "ready to ask you before Claude acts",
+            "ready to ask you before Cloud AI acts",
         );
     }
     let reason = answer["error"]
@@ -169,7 +169,7 @@ async fn approval_prompt(python: &Path) -> Check {
     check(
         "Approval prompt",
         false,
-        format!("can't open, so Claude's actions would be refused: {reason}"),
+        format!("can't open, so Cloud AI's actions would be refused: {reason}"),
     )
 }
 

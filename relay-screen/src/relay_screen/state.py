@@ -18,7 +18,7 @@ class ScreenState:
 
     The active display is pinned the first time it is needed (to the display holding the
     foreground window, else the primary) and stays pinned until `select_display`, so the
-    coordinates of a screenshot keep meaning the same thing while Claude acts on it.
+    coordinates of a screenshot keep meaning the same thing while Cloud AI acts on it.
     """
 
     def __init__(

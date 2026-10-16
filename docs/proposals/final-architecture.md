@@ -9,22 +9,22 @@
 
 ## 1. The answer in one page
 
-**Local AI runs the hands, Claude does the thinking.** The local side is the
+**Local AI runs the hands, Cloud AI does the thinking.** The local side is the
 main brain *for executing*: it sees, finds, acts, checks and follows playbooks
-on its own, with no cloud call. Claude is called when something needs thinking:
+on its own, with no cloud call. Cloud AI is called when something needs thinking:
 planning a task Relay has never done, writing free text, or recovering when the
 screen does not match the playbook. This is D-001 unchanged.
 
 | Area | Recommendation |
 |---|---|
 | Core | A native **Rust daemon (`relay-core`) that is always running**, built in M2. It **wraps** the Python `relay-screen` from M1 instead of replacing it, and adds the always-on perception that makes control feel smooth: a live frame stream, change events, UIA events, and the overlay. |
-| Smoothness | Never wait blind: know when the screen changed from capture and UIA events instead of sleeping, keep models warm for the whole task, send Claude text (UIA/ARIA) instead of screenshots, and use the cheapest path that works. Section 2. |
+| Smoothness | Never wait blind: know when the screen changed from capture and UIA events instead of sleeping, keep models warm for the whole task, send Cloud AI text (UIA/ARIA) instead of screenshots, and use the cheapest path that works. Section 2. |
 | Hands | Keep Python `relay-screen` (UIA, input, capture, OCR, safety, all verified on the owner's PC) as Relay's Windows hands through v1. Port to Rust only when macOS work starts (M4), behind the same tool contract. |
 | Face | Tauri 2 + React + Untitled UI (D-007), a client of the daemon over a local WebSocket. Closing the window never stops a running task. |
-| Brain (thinking) | Claude Code headless on the owner's subscription (D-002). No local planning LLM. |
+| Brain (thinking) | Cloud AI headless on the owner's subscription (D-002). No local planning LLM. |
 | Brain (executing) | Deterministic playbook runner in `relay-core` + small local vision models for "where is it" and "did it work". |
 | Local models | UI-Venus-1.5-8B (grounding) + Qwen3-VL-8B-Instruct (describe/verify/step check), both kept resident at Q4/Q5 in ~12 GB VRAM so there is no swap; unload after 60 s idle. Final quant from the M1-11 benchmark. |
-| Speed ladder | Playbook replay first, then API/MCP -> shell/COM -> browser/Electron DOM via CDP -> accessibility tree -> OCR -> local vision -> Claude with a screenshot. Raw coordinates only as the output of a lower rung, never as a plan. |
+| Speed ladder | Playbook replay first, then API/MCP -> shell/COM -> browser/Electron DOM via CDP -> accessibility tree -> OCR -> local vision -> Cloud AI with a screenshot. Raw coordinates only as the output of a lower rung, never as a plan. |
 | Platforms | Windows only through v1. The contract and the daemon are written so macOS can follow in M4; Linux after that, Wayland-first. |
 
 ## 2. What makes Windows and macOS control smooth
@@ -61,9 +61,9 @@ app. Design notes: [research/screen-lane-notes.md](../research/screen-lane-notes
 - **New: an always-on native process for perception.** UIA and the overlay
   belong in a native helper. Relay's Rust core does the same for the parts that
   must run continuously (section 4.2).
-- **New: text to the cloud, not screenshots.** Claude gets the UIA/ARIA text of
+- **New: text to the cloud, not screenshots.** Cloud AI gets the UIA/ARIA text of
   the relevant window first and a screenshot only when text is not enough.
-  This makes Claude turns faster and cheaper on the owner's usage limits.
+  This makes Cloud AI turns faster and cheaper on the owner's usage limits.
 
 **Beat:**
 - **Fresh frames without a capture card.** Windows Graphics Capture keeps a
@@ -78,7 +78,7 @@ app. Design notes: [research/screen-lane-notes.md](../research/screen-lane-notes
   external box calls the PC over WebRTC/serial for every accessibility query. Relay's
   tools run on the same machine as the agent's hands.
 - **A far bigger GPU.** An RTX 5080 runs 8B vision models at Q4/Q8 much faster
-  than a small NPU, and Claude replaces the 8B planner.
+  than a small NPU, and Cloud AI replaces the 8B planner.
 - **The real browser.** Relay drives the owner's own Brave profile through an
   extension instead of an embedded browser with copied cookies (section 5).
 - **Admin windows.** A signed helper with `uiAccess="true"`, installed under
@@ -96,17 +96,17 @@ app. Design notes: [research/screen-lane-notes.md](../research/screen-lane-notes
 - OmniParser (AGPL-3.0, D-022) and the proactive "commitment" detector over
   chat apps (post-M3 at the earliest).
 - Routing BYOK cloud calls through a vendor server. Relay talks only to the
-  owner's own Claude Code.
+  owner's own Cloud AI.
 
 ## 3. Where the brief and the current plan disagree
 
 | Topic | Brief says | Current plan says | Recommendation |
 |---|---|---|---|
-| Cloud AI | "No cloud AI", then the last line says Claude does the thinking | Local hands, cloud brain (D-001, D-002) | **Current plan.** The last line is the owner's latest intent, and a local 8B-30B model plans new tasks far worse than Claude. |
-| Local "Brain (planning)" model | A row for a planning model, maybe a large MoE in system RAM | Local model never decides what to do (D-001) | **No local planner.** 32 GB RAM cannot hold a 30B MoE (~18 GB at Q4) and still leave RAM free, which is a standing rule. Planning goes to Claude; replay needs no planner. |
+| Cloud AI | "No cloud AI", then the last line says Cloud AI does the thinking | Local hands, cloud brain (D-001, D-002) | **Current plan.** The last line is the owner's latest intent, and a local 8B-30B model plans new tasks far worse than Cloud AI. |
+| Local "Brain (planning)" model | A row for a planning model, maybe a large MoE in system RAM | Local model never decides what to do (D-001) | **No local planner.** 32 GB RAM cannot hold a 30B MoE (~18 GB at Q4) and still leave RAM free, which is a standing rule. Planning goes to Cloud AI; replay needs no planner. |
 | Core language | Native Rust core, always running | Python relay-core (M2) on top of Python relay-screen | **Rust for the core, Python stays for the hands.** See section 4. |
-| Process model | Core keeps capture/input handles open; UI talks over IPC/WebSocket | Claude Code spawns relay-screen over stdio per session | **Brief.** The daemon keeps relay-screen warm and Claude Code connects to it over localhost HTTP, removing the per-run start cost. |
-| Ladder order | MCP -> shell/COM -> CDP -> a11y -> OCR+vision -> coordinates | connector -> UIA -> OCR -> VLM -> Claude (D-008), COM and DOM lanes added (D-021) | **Brief's order, plus two rungs**: playbook replay at the top, Claude-with-screenshot above raw coordinates. |
+| Process model | Core keeps capture/input handles open; UI talks over IPC/WebSocket | Cloud AI spawns relay-screen over stdio per session | **Brief.** The daemon keeps relay-screen warm and Cloud AI connects to it over localhost HTTP, removing the per-run start cost. |
+| Ladder order | MCP -> shell/COM -> CDP -> a11y -> OCR+vision -> coordinates | connector -> UIA -> OCR -> VLM -> Cloud AI (D-008), COM and DOM lanes added (D-021) | **Brief's order, plus two rungs**: playbook replay at the top, Cloud AI-with-screenshot above raw coordinates. |
 | Accessibility library | xa11y or Terminator | Python `uiautomation`, own UIA thread (D-013, D-026) | **Keep `uiautomation` on Windows.** It is built and verified. Evaluate xa11y for macOS/Linux in M4 (MIT, pre-1.0). Terminator is Windows-first with experimental macOS/Linux, so it buys nothing over what Relay already has. |
 | OCR | Windows.Media.Ocr / Vision | Windows.Media.Ocr (D-029) | Same. |
 | Capture/input crates | xcap/scap, enigo | mss + own SendInput (D-013) | **Keep on Windows.** Use xcap/enigo (or direct WGC/CGEvent) only in the M4 Rust hands. |
@@ -121,11 +121,11 @@ app. Design notes: [research/screen-lane-notes.md](../research/screen-lane-notes
 **Wrap now, port the hands later, never rewrite for its own sake.**
 
 - The speed that matters is per-step latency: UIA lookups 50-300 ms, vision
-  1-3 s, a Claude turn 3-15 s. Python adds well under a millisecond to a
+  1-3 s, a Cloud AI turn 3-15 s. Python adds well under a millisecond to a
   SendInput call. A Rust rewrite of the hands would not make a step noticeably
-  faster; avoiding vision and Claude calls does.
+  faster; avoiding vision and Cloud AI calls does.
 - The one real Python cost is **process start** (interpreter + imports, about
-  1-2 s each time Claude Code spawns the stdio server). An always-on daemon
+  1-2 s each time Cloud AI spawns the stdio server). An always-on daemon
   removes it without rewriting anything.
 - relay-screen is verified on the owner's three monitors (DPI, scaling,
   typing quirks, UIA threading, OCR). That knowledge lives in its tests and
@@ -144,9 +144,9 @@ app. Design notes: [research/screen-lane-notes.md](../research/screen-lane-notes
                                              ▼
  ┌──────────────────────── relay-core (Rust, always on, starts at login) ────────────────────────┐
  │ task router + playbook runner + approval broker + audit log                                  │
- │ Claude driver: spawns `claude -p --output-format stream-json` (D-002)                        │
+ │ Cloud AI driver: spawns `cloud-cli -p --output-format stream-json` (D-002)                        │
  │ supervisor: relay-screen worker, llama-server (idle unload 60 s), browser bridge             │
- │ MCP endpoint for Claude Code: streamable HTTP on 127.0.0.1 (proxied to relay-screen)         │
+ │ MCP endpoint for Cloud AI: streamable HTTP on 127.0.0.1 (proxied to relay-screen)         │
  │ perception: WGC frame stream per monitor, settle/change events, UIA event watcher, overlay   │
  └───────────────┬───────────────────────────────┬──────────────────────────────────────────────┘
                  │ MCP (kept warm)                │ HTTP localhost
@@ -169,9 +169,9 @@ app. Design notes: [research/screen-lane-notes.md](../research/screen-lane-notes
   so no path can bypass them (D-012, D-019, D-025). The only change: it also
   serves MCP over streamable HTTP on localhost so the core can keep one warm
   instance. Stdio stays for development.
-- **Claude Code** is pointed at the core's localhost MCP URL in the
-  `--mcp-config` Relay passes to `claude -p`, plus the owner's own connectors.
-  The bearer token is Relay's own local secret, never a Claude credential.
+- **Cloud AI** is pointed at the core's localhost MCP URL in the
+  `--mcp-config` Relay passes to `cloud-cli -p`, plus the owner's own connectors.
+  The bearer token is Relay's own local secret, never a Cloud AI credential.
 - **llama-server** lifecycle moves from relay-screen (M1-09) to the core in
   M2, because the core is the long-lived process and the browser and playbook
   runner also need the models. M1 keeps it in Python as planned; the move is a
@@ -185,7 +185,7 @@ app. Design notes: [research/screen-lane-notes.md](../research/screen-lane-notes
 | Milestone | Change |
 |---|---|
 | M1 (now) | Nothing changes. Finish relay-screen in Python, including the runtime manager and benchmark. Add streamable-HTTP serving as a small M1 task or first M2 task. |
-| M2 | Build `relay-core` in Rust (instead of Python): daemon, Claude stream-json driver, router, playbook runner, model supervisor, WebSocket API, browser bridge, perception service (WGC stream, settle events, UIA events). COM lane runs in relay-screen (Python `pywin32` is the most mature COM path). |
+| M2 | Build `relay-core` in Rust (instead of Python): daemon, Cloud AI stream-json driver, router, playbook runner, model supervisor, WebSocket API, browser bridge, perception service (WGC stream, settle events, UIA events). COM lane runs in relay-screen (Python `pywin32` is the most mature COM path). |
 | M3 | Tauri UI as client of the daemon; installer bundles both sidecars. |
 | M4 | Rust hands for macOS (and, if it helps, Windows too) behind the same MCP contract, validated by running relay-screen's test suite as contract tests against both. |
 
@@ -197,14 +197,14 @@ long it took to the audit log, so the router learns which rung works per app.
 | # | Rung | Who runs it | Typical cost | Notes |
 |---|---|---|---|---|
 | 0 | **Playbook replay** | relay-core runner | tens of ms per step + the rung each step uses | No cloud call. Steps store the best selector found last time (UIA path, DOM selector, COM call, keyboard shortcut), with lower rungs as fallbacks. |
-| 1 | **Service API via MCP** (Gmail, GitHub, Calendar, Drive) | Claude Code connectors | ms-s, no screen | D-003. Connectors are reached only through Claude Code, so this rung always involves Claude. |
-| 2 | **Shell / PowerShell / COM** (Office, Explorer, settings) | Claude Code's shell tool when Claude drives; relay-screen `com_*`/`run_*` tools with approval when replaying | 10-100 ms | Exact and fast. Commands outside an allowlist need approval. |
+| 1 | **Service API via MCP** (Gmail, GitHub, Calendar, Drive) | Cloud AI connectors | ms-s, no screen | D-003. Connectors are reached only through Cloud AI, so this rung always involves Cloud AI. |
+| 2 | **Shell / PowerShell / COM** (Office, Explorer, settings) | Cloud AI's shell tool when Cloud AI drives; relay-screen `com_*`/`run_*` tools with approval when replaying | 10-100 ms | Exact and fast. Commands outside an allowlist need approval. |
 | 3 | **Keyboard shortcuts** | relay-screen `key` | ~20 ms | Cheapest UI action when the shortcut is known (Ctrl+S, Ctrl+L). Stored in playbooks (D-008). |
-| 4 | **Browser and Electron DOM via CDP** | browser bridge in relay-core | 20-200 ms | Playwright-style ARIA snapshots and CSS/role selectors (D-021), form values redacted before anything goes to Claude. |
+| 4 | **Browser and Electron DOM via CDP** | browser bridge in relay-core | 20-200 ms | Playwright-style ARIA snapshots and CSS/role selectors (D-021), form values redacted before anything goes to Cloud AI. |
 | 5 | **Accessibility tree** | relay-screen UIA | 50-300 ms | Exact bounds, Invoke/Value patterns, no pixels (D-017, D-026). |
 | 6 | **OCR** | relay-screen Windows.Media.Ocr | 50-200 ms, CPU | Finds visible text with boxes. |
 | 7 | **Local vision model** | llama-server | 0.5-3 s warm, + load time cold | `locate` (grounding), `verify`, `describe`. Canvas apps, games, remote desktops, icon-only buttons. |
-| 8 | **Claude with a screenshot** | Claude Code | 3-15 s | For unknown or unexpected screens. Claude answers by calling the rungs above, not by guessing. |
+| 8 | **Cloud AI with a screenshot** | Cloud AI | 3-15 s | For unknown or unexpected screens. Cloud AI answers by calling the rungs above, not by guessing. |
 | 9 | **Raw coordinates** | relay-screen | ~1 ms | Only as the output of rungs 6-8 on the current screenshot, never replayed blindly from an old playbook. |
 
 **Browser lane (decides D-016).** Brave is the owner's browser (D-028) and they
@@ -220,7 +220,7 @@ Electron apps already running, rung 5 is the fallback.
 
 ## 6. Who does what
 
-| Task | Local (executes) | Claude (thinks) |
+| Task | Local (executes) | Cloud AI (thinks) |
 |---|---|---|
 | A task with a matching playbook | Runs every step, checks each result, handles known detours (popups, slow loads, scrolling to find) | Not called |
 | A playbook step whose check fails | Retries once by a lower rung, then stops | Gets the playbook, the step, and a screenshot; decides the fix; Relay updates the playbook |
@@ -248,7 +248,7 @@ offload, no model in RAM.
 | Look and check: `verify`, `describe`, step check in replays | **Qwen3-VL-8B-Instruct** (Apache-2.0) | Q4_K_M ~5.5 GB | Best general description and yes/no checking at this size; official GGUF. |
 | Both resident | the two above | ~11-12 GB with a small KV cache | **No swapping.** Swapping two 8B models costs seconds per switch, which a replay alternating `locate` and `verify` would pay on every step. |
 | One-model fallback | Holo2-8B (or Holo2-4B) | Q4/Q8 | If the benchmark shows the Q4 pair losing too much accuracy, one model that does both at Q8 beats swapping. |
-| Planning | none locally | n/a | Claude plans. A 30B MoE in RAM does not fit the RAM rule and plans worse. Revisit only if "offline mode" becomes a goal. |
+| Planning | none locally | n/a | Cloud AI plans. A 30B MoE in RAM does not fit the RAM rule and plans worse. Revisit only if "offline mode" becomes a goal. |
 | OCR | Windows.Media.Ocr | CPU, no GPU | Already built (D-029). |
 
 This changes D-005's default from "Q8, one model at a time, swap on demand" to
@@ -258,7 +258,7 @@ pair; otherwise use the Holo2 single-model fallback. Both servers (or one
 llama-server with two models, if router mode is stable on the pinned build)
 unload together after 60 s idle. If NVML reports less free VRAM than needed (a
 game is running), Relay loads only the grounding model or skips straight to
-Claude.
+Cloud AI.
 
 ## 8. Platforms
 
@@ -270,13 +270,13 @@ Claude.
   setting `AXManualAccessibility` (Electron) or `AXEnhancedUserInterface`
   (Chromium) on the app is the macOS twin of D-017. Needs Screen Recording and
   Accessibility permissions from the owner,
-  and a Mac to test on. Claude Code, llama.cpp (Metal) and the Brave extension
+  and a Mac to test on. Cloud AI, llama.cpp (Metal) and the Brave extension
   all work there already.
 - **Linux (after macOS).** AT-SPI via xa11y, PipeWire portal capture,
   libei/uinput input. Wayland restricts global input and capture, so expect
   portal prompts and per-compositor gaps.
 - **What makes this cheap later:** the MCP tool contract (D-009) is the
-  boundary. relay-core, playbooks, the UI and Claude's prompts never see which
+  boundary. relay-core, playbooks, the UI and Cloud AI's prompts never see which
   OS is underneath. relay-screen's test suite becomes the contract test for
   every hands implementation.
 
@@ -299,10 +299,10 @@ Proposed as new entries; none rewrites an old one.
    hands through v1. Hands move to Rust only for macOS (M4), behind D-009.
 2. **Warm MCP over localhost HTTP.** relay-screen also serves streamable-HTTP
    MCP on 127.0.0.1 with a local token; relay-core keeps one instance running
-   and Claude Code connects to it. Kill switch and approvals stay inside
+   and Cloud AI connects to it. Kill switch and approvals stay inside
    relay-screen.
 3. **Speed ladder** as in section 5 (playbook replay, MCP, shell/COM,
-   shortcuts, DOM via CDP, UIA, OCR, local vision, Claude, raw coordinates),
+   shortcuts, DOM via CDP, UIA, OCR, local vision, Cloud AI, raw coordinates),
    extending D-008 and D-021.
 4. **Browser lane (closes D-016).** Own MV3 extension in the owner's Brave
    profile using `chrome.debugger` + native messaging; no separate profile, no
@@ -316,11 +316,11 @@ Proposed as new entries; none rewrites an old one.
 7. **Platform scope.** Windows through v1; macOS in M4 with Rust hands
    (xa11y, xcap, CGEvent, Vision OCR); Linux after macOS.
 8. **D-001 confirmed** against the brief's "no cloud AI" line: local executes
-   and follows playbooks, Claude plans, writes and recovers.
+   and follows playbooks, Cloud AI plans, writes and recovers.
 9. **Always-on perception in relay-core (M2).** Windows Graphics Capture stream
    per monitor, settle/change events from frame diffs (replaces D-024's
    polling), UIA event watcher, overlay. relay-screen consumes them.
-10. **Text first to Claude.** Observations sent to Claude lead with UIA/ARIA
+10. **Text first to Cloud AI.** Observations sent to Cloud AI lead with UIA/ARIA
     text of the relevant window; screenshots only when text is not enough.
 11. **Warm for the whole task.** Models load at task start and unload 60 s after
     the task ends (refines D-006).
@@ -334,4 +334,4 @@ Proposed as new entries; none rewrites an old one.
 - xa11y (MIT, Rust + Python, Windows UIA / macOS AX / Linux AT-SPI, pre-1.0): https://lib.rs/crates/xa11y , https://pypi.org/project/xa11y/
 - Terminator by Mediar AI (MIT, Windows primary, macOS/Linux experimental): https://lib.rs/crates/terminator-rs
 - Model scores and sizes: see D-005 and [research/local-models.md](../research/local-models.md).
-- Claude Code headless and MCP: [research/claude-integration.md](../research/claude-integration.md).
+- Cloud AI headless and MCP: [research/cloud-integration.md](../research/cloud-integration.md).

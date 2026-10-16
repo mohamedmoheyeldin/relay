@@ -280,7 +280,7 @@ Thumbs.db
 Desktop.ini
 .DS_Store
 
-# Claude Code local-only settings
+# Cloud AI local-only settings
 .claude/settings.local.json
 /target/
 

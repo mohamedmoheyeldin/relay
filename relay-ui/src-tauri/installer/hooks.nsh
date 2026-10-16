@@ -1,4 +1,7 @@
 ; Relay NSIS hooks (Tauri bundler).
+
+; The Cloud AI CLI's executable name, as relay-core/src/cli_names.rs has it (D-110).
+!define CLOUD_CLI "claude"
 ; Relay installs for all users into Program Files. Relay 0.1.0 installed per user
 ; (C:\relay by default), so that copy is uninstalled first: there is only ever one Relay.
 
@@ -93,13 +96,13 @@ FunctionEnd
   !insertmacro RELAY_EXT_POLICIES_REMOVE ""
 !macroend
 
-; The app registers relay-screen and relay-browser with Claude Code (D-047), so the
-; uninstaller takes those registrations out again. Claude Code itself, the models and
+; The app registers relay-screen and relay-browser with Cloud AI (D-047), so the
+; uninstaller takes those registrations out again. Cloud AI itself, the models and
 ; settings are left alone.
 !macro NSIS_HOOK_PREUNINSTALL
-  nsExec::Exec '"$SYSDIR\cmd.exe" /c claude mcp remove --scope user relay-screen'
+  nsExec::Exec '"$SYSDIR\cmd.exe" /c ${CLOUD_CLI} mcp remove --scope user relay-screen'
   Pop $0
-  nsExec::Exec '"$SYSDIR\cmd.exe" /c claude mcp remove --scope user relay-browser'
+  nsExec::Exec '"$SYSDIR\cmd.exe" /c ${CLOUD_CLI} mcp remove --scope user relay-browser'
   Pop $0
   !insertmacro RELAY_EXT_POLICIES_REMOVE "un."
 !macroend

@@ -133,7 +133,7 @@ pub fn recommend(gpu: Option<&Gpu>) -> Recommendation {
         return Recommendation {
             picks: vec![],
             reason:
-                "No NVIDIA GPU found. Relay still works: Claude looks at the screenshots itself."
+                "No NVIDIA GPU found. Relay still works: Cloud AI looks at the screenshots itself."
                     .into(),
         };
     };
@@ -172,7 +172,7 @@ pub fn recommend(gpu: Option<&Gpu>) -> Recommendation {
     Recommendation {
         picks: vec![],
         reason: format!(
-            "{} has too little VRAM for a local model. Relay still works: Claude looks at the screenshots itself.",
+            "{} has too little VRAM for a local model. Relay still works: Cloud AI looks at the screenshots itself.",
             gpu.name
         ),
     }

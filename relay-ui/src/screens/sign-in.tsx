@@ -1,6 +1,6 @@
-// Signing in to Claude Code without a terminal (D-045). Relay runs `claude auth login`
-// out of sight, opens the sign-in page, and watches `claude auth status` until the
-// owner is signed in. Relay never sees the token; Claude Code keeps it.
+// Signing in to Cloud AI without a terminal (D-045). Relay runs `cloud-cli auth login`
+// out of sight, opens the sign-in page, and watches `cloud-cli auth status` until the
+// owner is signed in. Relay never sees the token; Cloud AI keeps it.
 import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { ChevronDown, LinkExternal01, LogIn01 } from "@untitledui/icons";
@@ -9,7 +9,7 @@ import { Input } from "@/components/base/input/input";
 import { FeaturedIcon } from "@/components/foundations/featured-icon/featured-icon";
 import { Card, Notice, Spinner } from "@/components/relay/ui";
 import { api, errorText } from "@/lib/api";
-import { refreshClaude } from "@/lib/claude";
+import { refreshCloud } from "@/lib/cloud";
 import { cx } from "@/utils/cx";
 
 type Kind = "login" | "login-console";
@@ -20,7 +20,7 @@ const ANSI = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b\[[0-?]*[ -/]*[@-~]|\x1b[@-Z
 
 export const plainText = (raw: string) => raw.replace(ANSI, "").replace(/\r(?!\n)/g, "\n");
 
-/** The sign-in link Claude Code prints, if it has printed one. */
+/** The sign-in link Cloud AI prints, if it has printed one. */
 export const findSignInUrl = (text: string): string | null => {
     const urls = text.match(/https:\/\/[^\s"'<>]+/g) ?? [];
     return urls.find((u) => /oauth|authorize|login/i.test(u)) ?? urls[0] ?? null;
@@ -46,17 +46,17 @@ export const SignIn = ({ onDone, onCancel }: { onDone: () => void; onCancel: () 
         setFailed(null);
         idRef.current = null;
 
-        // When Claude Code already counts as signed in (switching account, or a session
+        // When Cloud AI already counts as signed in (switching account, or a session
         // that expired but is still on disk), polling can't tell a new sign-in apart,
         // so only the login finishing counts.
         let wasIn: boolean | null = null;
-        refreshClaude()
+        refreshCloud()
             .then((s) => (wasIn = s.auth.loggedIn))
             .catch(() => (wasIn = false));
         const finish = async (exited = false) => {
             if (finished) return true;
             if (!exited && wasIn !== false) return false;
-            const state = await refreshClaude().catch(() => null);
+            const state = await refreshCloud().catch(() => null);
             if (!state?.auth.loggedIn || cancelled) return false;
             finished = true;
             if (idRef.current !== null) api.ptyKill(idRef.current).catch(() => {});
@@ -120,8 +120,8 @@ export const SignIn = ({ onDone, onCancel }: { onDone: () => void; onCancel: () 
                     </h3>
                     <p className="mt-1 text-sm text-tertiary">
                         {kind === "login"
-                            ? "Sign in with your Claude account (Pro or Max). Relay notices on its own when you're done."
-                            : "Sign in with your Anthropic Console account. Relay notices on its own when you're done."}
+                            ? "Sign in with your Cloud AI account (Pro or Max). Relay notices on its own when you're done."
+                            : "Sign in with your developer console account. Relay notices on its own when you're done."}
                     </p>
                 </div>
             </div>
@@ -177,7 +177,7 @@ export const SignIn = ({ onDone, onCancel }: { onDone: () => void; onCancel: () 
                     className="cursor-pointer font-semibold text-tertiary transition hover:text-tertiary_hover"
                     onClick={() => setKind(kind === "login" ? "login-console" : "login")}
                 >
-                    {kind === "login" ? "Use an Anthropic Console account instead" : "Use a Claude account instead"}
+                    {kind === "login" ? "Use a developer console account instead" : "Use a Cloud AI account instead"}
                 </button>
                 <button
                     className="flex cursor-pointer items-center gap-1 font-semibold text-tertiary transition hover:text-tertiary_hover"

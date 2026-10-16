@@ -15,11 +15,11 @@ export interface PausedServer {
 
 export interface Settings {
     general: { start_at_login: boolean; close_action: CloseAction; language: string };
-    claude: { model: string; effort: string };
+    cloud: { model: string; effort: string };
     local_ai: {
         grounding: ActiveModel | null;
         describe: ActiveModel | null;
-        /** The local operator for tasks Claude can't run (D-067); null picks one. */
+        /** The local operator for tasks Cloud AI can't run (D-067); null picks one. */
         agent: { model_id: string } | null;
         idle_unload_secs: number;
         models_dir: string | null;
@@ -46,7 +46,7 @@ export interface AppInfo {
     python_present: boolean;
 }
 
-export interface ClaudeState {
+export interface CloudState {
     installed: boolean;
     path: string | null;
     version: string | null;
@@ -115,7 +115,7 @@ export interface LocalAiState {
     idle_unload_secs: number;
 }
 
-export type McpKind = "builtin" | "claude_ai" | "plugin" | "local";
+export type McpKind = "builtin" | "cloud_ai" | "plugin" | "local";
 export type McpStatus = "connected" | "needs_auth" | "failed" | "disabled" | "not_configured" | "paused" | "unknown";
 
 export interface McpEntry {
@@ -224,10 +224,10 @@ export const api = {
     runningJobs: () => invoke<string[]>("jobs_running"),
     setupComplete: () => invoke<Settings>("setup_complete"),
 
-    claudeState: () => invoke<ClaudeState>("claude_state"),
-    claudeInstall: () => invoke<void>("claude_install"),
-    claudeUpdate: () => invoke<void>("claude_update"),
-    claudeVerify: () => invoke<string>("claude_verify"),
+    cloudState: () => invoke<CloudState>("cloud_state"),
+    cloudInstall: () => invoke<void>("cloud_install"),
+    cloudUpdate: () => invoke<void>("cloud_update"),
+    cloudVerify: () => invoke<string>("cloud_verify"),
     ptyStart: (kind: "login" | "login-console", cols: number, rows: number) => invoke<number>("pty_start", { kind, cols, rows }),
     ptyWrite: (data: string) => invoke<void>("pty_write", { data }),
     ptyResize: (cols: number, rows: number) => invoke<void>("pty_resize", { cols, rows }),
@@ -280,7 +280,7 @@ export interface DiagnosticsResult {
     id: string;
     title: string;
     kind: string;
-    /** Relay app, Real-world tasks, Claude and signed out, System. */
+    /** Relay app, Real-world tasks, Cloud AI and signed out, System. */
     area?: string;
     status: "passed" | "failed" | "skipped";
     message: string;
