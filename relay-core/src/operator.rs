@@ -191,14 +191,12 @@ impl Operator {
         Ok(())
     }
 
-    async fn request(&self, op: &str, text: Option<&str>, wait: Duration) -> Option<Value> {
+    async fn request(&self, mut command: Value, wait: Duration) -> Option<Value> {
+        let op = command["op"].as_str().unwrap_or("r").to_string();
         let id = self.new_id(&op[..1]);
         let (tx, rx) = oneshot::channel();
         self.replies.lock().expect("replies").insert(id.clone(), tx);
-        let mut command = json!({ "op": op, "id": id });
-        if let Some(text) = text {
-            command["text"] = text.into();
-        }
+        command["id"] = id.clone().into();
         if self.send(command).await.is_err() {
             self.replies.lock().expect("replies").remove(&id);
             return None;
@@ -208,11 +206,15 @@ impl Operator {
         reply
     }
 
-    /// Whether a message is a screen task for the operator or work for Claude.
-    /// No answer in time means Claude, as before the operator existed.
-    pub async fn route(&self, text: &str) -> Route {
+    /// Whether a message is a screen task for the operator or work for Claude. With
+    /// `claude` false (signed out) the operator takes everything. No answer in time
+    /// means Claude, as before the operator existed.
+    pub async fn route(&self, text: &str, claude: bool) -> Route {
         let reply = self
-            .request("route", Some(text), Duration::from_secs(3))
+            .request(
+                json!({ "op": "route", "text": text, "claude": claude }),
+                Duration::from_secs(3),
+            )
             .await;
         match reply
             .as_ref()
@@ -226,7 +228,8 @@ impl Operator {
 
     /// What is on the screen right now (foreground window, browser page, windows).
     pub async fn state(&self) -> Option<Value> {
-        self.request("state", None, Duration::from_secs(3)).await
+        self.request(json!({ "op": "state" }), Duration::from_secs(3))
+            .await
     }
 
     /// Start a task. Its events go to `on_event`; the handle ends when it finishes.

@@ -66,11 +66,14 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
         approval_answer,
         chat_send,
         chat_stop,
+        chat_say,
         chat_new,
         chats_list,
         chat_open,
         chat_save,
         chat_delete,
+        chat_rename,
+        chat_pin,
         browsers,
         playbooks_list,
         playbook_delete,
@@ -736,9 +739,10 @@ async fn chat_send(app: AppHandle, prompt: String) -> Res<()> {
     st.stopped.store(false, Ordering::SeqCst);
     // Screen tasks go straight to the local operator; the rest to Claude. The turn
     // isn't held while deciding, so Stop never waits on this.
+    let signed_in = claude_signed_in(&app).await;
     let op = operator(&app).await;
     let to_operator = match &op {
-        Some(op) => op.route(&prompt).await == Route::Operator,
+        Some(op) => op.route(&prompt, signed_in).await == Route::Operator,
         None => false,
     };
     if st.stopped.load(Ordering::SeqCst) {
@@ -753,7 +757,7 @@ async fn chat_send(app: AppHandle, prompt: String) -> Res<()> {
         return operator_turn(&app, &op, &prompt, turn).await;
     }
     // Without Claude the local AI does everything it can; nothing waits on a sign-in.
-    if !claude_signed_in(&app).await {
+    if !signed_in {
         drop(turn);
         let done_app = app.clone();
         tauri::async_runtime::spawn(async move {
@@ -897,6 +901,24 @@ async fn run_local(app: &AppHandle, prompt: &str, reason: String) {
     }
 }
 
+/// The owner wrote while Relay works. A local task takes it as an answer or a change
+/// of plan on its next step; anything else stops and the message starts a new turn in
+/// the same conversation.
+#[tauri::command]
+async fn chat_say(app: AppHandle, text: String) -> Res<()> {
+    let st = app.state::<AppState>();
+    if let Some(chat::Turn::Operator { op, id }) = st.turn.lock().await.as_ref() {
+        return op.say(id, &text).await.map_err(anyhow_err);
+    }
+    if st.turn.lock().await.is_some() {
+        st.stopped.store(true, Ordering::SeqCst);
+        if let Some(turn) = st.turn.lock().await.as_mut() {
+            turn.stop().await;
+        }
+    }
+    chat_send(app.clone(), text).await
+}
+
 #[tauri::command]
 async fn chat_stop(app: AppHandle) -> Res<()> {
     app.state::<AppState>()
@@ -950,13 +972,23 @@ fn chat_save(
         updated: 0,
         session,
         items,
+        pinned: false,
+        renamed: false,
     };
     let saved = chats::save(&chats::dir(), chat).map_err(anyhow_err)?;
-    Ok(chats::Summary {
-        id: saved.id,
-        title: saved.title,
-        updated: saved.updated,
-    })
+    Ok(chats::Summary::from(&saved))
+}
+
+#[tauri::command]
+fn chat_rename(id: String, title: String) -> Res<chats::Summary> {
+    let chat = chats::rename(&chats::dir(), &id, &title).map_err(anyhow_err)?;
+    Ok(chats::Summary::from(&chat))
+}
+
+#[tauri::command]
+fn chat_pin(id: String, pinned: bool) -> Res<chats::Summary> {
+    let chat = chats::pin(&chats::dir(), &id, pinned).map_err(anyhow_err)?;
+    Ok(chats::Summary::from(&chat))
 }
 
 #[tauri::command]
