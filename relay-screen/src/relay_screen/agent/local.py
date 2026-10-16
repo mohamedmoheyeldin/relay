@@ -54,6 +54,7 @@ CANCEL_POLL = 0.05  # s between stop checks while the model, Claude or a wait ru
 INPUT_MEMBERS = frozenset(
     {"left_click", "double_click", "right_click", "type", "key", "scroll", "click_text"}
 )
+REPEAT_IS_STUCK = frozenset({"focus_window", "focus", "switch_to"})
 POINT_CLICKS = frozenset({"left_click", "double_click", "right_click"})
 MAX_PAGE_CHARS = 8000  # a web page's controls, ~2.5k tokens
 PAGE_DEPTH = 40
@@ -161,7 +162,8 @@ at the end: each field filled, each box ticked, the result shown. Ask a question
 when the task leaves out something only the owner can decide and that matters: where \
 to save a file, which account, which file or person, whether to send. Never ask about \
 small details you can choose well yourself (wording, a file name, which search \
-engine). Writing new text means a new document or tab, never typing over one that is \
+engine). Plan only what the task asks: no saving, closing or sending step it doesn't \
+name. Writing new text means a new document or tab, never typing over one that is \
 open. Use what is already open: a program in the windows list is switched to, not \
 started again, and open_url opens pages in a new tab of the browser that is open.
 """
@@ -1384,6 +1386,8 @@ class LocalAgent:
         if len(last) < STUCK_REPEATS:
             return False
         same = all(s.action == last[0].action for s in last)
+        if same and last[0].action.get("action") in REPEAT_IS_STUCK:
+            return True  # focusing the window it is in, again and again (D-106)
         return same and all("no visible change" in s.result for s in last)
 
     def _finish(self, status: Status, message: str, steps: list[Step]) -> Outcome:

@@ -199,6 +199,14 @@ def test_stops_when_the_same_action_keeps_changing_nothing() -> None:
     assert len(hands.acts()) == 3
 
 
+def test_focusing_the_same_window_again_and_again_is_stuck() -> None:
+    # Notepad in round 6: seven focus_window steps in a row, each "is in front" (D-106).
+    hands = FakeHands({"focus_window": '"Untitled - Notepad" is in front'})
+    focus = {"action": "focus_window", "window": "Notepad"}
+    outcome, _ = run(hands, Script(focus, focus, focus))
+    assert outcome.status == "failed" and len(hands.acts()) == 3
+
+
 def test_gives_up_after_max_steps() -> None:
     model = Script(*[{"action": "wait", "seconds": 1}] * 3)
     outcome, _ = run(FakeHands(), model, max_steps=3)
