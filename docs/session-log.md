@@ -2,10 +2,11 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
-## 2026-10-16 · Fixes from the owner's first PC runs (D-093, D-094)
+## 2026-10-16 · Fixes from the owner's first PC runs (D-093..D-095)
 - Dice: the URL opens as step 1. The model can't invent select_display any more (JSON schema), and windows follow their monitor. focus_window finds windows by looser names.
 - Cairo flights: "find X" opens a web search first. Address-bar presses fall back to a click, and labels the model copied ("Brave Origin \u00b7 browser") are cleaned.
 - Stop drops the running model call at once. Real input re-focuses the task's program if the owner clicked away. With Claude signed out, the local AI keeps going and route sends everything to it.
+- Pages open in a new tab of the browser that's already open, on any monitor, and the same tab is reused when it already shows that site (D-095).
 - Notepad: plan first, with one question to the owner when only they can decide. A new tab before writing, and no text typed twice.
 - App side, sent to the app thread: show `say` as the step line, pass `"claude": false` when signed out, send owner replies during a task as `say`, render `plan`/`question`, and find why Relay minimizes on task start.
 

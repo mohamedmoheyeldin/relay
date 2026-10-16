@@ -275,6 +275,36 @@ def test_find_window_takes_the_looser_names_a_model_gives():
         find_window(windows, "Excel")
 
 
+class Keys:
+    """Records what open_url presses in an open browser."""
+
+    def __init__(self) -> None:
+        self.sent: list[str] = []
+
+    def key(self, text: str, repeat: int = 1) -> None:
+        self.sent.append(text)
+
+    def type_text(self, text: str) -> None:
+        self.sent.append(f"type:{text}")
+
+
+def test_open_url_uses_a_new_tab_of_the_open_browser(owner_displays):
+    """The owner: 'it opens a new browser instead of just opening a new tab' (D-095)."""
+    fake = FakeApps()
+    fake.open = [
+        Window(1, "Inbox - Mail", Rect(0, 0, 800, 600)),
+        Window(6, "Brave Search - Brave", Rect(3440, 0, 3440, 1440), exe=BRAVE),
+    ]
+    keys = Keys()
+    c = computer(owner_displays, fake)
+    c.driver = keys  # type: ignore[assignment]
+    text = c.run("open_url", {"url": "dice.com"}).text or ""
+    assert fake.launched == []  # no new browser or window
+    assert keys.sent == ["ctrl+t", "ctrl+l", "type:https://dice.com", "Return"]
+    assert text.startswith('Opened https://dice.com in a new tab of Brave · window "Brave Search')
+    assert fake.fg == 6
+
+
 def test_focus_window_through_computer(owner_displays):
     fake = FakeApps()
     fake.open = desktop()

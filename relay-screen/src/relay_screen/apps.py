@@ -22,6 +22,9 @@ from relay_screen.errors import ActionError
 from relay_screen.scaling import Rect
 
 BROWSER_ALIASES = frozenset({"browser", "default browser", "web browser"})
+# Program names of browsers, for telling a browser window from others (D-089, D-095).
+BROWSERS = frozenset({"brave", "chrome", "msedge", "firefox", "opera", "vivaldi", "arc"})
+ADDRESS_BAR = "Address and search bar"  # Chromium's UIA name for it
 CACHE_SECONDS = 300.0  # rescan installed apps at most this often unless asked
 LIST_LIMIT = 80  # names in one unfiltered listing
 MATCH_LIMIT = 20
@@ -257,6 +260,10 @@ WINDOW_LIMIT = 40
 
 def _stem(exe: str | None) -> str | None:
     return PureWindowsPath(exe).stem.casefold() if exe else None
+
+
+def window_stem(window: Window) -> str | None:
+    return _stem(window.exe)
 
 
 def is_relay(window: Window) -> bool:

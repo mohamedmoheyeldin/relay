@@ -1522,3 +1522,17 @@ The owner chose the full rebuild with every recommendation:
   the full path, and to finish only when the done-check holds.
 - The plan comes from the local model, so it works with Claude signed out.
   Claude is still asked for writing or judgment through ask_claude.
+
+## D-095 Pages open in a new tab of the browser that is already open
+*2026-10-16 · accepted · owner ("open a new browser instead just open a new tab") · amends D-079*
+
+- `open_url` first looks for an open, non-minimized browser window on any
+  monitor. It prefers the owner's browser and takes the topmost window.
+- When it finds one, it brings it in front. If the address bar already shows
+  that site, the page loads in that tab; otherwise Ctrl+T opens a new tab.
+  Then Ctrl+L, the address goes into the bar (UIA set_value, typing as the
+  fallback), and Enter.
+- The browser is started with the address only when no browser window is open,
+  or when Windows won't bring the open one in front.
+- The plan prompt tells the model to use what is already open: switch to open
+  programs, and open pages in a new tab.

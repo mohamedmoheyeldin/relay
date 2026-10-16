@@ -23,6 +23,7 @@ from typing import Any, Literal, Protocol
 from PIL import Image
 
 from relay_screen.actions import ActionResult
+from relay_screen.apps import ADDRESS_BAR, BROWSERS
 from relay_screen.errors import ActionError
 from relay_screen.runtime.catalog import Coords
 from relay_screen.safety.approval import ApprovalDeniedError, PromptUnavailableError
@@ -51,8 +52,6 @@ INPUT_MEMBERS = frozenset(
 )
 MAX_PAGE_CHARS = 8000  # a web page's controls, ~2.5k tokens
 PAGE_DEPTH = 40
-BROWSERS = frozenset({"brave", "chrome", "msedge", "firefox", "opera", "vivaldi", "arc"})
-ADDRESS_BAR = "Address and search bar"  # Chromium's name for it
 
 REL1000 = (
     "X and Y are positions on the screenshot from 0 to 1000: 0,0 is the top left corner "
@@ -147,7 +146,9 @@ Keep steps to at most 6 short lines. Ask a question only when the task leaves ou
 something only the owner can decide and that matters: where to save a file, which \
 account, which file or person, whether to send. Never ask about small details you can \
 choose well yourself (wording, a file name, which search engine). Writing new text means \
-a new document or tab, never typing over one that is open.
+a new document or tab, never typing over one that is open. Use what is already open: \
+a program in the windows list is switched to, not started again, and open_url opens \
+pages in a new tab of the browser that is open.
 """
 QUESTION_WAIT = 300  # s Relay waits for the owner's answer to the plan's question
 
