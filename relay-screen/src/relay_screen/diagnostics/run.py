@@ -236,7 +236,7 @@ def _scenarios(stamp: str, site: str) -> list[Scenario]:
             "New program: Windows Settings, find the About page",
             "operator",
             "Open Windows Settings and show the About page for this PC.",
-            ({"uia_text": {"window": "Settings", "contains": "Device specifications"}},),
+            ({"uia_text": {"window": "Settings", "contains": "Product ID"}},),
             max_steps=15,
         ),
         Scenario(
