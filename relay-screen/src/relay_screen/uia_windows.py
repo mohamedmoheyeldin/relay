@@ -10,10 +10,12 @@ import atexit
 import ctypes
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeout
 from ctypes import wintypes
 from typing import Any
 
 from relay_screen import win32
+from relay_screen.errors import ActionError
 from relay_screen.scaling import Rect
 
 SPI_GETSCREENREADER = 0x0046
@@ -31,6 +33,15 @@ def enable_screen_reader_flag() -> None:
         return
     user32.SystemParametersInfoW(SPI_SETSCREENREADER, 1, None, SPIF_SENDCHANGE)
     atexit.register(user32.SystemParametersInfoW, SPI_SETSCREENREADER, 0, None, SPIF_SENDCHANGE)
+
+
+UIA_TIMEOUT = 30.0  # s one UI Automation call may take before Relay gives up on it
+
+
+def _com_init() -> None:
+    import comtypes  # pyright: ignore[reportMissingImports]
+
+    comtypes.CoInitializeEx()
 
 
 CHOSEN_BY_SELECT = frozenset({"RadioButton", "TabItem"})
@@ -253,7 +264,21 @@ class WinUiaBackend:
         return auto
 
     def run(self, work: Callable[[], object]) -> object:
-        return self._executor.submit(work).result()
+        future = self._executor.submit(work)
+        try:
+            return future.result(timeout=UIA_TIMEOUT)
+        except FuturesTimeout:
+            # A program that stops answering holds its UIA call, and with it this thread,
+            # forever: one hung call left the operator "already doing a task" for the
+            # rest of round 15 (D-112). Leave that thread and carry on with a fresh one.
+            self._executor.shutdown(wait=False, cancel_futures=True)
+            self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="relay-uia")
+            self._executor.submit(_com_init).result(timeout=UIA_TIMEOUT)
+            self._request = None
+            raise ActionError(
+                f"the window didn't answer UI Automation within {UIA_TIMEOUT:.0f} s; "
+                "it may be busy or hung"
+            ) from None
 
     def _cache_request(self) -> Any:
         if self._request is None:

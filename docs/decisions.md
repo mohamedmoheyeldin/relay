@@ -1888,3 +1888,67 @@ co-author trailers or footers. History is not rewritten for this.
 
 Settings saved before this change keep their old model and effort under a key
 Relay no longer reads, so those two fall back to the CLI's default once.
+
+## D-112 Operator: general skills from the never-tuned tasks
+*2026-10-16 · accepted · from Diagnostics rounds 13 and 14 (D-109)*
+
+The two never-tuned scenarios and three older ones failed for reasons that apply to
+any program, so the fixes are general:
+- **The model remembers its last thought.** Each step repeats the model's last
+  thought with the history. What it read in one window (the cheapest laptop) was
+  gone once another window's element list replaced it, and it switched back and
+  forth to find it again.
+- **The app a task opens with is opened first, without the model.** "Open File
+  Explorer and ..." focuses an open window of it or launches it before the first
+  model step. The model had tried to click the taskbar.
+- **launch_app tries the name without "Windows" or "Microsoft"**, so "Windows
+  Settings" opens Settings.
+- **A batch ends when another window comes to the front.** The new window's
+  element ids are fresh, and a planned set_value meant for the browser went to Notepad.
+- **Saving needs the task to ask for it.** Ctrl+S or a Save control is refused
+  when the task doesn't say save.
+- **A search box searches on Enter.** set_value into an Edit named for search
+  presses Enter, the way the address bar already did (D-097).
+- **click_text presses a listed control with exactly that name first.** OCR's
+  first "Search" was a text box's label.
+- **Typing that went nowhere is put into the empty box** the thought names, or the
+  page's only empty box.
+- **The same spot clicked twice gets a note** to type now or change course.
+- **Stuck gets one warning.** Before the task ends for repeating itself, the model
+  is told once to reply done if the screen already shows the result. Settings showed
+  About while the model kept clicking "About". Waiting three times in a row counts
+  as stuck.
+- File Explorer and file dialogs: the prompt says to press ctrl+l and type the
+  folder.
+- **A hung task can't block the rest.** A UI Automation call gets 30 s; after that
+  Relay leaves the stuck thread and carries on with a fresh one. Diagnostics stops a
+  task after 5 minutes, and a running task writes every thread's stack to
+  `logs/operator-hangs.log` every 2 minutes while it runs that long. Round 15 hung
+  after one step of compare-and-copy, and the eight scenarios after it found Relay
+  "already doing a task".
+- Round 16 additions:
+  - **A click into a text box says so.** A click that changes nothing to see but
+    lands in a listed Edit or Document reports that the box has the focus and to type.
+    The model had clicked Notepad's page twenty times.
+  - **A fourth click on the same spot is refused**, and it counts towards stuck. The
+    web form's colour box was clicked 23 times.
+  - **Typing the screen check missed is checked with UI Automation**, so a typed
+    line in Notepad doesn't read as "no visible change".
+  - **A position click before any screenshot gets one**, instead of failing the
+    reply three times.
+  - **launch_app of the browser that is in front does nothing**; it had opened the
+    browser's start page over the page the task needed.
+- Round 17 (23 of 24): the remembered thought is labelled as written before the last
+  actions, because after the done-check the model took an old "I'm in Downloads" as
+  the present. click_text on a listed text box clicks into it instead of invoking it.
+- Round 18: repeated buttons in a list ("Reserve" on every row) carry the names
+  listed just before them, `(row: Dune · Paperback · Frank Herbert)`, because the
+  model picked the wrong copy twice. A click given as `coordinate: [x, y]` is
+  accepted, and a click given an element id is told to use invoke.
+- Round 19 (19/24): repeats now count by what was pressed, not its id, so "About"
+  pressed under a new id each step with nothing changing is stuck; launching or
+  opening the same thing three times in a row is stuck, and launching a program
+  that is already in front says so instead. click_text on a name that several
+  controls share refuses and lists their ids and rows, unless the thought names one
+  of them. Typing while a menu is open is refused (keys pick menu items), and saving
+  is refused when the text area in front is empty after the task typed something.

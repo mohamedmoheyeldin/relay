@@ -30,6 +30,7 @@ The interface stays the same when the operator moves into relay-core (D-088).
 from __future__ import annotations
 
 import contextlib
+import faulthandler
 import json
 import os
 import re
@@ -56,6 +57,7 @@ from relay_screen.agent.local import (
     Status,
     instant_plan,
 )
+from relay_screen.runtime.paths import default_home
 from relay_screen.runtime.supervisor import RuntimeUnavailable
 
 Write = Callable[[dict[str, Any]], None]
@@ -416,7 +418,12 @@ class OperatorService:
 
         emit({"event": "accepted", "text": running.text})
         self.grant(running.text if running.source in OWNER_SOURCES else None)
+        stacks = _stack_log()
         try:
+            if stacks is not None:
+                # A task that hangs writes where every thread is stuck, every few
+                # minutes, so the next fix needn't guess (D-112).
+                faulthandler.dump_traceback_later(HANG_DUMP_SECONDS, repeat=True, file=stacks)
             with self._busy:
                 model_id, outcome = self.runner(
                     running.text, emit, running.take_notes, running.stop.is_set
@@ -433,6 +440,9 @@ class OperatorService:
             message = f"The local AI failed: {exc.__class__.__name__}: {exc}"
             emit({"event": "failed", "message": message, "steps": 0})
         finally:
+            if stacks is not None:
+                faulthandler.cancel_dump_traceback_later()
+                stacks.close()
             self.grant(None)
             with self._lock:
                 self.running = None
@@ -440,6 +450,18 @@ class OperatorService:
     def _new_id(self) -> str:
         self._ids += 1
         return f"o{self._ids}"
+
+
+HANG_DUMP_SECONDS = 120.0
+
+
+def _stack_log() -> Any:
+    try:
+        path = default_home() / "logs" / "operator-hangs.log"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path.open("a", encoding="utf-8")
+    except OSError:
+        return None
 
 
 # -- the localhost port ui_task uses -------------------------------------------
