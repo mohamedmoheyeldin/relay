@@ -235,8 +235,8 @@ fn segments(command: &str) -> Vec<Vec<String>> {
     command
         .split([';', '|', '&', '\n'])
         .map(|seg| {
-            seg.split_whitespace()
-                .map(|t| t.trim_matches(['"', '\'', '(', ')']).to_lowercase())
+            seg.split(|c: char| c.is_whitespace() || "$(){},\"'`".contains(c))
+                .map(str::to_lowercase)
                 .filter(|t| !t.is_empty())
                 .collect::<Vec<_>>()
         })
@@ -258,9 +258,9 @@ fn is_destructive_command(command: &str) -> bool {
         for (i, token) in seg.iter().enumerate() {
             let bare = token.rsplit(['\\', '/']).next().unwrap_or(token);
             let bare = bare.strip_suffix(".exe").unwrap_or(bare);
-            let is_command_position =
-                i == 0 || matches!(seg.get(i.wrapping_sub(1)).map(String::as_str), Some("sudo"));
-            if is_command_position && DESTRUCTIVE_COMMANDS.contains(&bare) {
+            // Anywhere in the line, so `ForEach-Object { Remove-Item .. }` is caught too.
+            // This errs towards asking, which is the safe direction.
+            if DESTRUCTIVE_COMMANDS.contains(&bare) {
                 return true;
             }
             for pattern in DESTRUCTIVE_SEQUENCES {
@@ -284,12 +284,28 @@ fn is_read_only_command(command: &str) -> bool {
     if segs.is_empty() {
         return false;
     }
-    if command.contains('>') {
+    // Redirects write files; sub-expressions, script blocks and escapes can hide other commands.
+    if command.contains(['>', '`', '{']) || command.contains("$(") {
         return false;
     }
     segs.iter().all(|seg| {
         let head = seg[0].as_str();
-        if SAFE_COMMANDS.contains(&head) {
+        // PowerShell getters and output formatters only read.
+        if SAFE_COMMANDS.contains(&head)
+            || head.starts_with("get-")
+            || matches!(
+                head,
+                "format-list"
+                    | "format-table"
+                    | "select-object"
+                    | "where-object"
+                    | "sort-object"
+                    | "measure-object"
+                    | "out-string"
+                    | "test-connection"
+                    | "resolve-path"
+            )
+        {
             return true;
         }
         match head {
@@ -435,9 +451,27 @@ mod tests {
             "cargo test --workspace",
             "Get-ChildItem C:\\Projects | Select-String relay",
             "node --version",
+            "Get-Item C:\\a.txt | Format-List FullName,Length",
+            "Get-Service | Where-Object Status -eq Running | Sort-Object Name",
         ] {
             assert_eq!(bash(cmd), Verdict::Allow, "{cmd}");
         }
+    }
+
+    #[test]
+    fn hidden_destructive_commands_are_not_waved_through() {
+        assert_eq!(
+            risk_of(&bash("Get-ChildItem | ForEach-Object { Remove-Item $_ }")),
+            Some(Risk::Destructive)
+        );
+        assert_eq!(
+            risk_of(&bash("Get-Item $(Remove-Item x)")),
+            Some(Risk::Destructive)
+        );
+        // Not recognisably destructive, but dynamic code: never auto-allowed.
+        assert!(risk_of(&bash("Get-Item $(Start-Process evil)")).is_some());
+        assert!(risk_of(&bash("Get-ChildItem | ForEach-Object { $_.Name }")).is_some());
+        assert!(risk_of(&bash("Get-Content a.txt | iex")).is_some());
     }
 
     #[test]

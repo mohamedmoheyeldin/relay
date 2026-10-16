@@ -17,7 +17,10 @@ pub fn build_args(
         "--verbose",
         "--include-partial-messages",
         // Ignore the user's own plugins, hooks and settings: Relay runs a controlled setup.
-        "--safe-mode",
+        // (`--safe-mode` would also drop the MCP servers we pass, so it is not used.)
+        "--setting-sources",
+        "local",
+        "--disable-slash-commands",
         "--strict-mcp-config",
     ]
     .iter()
@@ -93,6 +96,8 @@ mod tests {
         assert!(args.contains(&"--verbose".to_string()));
         assert!(args.contains(&"--include-partial-messages".to_string()));
         assert!(args.contains(&"--strict-mcp-config".to_string()));
+        assert_eq!(value_after(&args, "--setting-sources"), Some("local"));
+        assert!(!args.contains(&"--safe-mode".to_string()));
         assert_eq!(value_after(&args, "--mcp-config"), Some("m.json"));
     }
 

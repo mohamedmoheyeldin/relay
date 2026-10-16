@@ -85,14 +85,13 @@ pub fn thumbnail(desktop: &dyn Desktop, rect: Rect, edge: u32) -> Result<Frame> 
     })
 }
 
-/// Fraction (0..=1) of pixels whose channels differ by more than `threshold` between two frames.
-pub fn changed_fraction(a: &Frame, b: &Frame, threshold: u8) -> f64 {
-    if a.width != b.width || a.height != b.height || a.rgba.is_empty() {
-        return 1.0;
+/// Number of pixels whose colour channels differ by more than `threshold` between two frames.
+/// Frames of different sizes count as entirely changed.
+pub fn changed_pixels(a: &Frame, b: &Frame, threshold: u8) -> usize {
+    if a.width != b.width || a.height != b.height {
+        return a.rgba.len().max(b.rgba.len()) / 4;
     }
-    let total = a.rgba.len() / 4;
-    let differing = a
-        .rgba
+    a.rgba
         .chunks_exact(4)
         .zip(b.rgba.chunks_exact(4))
         .filter(|(p, q)| {
@@ -101,8 +100,13 @@ pub fn changed_fraction(a: &Frame, b: &Frame, threshold: u8) -> f64 {
                 .take(3)
                 .any(|(x, y)| x.abs_diff(*y) > threshold)
         })
-        .count();
-    differing as f64 / total as f64
+        .count()
+}
+
+/// Fraction (0..=1) of pixels that changed; see [`changed_pixels`].
+pub fn changed_fraction(a: &Frame, b: &Frame, threshold: u8) -> f64 {
+    let total = (a.rgba.len().max(b.rgba.len()) / 4).max(1);
+    changed_pixels(a, b, threshold) as f64 / total as f64
 }
 
 #[cfg(test)]
@@ -160,5 +164,44 @@ mod tests {
             rgba: vec![0; 8],
         };
         assert_eq!(changed_fraction(&a, &b, 24), 1.0);
+    }
+}
+
+#[cfg(test)]
+mod patch_tests {
+    use super::*;
+
+    fn blank(w: u32, h: u32) -> Frame {
+        Frame {
+            width: w,
+            height: h,
+            rgba: vec![255; (w * h * 4) as usize],
+        }
+    }
+
+    #[test]
+    fn a_small_text_sized_patch_is_counted() {
+        let a = blank(3440, 1440);
+        let mut b = a.clone();
+        // Dark 130x16 patch, like a short line of typed text.
+        for y in 100..116u32 {
+            for x in 200..330u32 {
+                let i = ((y * 3440 + x) * 4) as usize;
+                b.rgba[i] = 0;
+                b.rgba[i + 1] = 0;
+                b.rgba[i + 2] = 0;
+            }
+        }
+        assert_eq!(changed_pixels(&a, &b, 24), 130 * 16);
+        assert_eq!(changed_pixels(&a, &a, 24), 0);
+    }
+
+    #[test]
+    fn faint_differences_below_the_threshold_are_ignored() {
+        let a = blank(10, 10);
+        let mut b = a.clone();
+        b.rgba[0] = 240;
+        assert_eq!(changed_pixels(&a, &b, 24), 0);
+        assert_eq!(changed_pixels(&a, &b, 10), 1);
     }
 }

@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
-use relay_os::capture::{self, changed_fraction};
+use relay_os::capture::{self, changed_pixels};
 use relay_os::driver::Driver;
 use relay_os::scaling::{Budget, DisplayGeometry};
 use relay_os::types::{Desktop, DisplayInfo, OsError};
@@ -93,12 +93,12 @@ impl Default for HostOptions {
 
 const HALT_TEXT: &str = "Not executed: an earlier computer action in this turn failed.";
 const MAX_BATCH: usize = 25;
-const VERDICT_EDGE: u32 = 240;
 const VERDICT_SETTLE: Duration = Duration::from_millis(150);
 const VERDICT_POLL: Duration = Duration::from_millis(100);
 const VERDICT_PATIENCE: Duration = Duration::from_millis(750);
 const PIXEL_DIFF: u8 = 24;
-const MIN_CHANGED_FRACTION: f64 = 0.002;
+/// Typing a few characters on a large display changes only a few dozen pixels.
+const MIN_CHANGED_PIXELS: usize = 24;
 
 /// Shared services behind the MCP tools.
 pub struct ToolHost {
@@ -481,7 +481,7 @@ impl ExecEnv {
             act().map_err(os_error)?;
             return Ok("OK".into());
         }
-        let before = capture::thumbnail(&*self.desktop, self.display.rect, VERDICT_EDGE).ok();
+        let before = self.desktop.capture(self.display.rect).ok();
         act().map_err(os_error)?;
         let Some(before) = before else {
             return Ok("OK".into());
@@ -489,8 +489,8 @@ impl ExecEnv {
         std::thread::sleep(VERDICT_SETTLE);
         let started = Instant::now();
         loop {
-            if let Ok(after) = capture::thumbnail(&*self.desktop, self.display.rect, VERDICT_EDGE) {
-                if changed_fraction(&before, &after, PIXEL_DIFF) >= MIN_CHANGED_FRACTION {
+            if let Ok(after) = self.desktop.capture(self.display.rect) {
+                if changed_pixels(&before, &after, PIXEL_DIFF) >= MIN_CHANGED_PIXELS {
                     return Ok("OK · screen changed".into());
                 }
             }

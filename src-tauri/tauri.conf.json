@@ -6,8 +6,8 @@
   "build": {
     "frontendDist": "../crates/relay-ui/dist",
     "devUrl": "http://127.0.0.1:1420",
-    "beforeDevCommand": "trunk serve --config ../crates/relay-ui/Trunk.toml",
-    "beforeBuildCommand": "trunk build --release --config ../crates/relay-ui/Trunk.toml"
+    "beforeDevCommand": { "script": "trunk serve", "cwd": "../crates/relay-ui", "wait": false },
+    "beforeBuildCommand": { "script": "trunk build --release", "cwd": "../crates/relay-ui", "wait": true }
   },
   "app": {
     "withGlobalTauri": true,

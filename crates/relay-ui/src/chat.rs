@@ -164,6 +164,14 @@ impl ChatState {
             UiEvent::RunFinished { outcome, .. } => {
                 self.running = false;
                 self.close_assistants();
+                // Tools still shown as running were cut off by the end of the run.
+                for item in &mut self.items {
+                    if let Item::Tool { state, .. } = item {
+                        if *state == ToolState::Running {
+                            *state = ToolState::Failed("Interrupted".into());
+                        }
+                    }
+                }
                 // Any card still waiting can no longer be answered.
                 for item in &mut self.items {
                     if let Item::Confirm { state, .. } = item {
@@ -321,6 +329,25 @@ mod tests {
         assert!(!s.has_open_confirm());
         assert!(matches!(s.items[0], Item::Assistant { open: false, .. }));
         assert_eq!(s.items.last(), Some(&Item::Notice("Stopped.".into())));
+    }
+
+    #[test]
+    fn tools_cut_off_by_the_end_of_a_run_are_marked_interrupted() {
+        let mut s = ChatState::default();
+        s.apply(&UiEvent::ToolStarted {
+            run_id: 1,
+            tool_id: "w".into(),
+            name: "wait".into(),
+            summary: "Wait 120.0 s".into(),
+        });
+        s.apply(&UiEvent::RunFinished {
+            run_id: 1,
+            outcome: RunOutcome::Cancelled,
+        });
+        assert!(matches!(
+            &s.items[0],
+            Item::Tool { state: ToolState::Failed(m), .. } if m == "Interrupted"
+        ));
     }
 
     #[test]
