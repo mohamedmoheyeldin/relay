@@ -12,6 +12,7 @@ import base64
 import contextlib
 import io
 import json
+import os
 import re
 import threading
 import time
@@ -371,6 +372,9 @@ class Frame:
         ]
 
 
+# RELAY_POINT_FALLBACK=0 turns off the listed-centre and raw-point fallbacks, so a run
+# measures the model's own position clicks (D-106, D-108).
+POINT_FALLBACK = os.environ.get("RELAY_POINT_FALLBACK", "1") != "0"
 LAUNCH_NAMES = frozenset({"launch_app", "open_app", "open"})
 CLICK_NAMES = frozenset({"click", "left_click", "double_click", "right_click"})
 LISTED_CENTER = re.compile(r"center \((\d+), (\d+)\)")
@@ -1085,7 +1089,11 @@ class LocalAgent:
                 action = {**action, "action": "ask_claude", "question": question.strip()}
                 planned.append((action, "ask_claude", {"question": question.strip()[:MAX_TEXT]}))
                 break  # the answer changes what comes next
-            hit = _listed_point(elements, action) if action["action"] in CLICK_NAMES else None
+            hit = (
+                _listed_point(elements, action)
+                if action["action"] in CLICK_NAMES and POINT_FALLBACK
+                else None
+            )
             if hit is not None:
                 # The model copied an element's centre from the list: those are already
                 # screenshot pixels, not pixels of the smaller image it was sent (D-106).
@@ -1105,7 +1113,7 @@ class LocalAgent:
                     # A bare launch_app: the plan already named the program (D-106).
                     action = {**action, "name": self.plan_app}
                 member, params = to_member(action, frame, self.coords)
-                if member in POINT_CLICKS:
+                if member in POINT_CLICKS and POINT_FALLBACK:
                     params = {"coordinate": _likely_point(elements, action, params["coordinate"])}
             element = params.get("element")
             if isinstance(element, str) and f"[{element}]" not in elements:

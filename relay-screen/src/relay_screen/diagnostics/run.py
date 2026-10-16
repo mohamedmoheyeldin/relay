@@ -665,10 +665,46 @@ def cleanup(s: Scenario, tools: Tools, before: set[int]) -> None:
             with contextlib.suppress(Exception):
                 tools.hands.run("focus_window", {"window": match})
                 tools.hands.run("key", {"text": "ctrl+w"})
+    close_test_docs(tools)
     for handle in set(tools.desktop.titles()) - before:
         with contextlib.suppress(Exception):
             tools.desktop.close(handle)
     tools.sleep(0.5)
+
+
+# Notepad tabs the scenarios write: their titles start with the test text (D-106).
+TEST_DOC = re.compile(
+    r"^\*?(?:(?:Relay diagnostics|First line|Claude sent this|Relay saved this) \d{6}"
+    r"|Nimbus 14\b|relay-diag-\d{6}\.txt)"
+)
+MAX_TEST_DOCS = 12
+
+
+def close_test_docs(tools: Tools) -> int:
+    """Close the Notepad tabs test runs wrote, without saving them.
+
+    Closing a whole window left Notepad's "Save changes?" prompt open, and the next
+    scenarios worked in those leftover tabs: four of round 9's six failures (D-106).
+    """
+    closed = 0
+    for _ in range(MAX_TEST_DOCS):
+        titles = tools.desktop.titles().values()
+        doc = next((t for t in titles if t.endswith(" - Notepad") and TEST_DOC.match(t)), None)
+        if doc is None:
+            break
+        try:
+            tools.hands.run("focus_window", {"window": doc})
+            tools.hands.run("key", {"text": "ctrl+w"})
+            tools.sleep(0.6)
+            found = tools.hands.run("uia_find", {"query": "Don", "role": "Button"}).text or ""
+            button = re.search(r"^\[(e\d+)\] Button \"Don.t save", found, re.M)
+            if button:
+                tools.hands.run("uia_invoke", {"element": button.group(1)})
+                tools.sleep(0.4)
+        except Exception:
+            break
+        closed += 1
+    return closed
 
 
 CURSOR = re.compile(r"X=(-?\d+), Y=(-?\d+)")
@@ -925,6 +961,9 @@ def run_all(
     watch: ResourceWatch | None = None,
 ) -> list[Result]:
     results: list[Result] = []
+    gone = close_test_docs(tools)
+    if gone:
+        emit({"event": "note", "text": f"Closed {gone} Notepad tab(s) left by earlier runs"})
     for n, s in enumerate(chosen, 1):
         if watch is not None:
             watch.scenario = s.id

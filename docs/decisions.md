@@ -1792,3 +1792,16 @@ Round 8 (19 of 22) added:
   fallback.
 - The `--log-file` copy from D-107 stayed empty on b11630 and is dropped; the
   appended `llama-<model>.log` has the server's output.
+
+Round 9 (16 of 22) added:
+- **Test Notepad tabs are closed without saving.** Closing a whole window
+  left Notepad's "Save changes?" prompt open, and later scenarios worked in
+  those leftover tabs. Before the run and after each scenario, every Notepad
+  tab whose title starts with a test text and a six-digit stamp is closed with
+  Ctrl+W and "Don't save". The owner's own tabs are never touched.
+- **Search tasks that open a tab first** ("Open a new tab in the web browser
+  and search the web for …") go straight to the search page. Relay's own window
+  and open browsers no longer count as "the program the task names".
+- **A bare launch_app** opens the program the plan named.
+- `RELAY_POINT_FALLBACK=0` turns off the listed-centre and raw-point fallbacks,
+  so a run measures the model's own position clicks (with D-108's frames).

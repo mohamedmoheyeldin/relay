@@ -443,3 +443,38 @@ def test_an_unanswered_approval_fails_one_scenario_not_the_run(tmp_path: Path) -
     results = diag.run_all(chosen, tools(link), tmp_path, lambda e: None)
     assert [r.id for r in results] == ["a", "b"]
     assert all(r.status == "failed" for r in results)
+
+
+def test_notepad_tabs_from_test_runs_are_closed_without_saving(tmp_path: Path) -> None:
+    desktop: Any = None
+    front = [""]
+
+    def ctrl_w(params: dict[str, Any]) -> str:
+        if params["text"] == "ctrl+w":  # the active tab closes; its title goes
+            desktop.open.pop(next(h for h, t in desktop.open.items() if t == front[0]))
+        return "OK"
+
+    def focus(params: dict[str, Any]) -> str:
+        front[0] = params["window"]
+        return "OK"
+
+    hands = FakeHands(
+        {
+            "key": ctrl_w,
+            "focus_window": focus,
+            "uia_find": '1 match(es):\n[e9] Button "Don\'t save" center (5, 5)',
+        }
+    )
+    desktop = FakeDesktop(
+        hands,
+        {
+            1: "Relay",
+            2: "*First line 010427 - Notepad",
+            3: "*Nimbus 14 - $749 - Notepad",
+            4: "*my plans - Notepad",
+            5: "relay diagnostics 1 - Brave",
+        },
+    )
+    assert diag.close_test_docs(tools(FakeLink(), hands, desktop=desktop)) == 2
+    assert sorted(desktop.open) == [1, 4, 5]  # the owner's own tab and other windows stay
+    assert hands.calls.count(("uia_invoke", {"element": "e9"})) == 2
