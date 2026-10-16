@@ -115,6 +115,7 @@ def test_a_failed_check_fails_even_when_the_model_says_done(tmp_path: Path) -> N
     [result] = diag.run_all([s], tools(link), tmp_path, lambda e: None)
     assert result.status == "failed"
     assert result.failed_checks == ["no window titled like 'Downloads'"]
+    assert result.details["false_done"]
 
 
 def test_new_windows_and_the_tab_are_closed_afterwards(tmp_path: Path) -> None:

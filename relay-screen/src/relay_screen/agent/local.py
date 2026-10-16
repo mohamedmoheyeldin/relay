@@ -670,6 +670,8 @@ class LocalAgent:
         self.notes: list[str] = []  # what the owner added while the task ran
         self.target = ""  # the program the task works in (its exe stem), once known
         self.plan = ""  # the plan made before the first step (D-094)
+        self.done_when = ""  # the plan's done-when, checked once before finishing (D-098)
+        self.done_checked = False
         self.typed: dict[str, int] = {}  # text typed so far -> the step that typed it
         self.new_doc = False  # a writing task: editors get a new tab first
         self.fresh: set[str] = set()  # editors that already got their new tab
@@ -750,6 +752,19 @@ class LocalAgent:
                 if self.cancelled():
                     return self._finish("stopped", "Stopped by the owner.", steps)
                 if action["action"] == "done":
+                    if self.done_when and not self.done_checked:
+                        # One look against the plan's done-when before finishing: the
+                        # model stopped after a search page in the owner's flight task
+                        # (D-098).
+                        self.done_checked = True
+                        self.emit({"event": "note", "text": "Checking that it is really done…"})
+                        note = (
+                            f"Before you finish, look at the screen and check the plan: done "
+                            f"when {self.done_when}. Reply done only if that is true now; "
+                            "otherwise keep going."
+                        )
+                        look = True
+                        break
                     return self._finish("done", str(action.get("summary") or "Done."), steps)
                 if action["action"] == "fail":
                     reason = str(action.get("reason") or "The local model gave up.")
@@ -1074,6 +1089,7 @@ class LocalAgent:
         text += [f"{i}. {x}" for i, x in enumerate(steps, 1)]
         if done_when:
             text.append(f"Done when: {done_when}")
+            self.done_when = done_when
         if question:
             answer = self._ask_owner(question, str(plan.get("default") or "").strip())
             text.append(f"You asked the owner: {question} {answer}")

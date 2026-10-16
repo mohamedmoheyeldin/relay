@@ -687,6 +687,23 @@ def test_invoke_on_an_address_bar_clicks_its_center_instead() -> None:
     assert ("left_click", {"coordinate": [640, 52]}) in hands.calls
 
 
+def test_done_is_checked_once_against_the_plans_done_when() -> None:
+    plan = {
+        "goal": "find a flight",
+        "app": "Brave",
+        "steps": ["search"],
+        "done_when": "prices show",
+    }
+    done = {"thought": "", "action": "done", "summary": "ok"}
+    model = Script(done, done, plan=plan)
+    outcome = LocalAgent(FakeHands(), model, instant=False).run("find a cheap flight to Cairo")
+    assert outcome.status == "done" and len(model.seen) == 2
+    assert "done when prices show" in model.prompt(1)
+    unplanned = Script(done)
+    LocalAgent(FakeHands(), unplanned, instant=False).run("find a cheap flight to Cairo")
+    assert len(unplanned.seen) == 1  # no done-when, nothing to check
+
+
 def test_a_search_set_in_the_address_bar_is_sent_with_enter() -> None:
     hands = FakeHands({"uia_set_value": "OK · target changed"})
     agent = LocalAgent(hands, Script())
@@ -770,7 +787,8 @@ def test_plans_first_and_asks_the_owner_before_acting() -> None:
         "question": "Where should I save the list?",
         "default": "Documents",
     }
-    model = Script({"thought": "", "action": "done", "summary": "ok"}, plan=plan)
+    done = {"thought": "", "action": "done", "summary": "ok"}
+    model = Script(done, done, plan=plan)  # the second done follows the done-when check
     events: list[dict[str, Any]] = []
     answers = [[], ["on my desktop"]]
     agent = LocalAgent(

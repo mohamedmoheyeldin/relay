@@ -125,6 +125,7 @@ class Running:
     source: str
     write: Write
     offline: bool = False  # the local AI may not ask Claude (diagnostics, D-096)
+    quiet: bool = False  # not shown in the owner's chat (diagnostics, D-096)
     notes: list[str] = field(default_factory=list)
     stop: threading.Event = field(default_factory=threading.Event)
     lock: threading.Lock = field(default_factory=threading.Lock)
@@ -318,8 +319,10 @@ class OperatorService:
         cid = str(command.get("id") or self._new_id())
         text = str(command.get("text") or "").strip()
         if op == "task":
+            source = str(command.get("source") or "app")
             offline = command.get("offline") is True
-            return self.start(cid, text, out, str(command.get("source") or "app"), offline)
+            quiet = command.get("quiet") is True or source == "diagnostics"
+            return self.start(cid, text, out, source, offline, quiet)
         if op == "say":
             return self.say(cid, text, out)
         if op == "stop":
@@ -347,7 +350,13 @@ class OperatorService:
         return None
 
     def start(
-        self, cid: str, text: str, write: Write, source: str, offline: bool = False
+        self,
+        cid: str,
+        text: str,
+        write: Write,
+        source: str,
+        offline: bool = False,
+        quiet: bool = False,
     ) -> threading.Thread | None:
         if not text:
             write({"id": cid, "event": "failed", "message": "The task is empty.", "steps": 0})
@@ -355,7 +364,7 @@ class OperatorService:
         with self._lock:
             busy = self.running is not None
             if not busy:
-                self.running = Running(cid, text, source, write, offline)
+                self.running = Running(cid, text, source, write, offline, quiet)
         if busy:
             message = "Relay is already doing a task. Stop it first, or add to it."
             write({"id": cid, "event": "failed", "message": message, "steps": 0})
@@ -401,7 +410,7 @@ class OperatorService:
             if running.source != "app":
                 line["source"] = running.source
             out(line)
-            if out is not self.write and running.source != "diagnostics":
+            if out is not self.write and not running.quiet:
                 self.write(line)  # the app sees Claude's ui_task steps too
 
         emit({"event": "accepted", "text": running.text})
@@ -417,7 +426,7 @@ class OperatorService:
             emit({"event": "note", "text": str(exc)})
             line = {"id": running.id, "event": "unavailable", "message": str(exc)}
             out(line)
-            if out is not self.write and running.source != "diagnostics":
+            if out is not self.write and not running.quiet:
                 self.write(line)
         except Exception as exc:
             message = f"The local AI failed: {exc.__class__.__name__}: {exc}"
@@ -506,6 +515,8 @@ def hand_off(
     steps: list[str] = []
     with conn, conn.makefile("rwb") as stream:
         command = {"token": token, "op": "task", "text": task, "max_steps": max_steps}
+        if os.environ.get("RELAY_DIAGNOSTICS"):
+            command["quiet"] = True  # a test run's Claude: keep it out of the owner's chat
         stream.write((json.dumps(command) + "\n").encode("utf-8"))
         stream.flush()
         for raw in stream:

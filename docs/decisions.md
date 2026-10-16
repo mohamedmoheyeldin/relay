@@ -1573,3 +1573,16 @@ The owner chose the full rebuild with every recommendation:
   Enter, and in the test run the model pressed the search icon four times,
   clicked around, and then said it was done with no search made.
 - The step reads "… · Enter pressed", so the model knows the page is loading.
+
+## D-098 Done is checked once against the plan, and test runs stay out of chats
+*2026-10-16 · accepted · owner's flight task stopped on a search page; a test step showed in the owner's chat*
+
+- When the local model says done and its plan has a done-when, the operator
+  looks at the screen once more and asks the model to finish only if the
+  done-when holds now. The second done ends the task. Plans without a
+  done-when finish at once, as before.
+- Diagnostics record when the operator said done but the check from outside
+  failed (`false_done`, and `said_done_but_was_not` in the overview).
+- A diagnostics run's Claude starts relay-screen with RELAY_DIAGNOSTICS=1, so
+  its `ui_task` hand-off is marked quiet and the app's chat never shows it.
+  Diagnostics' own tasks are quiet too.

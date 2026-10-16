@@ -387,6 +387,8 @@ def run_operator(s: Scenario, tools: Tools, rec: Recorder, emit: Event) -> Resul
     else:
         status = "passed" if not failed and status_word != "stopped" else "failed"
     cleanup(s, tools, before)
+    # The operator said done but the check from outside disagrees (D-098).
+    details["false_done"] = status_word == "done" and bool(failed)
     think = [t.get("think_ms", 0) for t in timings]
     return Result(
         s.id,
@@ -696,6 +698,7 @@ def overview(results: Sequence[Result]) -> dict[str, Any]:
         "operator_tasks": len(operator),
         "operator_passed": sum(1 for r in operator if r.passed),
         "operator_steps": sum(r.steps for r in operator),
+        "said_done_but_was_not": [r.id for r in operator if r.details.get("false_done")],
         "model_calls": calls,
         "model_ms_per_call": round(think / calls) if calls else None,
         "time_split_ms": {"perceive": perceive, "think": think, "act": act},
@@ -910,6 +913,7 @@ class ClaudeCli:
                     "args": ["-m", "relay_screen.server"],
                     "env": {
                         "RELAY_APPROVAL": os.environ.get("RELAY_APPROVAL", "risky"),
+                        "RELAY_DIAGNOSTICS": "1",  # its ui_task stays out of the chat
                         "PYTHONUTF8": "1",
                     },
                 }
