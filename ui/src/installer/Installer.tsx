@@ -139,7 +139,7 @@ function InstallScreen({ info }: { info: InstallerInfo }) {
         <div className="flex items-start gap-3 py-3">
           <FolderOpen size={17} className="mt-0.5 shrink-0 text-subtle" aria-hidden="true" />
           <div className="min-w-0">
-            <div className="text-[13px] text-subtle">Install location</div>
+            <div className="text-[13px] text-subtle">Install location · Windows will ask for permission</div>
             <div className="break-all font-mono text-[12.5px]">{info.install_dir}</div>
           </div>
         </div>
