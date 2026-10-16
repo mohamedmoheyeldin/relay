@@ -1,7 +1,9 @@
 //! Self-installing: the downloaded `Relay Setup.exe` is the app itself. Outside its install
-//! folder it shows a Relay-themed setup window, copies itself to a per-user folder, adds
+//! folder it shows a Relay-themed setup window; on Install it relaunches itself with
+//! administrator rights (Windows asks once), copies itself to `C:\Program Files\Relay`, adds
 //! shortcuts and an uninstall entry, then starts the installed copy. `--uninstall` reverses it.
 
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -10,8 +12,8 @@ use serde::{Deserialize, Serialize};
 
 pub const APP_NAME: &str = "Relay";
 pub const INSTALLED_EXE: &str = "Relay.exe";
-const UNINSTALL_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\Relay";
-const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
+const UNINSTALL_KEY: &str = r"HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\Relay";
+const RUN_KEY: &str = r"HKLM\Software\Microsoft\Windows\CurrentVersion\Run";
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -25,12 +27,12 @@ pub enum Mode {
     Uninstall,
 }
 
-/// Where Relay installs itself (per user, no administrator rights needed).
+/// Where Relay installs itself.
 pub fn install_dir() -> PathBuf {
-    std::env::var_os("LOCALAPPDATA")
+    std::env::var_os("ProgramW6432")
+        .or_else(|| std::env::var_os("ProgramFiles"))
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("Programs")
+        .unwrap_or_else(|| PathBuf::from(r"C:\Program Files"))
         .join(APP_NAME)
 }
 
@@ -44,7 +46,7 @@ pub fn detect_mode(args: &[String], current_exe: &Path, install: &Path, debug: b
     }
     let inside = current_exe
         .parent()
-        .map(|p| p.eq_ignore_ascii_case_path(install))
+        .map(|p| same_path(p, install))
         .unwrap_or(false);
     if inside {
         Mode::App
@@ -53,16 +55,10 @@ pub fn detect_mode(args: &[String], current_exe: &Path, install: &Path, debug: b
     }
 }
 
-trait PathCompare {
-    fn eq_ignore_ascii_case_path(&self, other: &Path) -> bool;
-}
-
-impl PathCompare for Path {
-    fn eq_ignore_ascii_case_path(&self, other: &Path) -> bool {
-        self.to_string_lossy()
-            .trim_end_matches('\\')
-            .eq_ignore_ascii_case(other.to_string_lossy().trim_end_matches('\\'))
-    }
+fn same_path(a: &Path, b: &Path) -> bool {
+    a.to_string_lossy()
+        .trim_end_matches('\\')
+        .eq_ignore_ascii_case(b.to_string_lossy().trim_end_matches('\\'))
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -128,18 +124,22 @@ pub fn shortcut_script(link: &Path, target: &Path, workdir: &Path) -> String {
     )
 }
 
-fn start_menu_link() -> PathBuf {
-    std::env::var_os("APPDATA")
+fn env_path(name: &str) -> PathBuf {
+    std::env::var_os(name)
         .map(PathBuf::from)
         .unwrap_or_default()
+}
+
+/// All-users Start menu entry.
+fn start_menu_link() -> PathBuf {
+    env_path("ProgramData")
         .join(r"Microsoft\Windows\Start Menu\Programs")
         .join(format!("{APP_NAME}.lnk"))
 }
 
+/// All-users desktop shortcut.
 fn desktop_link() -> PathBuf {
-    std::env::var_os("USERPROFILE")
-        .map(PathBuf::from)
-        .unwrap_or_default()
+    env_path("PUBLIC")
         .join("Desktop")
         .join(format!("{APP_NAME}.lnk"))
 }
@@ -185,7 +185,7 @@ pub fn copy_self(source: &Path, dir: &Path) -> Result<PathBuf> {
     Ok(target)
 }
 
-/// Install for the current user. `on_step` receives (label, percent).
+/// Install for all users (needs administrator rights). `on_step` receives (label, percent).
 pub fn install(
     opts: InstallOptions,
     version: &str,
@@ -258,7 +258,9 @@ pub fn uninstall(
     data_dir: &Path,
     mut on_step: impl FnMut(&str, u8),
 ) -> Result<()> {
-    on_step("Removing shortcuts", 20);
+    on_step("Closing Relay", 10);
+    stop_running_copy();
+    on_step("Removing shortcuts", 25);
     let _ = std::fs::remove_file(start_menu_link());
     let _ = std::fs::remove_file(desktop_link());
     on_step("Removing registry entries", 45);
@@ -284,6 +286,120 @@ pub fn uninstall(
     Ok(())
 }
 
+// ---- administrator relaunch ----
+
+/// Arguments for the headless install worker.
+pub fn worker_args_install(opts: InstallOptions, log: &Path) -> Vec<String> {
+    vec![
+        "--install-worker".into(),
+        format!("--desktop={}", opts.desktop_shortcut as u8),
+        format!("--startup={}", opts.start_with_windows as u8),
+        format!("--log={}", log.display()),
+    ]
+}
+
+/// Arguments for the headless uninstall worker.
+pub fn worker_args_uninstall(delete_data: bool, data_dir: &Path, log: &Path) -> Vec<String> {
+    vec![
+        "--uninstall-worker".into(),
+        format!("--delete-data={}", delete_data as u8),
+        format!("--data-dir={}", data_dir.display()),
+        format!("--log={}", log.display()),
+    ]
+}
+
+fn arg_value<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
+    args.iter()
+        .find_map(|a| a.strip_prefix(&format!("--{name}=")))
+}
+
+/// One progress line in the worker's log file: `percent|label` or `error|message`.
+pub fn parse_log_line(line: &str) -> Option<LogLine> {
+    let (head, rest) = line.split_once('|')?;
+    if head == "error" {
+        return Some(LogLine::Error(rest.to_string()));
+    }
+    Some(LogLine::Step(rest.to_string(), head.parse().ok()?))
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum LogLine {
+    Step(String, u8),
+    Error(String),
+}
+
+/// Run `exe args` with administrator rights and wait. Returns the exit code, or an error when
+/// the owner declines the Windows prompt.
+pub fn run_elevated(exe: &Path, args: &[String]) -> Result<i32> {
+    let quote = |s: &str| s.replace('\'', "''");
+    let arg_list = args
+        .iter()
+        .map(|a| format!("\"{}\"", a.replace('"', "\\\"")))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let script = format!(
+        "$ErrorActionPreference='Stop'; try {{ $p = Start-Process -FilePath '{}' -ArgumentList '{}' -Verb RunAs -Wait -PassThru; exit $p.ExitCode }} catch {{ [Console]::Error.WriteLine($_.Exception.Message); exit 1223 }}",
+        quote(&exe.display().to_string()),
+        quote(&arg_list)
+    );
+    let out = hidden("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .output()
+        .context("starting the administrator prompt")?;
+    match out.status.code() {
+        Some(1223) => Err(anyhow!(
+            "Windows did not get permission to continue (the prompt was declined)."
+        )),
+        Some(code) => Ok(code),
+        None => Err(anyhow!("the administrator process ended unexpectedly")),
+    }
+}
+
+fn log_line(log: &Path, line: &str) {
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log)
+    {
+        let _ = writeln!(f, "{line}");
+    }
+}
+
+/// If this launch is an elevated worker, do its job and return the exit code.
+pub fn run_worker_if_requested(args: &[String], version: &str) -> Option<i32> {
+    let log = arg_value(args, "log").map(PathBuf::from);
+    let report = |label: &str, pct: u8| {
+        if let Some(l) = &log {
+            log_line(l, &format!("{pct}|{label}"));
+        }
+    };
+    let fail = |e: anyhow::Error| {
+        if let Some(l) = &log {
+            log_line(l, &format!("error|{e:#}"));
+        }
+        1
+    };
+    if args.iter().any(|a| a == "--install-worker") {
+        let opts = InstallOptions {
+            desktop_shortcut: arg_value(args, "desktop") == Some("1"),
+            start_with_windows: arg_value(args, "startup") == Some("1"),
+        };
+        return Some(match install(opts, version, report) {
+            Ok(_) => 0,
+            Err(e) => fail(e),
+        });
+    }
+    if args.iter().any(|a| a == "--uninstall-worker") {
+        let delete = arg_value(args, "delete-data") == Some("1");
+        let data = PathBuf::from(arg_value(args, "data-dir").unwrap_or_default());
+        return Some(match uninstall(delete, &data, report) {
+            Ok(()) => 0,
+            Err(e) => fail(e),
+        });
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -294,7 +410,7 @@ mod tests {
 
     #[test]
     fn mode_detection() {
-        let install = Path::new(r"C:\Users\me\AppData\Local\Programs\Relay");
+        let install = Path::new(r"C:\Program Files\Relay");
         let elsewhere = Path::new(r"C:\Users\me\Downloads\Relay Setup.exe");
         let inside = install.join("Relay.exe");
         assert_eq!(
@@ -305,7 +421,7 @@ mod tests {
         assert_eq!(
             detect_mode(
                 &args(&[]),
-                Path::new(r"c:\users\ME\appdata\local\programs\relay\Relay.exe"),
+                Path::new(r"c:\program files\RELAY\Relay.exe"),
                 install,
                 false
             ),
@@ -324,6 +440,13 @@ mod tests {
     }
 
     #[test]
+    fn installs_under_program_files() {
+        let d = install_dir();
+        assert!(d.ends_with("Relay"));
+        assert!(d.to_string_lossy().to_lowercase().contains("program files"));
+    }
+
+    #[test]
     fn shortcut_script_quotes_paths() {
         let s = shortcut_script(
             Path::new(r"C:\Users\O'Neil\Desktop\Relay.lnk"),
@@ -332,6 +455,45 @@ mod tests {
         );
         assert!(s.contains("O''Neil"));
         assert!(s.contains("TargetPath='C:\\Apps\\Relay.exe'"));
+    }
+
+    #[test]
+    fn worker_arguments_round_trip() {
+        let log = Path::new(r"C:\Temp\setup.log");
+        let a = worker_args_install(
+            InstallOptions {
+                desktop_shortcut: true,
+                start_with_windows: false,
+            },
+            log,
+        );
+        assert_eq!(arg_value(&a, "desktop"), Some("1"));
+        assert_eq!(arg_value(&a, "startup"), Some("0"));
+        assert_eq!(arg_value(&a, "log"), Some(r"C:\Temp\setup.log"));
+        let u = worker_args_uninstall(true, Path::new(r"C:\Data"), log);
+        assert!(u.contains(&"--uninstall-worker".to_string()));
+        assert_eq!(arg_value(&u, "data-dir"), Some(r"C:\Data"));
+        assert_eq!(arg_value(&u, "missing"), None);
+    }
+
+    #[test]
+    fn log_lines_parse() {
+        assert_eq!(
+            parse_log_line("55|Adding Relay to the Start menu"),
+            Some(LogLine::Step("Adding Relay to the Start menu".into(), 55))
+        );
+        assert_eq!(
+            parse_log_line("error|access denied"),
+            Some(LogLine::Error("access denied".into()))
+        );
+        assert_eq!(parse_log_line("garbage"), None);
+        assert_eq!(parse_log_line("x|y"), None);
+    }
+
+    #[test]
+    fn non_worker_launches_are_left_alone() {
+        assert_eq!(run_worker_if_requested(&args(&["--run"]), "1"), None);
+        assert_eq!(run_worker_if_requested(&args(&[]), "1"), None);
     }
 
     #[test]
@@ -351,11 +513,5 @@ mod tests {
         assert_eq!(dir_size(&base.join("Programs")), 100);
         assert_eq!(dir_size(&base.join("missing")), 0);
         let _ = std::fs::remove_dir_all(&base);
-    }
-
-    #[test]
-    fn install_dir_is_per_user() {
-        let d = install_dir();
-        assert!(d.ends_with(r"Programs\Relay"));
     }
 }

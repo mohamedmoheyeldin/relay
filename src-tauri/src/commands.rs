@@ -448,32 +448,87 @@ fn progress(app: &AppHandle, label: &str, percent: u8, done: bool, error: Option
     );
 }
 
+/// Run a setup or removal worker with administrator rights, relaying its progress to the window.
+async fn run_privileged(
+    app: &AppHandle,
+    args: Vec<String>,
+    log: std::path::PathBuf,
+) -> CmdResult<()> {
+    use installer::{parse_log_line, LogLine};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
+    let _ = std::fs::remove_file(&log);
+    let exe = std::env::current_exe().map_err(err)?;
+    let stop = Arc::new(AtomicBool::new(false));
+    let poller = {
+        let (app, log, stop) = (app.clone(), log.clone(), stop.clone());
+        tauri::async_runtime::spawn(async move {
+            let mut seen = 0usize;
+            loop {
+                let finished = stop.load(Ordering::SeqCst);
+                if let Ok(text) = tokio::fs::read_to_string(&log).await {
+                    for line in text.lines().skip(seen) {
+                        if let Some(LogLine::Step(label, pct)) = parse_log_line(line) {
+                            progress(&app, &label, pct, false, None);
+                        }
+                        seen += 1;
+                    }
+                }
+                if finished {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+            }
+        })
+    };
+    progress(app, "Waiting for Windows permission", 3, false, None);
+    let outcome =
+        tauri::async_runtime::spawn_blocking(move || installer::run_elevated(&exe, &args))
+            .await
+            .map_err(err)?;
+    stop.store(true, Ordering::SeqCst);
+    let _ = poller.await;
+    let logged_error = std::fs::read_to_string(&log).ok().and_then(|t| {
+        t.lines().find_map(|l| match parse_log_line(l) {
+            Some(LogLine::Error(m)) => Some(m),
+            _ => None,
+        })
+    });
+    let _ = std::fs::remove_file(&log);
+    match outcome {
+        Ok(0) => Ok(()),
+        Ok(code) => Err(logged_error.unwrap_or_else(|| format!("setup stopped with code {code}"))),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+fn setup_log() -> std::path::PathBuf {
+    std::env::temp_dir().join(format!("relay-setup-{}.log", std::process::id()))
+}
+
 #[tauri::command]
 pub async fn installer_install(
     desktop_shortcut: bool,
     start_with_windows: bool,
     app: AppHandle,
 ) -> CmdResult<()> {
-    let opts = InstallOptions {
-        desktop_shortcut,
-        start_with_windows,
-    };
-    let progress_app = app.clone();
-    let result = tauri::async_runtime::spawn_blocking(move || {
-        installer::install(opts, env!("CARGO_PKG_VERSION"), |label, pct| {
-            progress(&progress_app, label, pct, false, None)
-        })
-    })
-    .await
-    .map_err(err)?;
-    match result {
-        Ok(_) => {
+    let log = setup_log();
+    let args = installer::worker_args_install(
+        InstallOptions {
+            desktop_shortcut,
+            start_with_windows,
+        },
+        &log,
+    );
+    match run_privileged(&app, args, log).await {
+        Ok(()) => {
             progress(&app, "Relay is installed", 100, true, None);
             Ok(())
         }
         Err(e) => {
-            progress(&app, "Setup could not finish", 0, true, Some(e.to_string()));
-            Err(e.to_string())
+            progress(&app, "Setup could not finish", 0, true, Some(e.clone()));
+            Err(e)
         }
     }
 }
@@ -493,28 +548,16 @@ pub async fn installer_launch(app: AppHandle) -> CmdResult<()> {
 #[tauri::command]
 pub async fn uninstall_run(delete_data: bool, app: AppHandle) -> CmdResult<()> {
     let data_dir = crate::app::data_dir_of(&app).map_err(err)?;
-    let progress_app = app.clone();
-    let result = tauri::async_runtime::spawn_blocking(move || {
-        installer::uninstall(delete_data, &data_dir, |label, pct| {
-            progress(&progress_app, label, pct, false, None)
-        })
-    })
-    .await
-    .map_err(err)?;
-    match result {
+    let log = setup_log();
+    let args = installer::worker_args_uninstall(delete_data, &data_dir, &log);
+    match run_privileged(&app, args, log).await {
         Ok(()) => {
             progress(&app, "Relay was removed", 100, true, None);
             Ok(())
         }
         Err(e) => {
-            progress(
-                &app,
-                "Removal could not finish",
-                0,
-                true,
-                Some(e.to_string()),
-            );
-            Err(e.to_string())
+            progress(&app, "Removal could not finish", 0, true, Some(e.clone()));
+            Err(e)
         }
     }
 }
