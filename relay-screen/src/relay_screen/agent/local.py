@@ -34,6 +34,7 @@ from relay_screen.safety.killswitch import KillSwitchError
 
 MAX_STEPS = 25
 HISTORY = 10  # earlier steps repeated to the model as text
+THOUGHT_CHARS = 400  # of the model's last thought, repeated with the history
 SEND_EDGE = 1280  # px, long edge of the screenshot sent to the model
 ALIGN = 32  # sent sizes are multiples of the vision patch grid, so pixel models see it as sent
 # Qwen-VL models (Holo3.1) need at least this many image tokens, one per 32 px cell; with
@@ -673,6 +674,24 @@ def calc_entry(task: str) -> str | None:
     return entry + "=" if CALC_SUM.fullmatch(entry) else None
 
 
+LEAD_APP = re.compile(
+    _LEAD + r"(?:open|launch|start)\s+(?:the\s+|my\s+)?([a-z][\w .+-]{1,40}?)"
+    r"(?:\s+app)?\s*(?:,|\band\b|\bthen\b)",
+    re.IGNORECASE,
+)
+NOT_AN_APP = re.compile(
+    r"^(?:a|an|new|this|that|it|file(?!\s+explorer)|folder|page|tab)\b", re.IGNORECASE
+)
+
+
+def lead_app(task: str) -> str | None:
+    """'File Explorer' for "Open File Explorer and show the Downloads folder" (D-112)."""
+    found = LEAD_APP.match(task.strip())
+    if found is None or NOT_AN_APP.match(found.group(1)) or _task_url(task):
+        return None
+    return found.group(1).strip()
+
+
 EDITORS = frozenset({"notepad", "notepad++", "wordpad", "winword", "code", "sublime_text"})
 NEW_TEXT = re.compile(
     r"\b(write|type|jot|draft|compose|create|make|start)\b.*\b(note|list|text|letter|"
@@ -889,11 +908,14 @@ def _named(
     return (best[1], best[2]) if best else None
 
 
-def _listed_named(elements: str, text: str) -> str | None:
+PRESS_ROLES = ("Button", "Hyperlink", "MenuItem", "TabItem", "CheckBox", "RadioButton")
+
+
+def _listed_named(elements: str, text: str, roles: tuple[str, ...] = TARGET_ROLES) -> str | None:
     """The id of a listed control named exactly `text` (ignoring case), if one is."""
     want = " ".join(text.casefold().split())
     for found in re.finditer(r'^\s*\[(e\d+)\] (\w+) "([^"]+)"', elements, re.M):
-        if found.group(2) in TARGET_ROLES and " ".join(found.group(3).casefold().split()) == want:
+        if found.group(2) in roles and " ".join(found.group(3).casefold().split()) == want:
             return found.group(1)  # even one on another display, with no centre here
     return None
 
@@ -1070,6 +1092,7 @@ class LocalAgent:
         self.ask = ask
         self.notes: list[str] = []  # what the owner added while the task ran
         self.target = ""  # the program the task works in (its exe stem), once known
+        self.stuck_warned = False  # told once that its actions change nothing
         self.target_handle = 0  # and its exact window: a second Notepad isn't it (D-106)
         self.idle = idle if idle is not None else seconds_since_input
         self.last_input = 0.0  # monotonic time Relay last sent real input
@@ -1108,6 +1131,7 @@ class LocalAgent:
         )
         self.save_to = save_target(task)
         self.task = task
+        self.stuck_warned = False
         try:
             self.plan = self._make_plan(task, apps)
         except Cancelled:
@@ -1123,6 +1147,10 @@ class LocalAgent:
             n = 1  # "find a cheap flight to Cairo": search the web first, no model (D-093)
             action = {"action": "open_url", "url": search}
             steps.append(self._act(n, "", action, "open_url", {"url": search}))
+            if steps[-1].error and steps[-1].result.startswith("STOP:"):
+                return self._finish("stopped", steps[-1].result.removeprefix("STOP: "), steps)
+        elif (app := lead_app(task)) is not None and self._open_first(app, steps):
+            n = len(steps)  # "Open File Explorer and ...": open it first, no model (D-112)
             if steps[-1].error and steps[-1].result.startswith("STOP:"):
                 return self._finish("stopped", steps[-1].result.removeprefix("STOP: "), steps)
         else:
@@ -1210,8 +1238,19 @@ class LocalAgent:
                 if step.error and step.result.startswith("STOP:"):
                     return self._finish("stopped", step.result.removeprefix("STOP: "), steps)
                 if self._stuck(steps):
-                    message = "The same action kept changing nothing, so Relay stopped."
-                    return self._finish("failed", message, steps)
+                    if self.stuck_warned:
+                        message = "The same action kept changing nothing, so Relay stopped."
+                        return self._finish("failed", message, steps)
+                    # Settings showed the About page while the model clicked "About" on
+                    # and on, never saying done (D-112).
+                    self.stuck_warned = True
+                    note = (
+                        "Your last actions changed nothing. Look at the screen: if it already "
+                        "shows what the task asked for, reply done. Otherwise do something "
+                        "different; repeating it again ends the task."
+                    )
+                    look = True
+                    break
                 if _switching(steps):
                     # Brave, Notepad, Brave, Notepad... in round 10 (D-106).
                     note = (
@@ -1406,6 +1445,32 @@ class LocalAgent:
             return ""
         return rest[:MAX_WINDOWS_CHARS]
 
+    def _launch(self, params: Mapping[str, Any]) -> ActionResult:
+        """launch_app, and again without a "Windows "/"Microsoft " the app list doesn't
+        use: "Windows Settings" is "Settings" there (D-112)."""
+        try:
+            return self.hands.run("launch_app", params)
+        except ActionError:
+            name = str(params.get("name", ""))
+            short = re.sub(r"^(?:windows|microsoft|ms)\s+", "", name, flags=re.IGNORECASE)
+            if not short or short == name:
+                raise
+            return self.hands.run("launch_app", {**params, "name": short})
+
+    def _open_first(self, app: str, steps: list[Step]) -> bool:
+        """Bring the app the task opens with to the front, or launch it; False when
+        neither worked, so the model starts from the screen as before."""
+        for member, params in instant_plan(f"open {app}") or []:
+            step = self._act(len(steps) + 1, "", {"action": member, **params}, member, params)
+            text = step.result
+            if step.error and text.startswith("STOP:"):
+                steps.append(step)
+                return True
+            if not step.error and (member != "focus_window" or "is in front" in text):
+                steps.append(step)
+                return True
+        return False
+
     def _focus_target(self, task: str) -> None:
         """Before the first step, bring the task's page or program to the front (D-078, D-079).
 
@@ -1449,6 +1514,11 @@ class LocalAgent:
         if steps:
             lines.append("What you did so far:")
             lines.extend(s.line() for s in steps[-HISTORY:])
+            thought = next((s.thought for s in reversed(steps) if s.thought), "")
+            if thought:
+                # What it read in one window is gone from the next window's list: the
+                # cheapest laptop was forgotten on the way to Notepad (D-112).
+                lines.append(f"Your last thought: {' '.join(thought.split())[:THOUGHT_CHARS]}")
         if self.notes:
             lines.append("The owner added while you worked (follow it):")
             lines.extend(f"- {n}" for n in self.notes[-5:])
@@ -1524,6 +1594,8 @@ class LocalAgent:
                     result = ActionResult(f"{self._front_line().split(' · ')[0]} is in front")
                 elif member == "uia_invoke":
                     result = self._invoke(str(params["element"]))
+                elif member == "launch_app":
+                    result = self._launch(params)
                 else:
                     result = self.hands.run(member, params)
             text, error = result.text or "done", result.is_error
@@ -1536,7 +1608,12 @@ class LocalAgent:
             self.last_type_step = n if not error and member == "type" else 0
             if not error and member == "type" and "no visible change" in text:
                 text = self._type_into_field(thought, str(params.get("text", "")), text)
-            if not error and member == "uia_set_value" and self._address_bar(params):
+            if not error and member == "uia_set_value" and self._search_box(params):
+                # A search box searches on Enter; "Search" in OCR was the box's own
+                # label, clicked eight times in the library catalogue (D-112).
+                self.hands.run("key", {"text": "enter"})
+                text = f"{text} · Enter pressed"
+            elif not error and member == "uia_set_value" and self._address_bar(params):
                 # A search or address in the browser's bar does nothing until Enter,
                 # and models kept pressing the search icon instead (D-097).
                 self.hands.run("key", {"text": "enter"})
@@ -1579,6 +1656,16 @@ class LocalAgent:
                 "the window in front, so it was not clicked; use an element id from the "
                 "list, or look at the screen again"
             )
+
+    def _search_box(self, params: Mapping[str, Any]) -> bool:
+        element = str(params.get("element", ""))
+        found = re.search(rf"\[{re.escape(element)}\] (\w+) \"([^\"]*)\"", self.elements)
+        return bool(
+            found
+            and found.group(1) in ("Edit", "ComboBox")
+            and "search" in found.group(2).casefold()
+            and found.group(2) != ADDRESS_BAR
+        )
 
     def _address_bar(self, params: Mapping[str, Any]) -> bool:
         label = _element_label(self.elements, str(params.get("element", "")))
@@ -1862,6 +1949,11 @@ class LocalAgent:
         return False
 
     def _click_text(self, text: str) -> ActionResult:
+        listed = _listed_named(self.elements, text, PRESS_ROLES)
+        if listed is not None:
+            # The element list names the control exactly; OCR's first "Search" was a
+            # text box's label (D-112).
+            return self._invoke(listed)
         found = self.hands.run("find_text", {"text": text}).text or ""
         points = [[int(x), int(y)] for x, y in re.findall(r"center \((\d+), (\d+)\)", found)]
         if not points:
@@ -1919,6 +2011,8 @@ class LocalAgent:
             s.target == first.target and s.action["action"] == first.action["action"] for s in last
         ):
             return True  # "Backend developer" invoked under a new id each step (D-106)
+        if all(s.action.get("action") == "wait" for s in last):
+            return True  # waiting on and on for a page that won't change (D-112)
         same = all(s.action == first.action for s in last)
         if same and all(s.error for s in last):
             return True  # the same refused click, twenty times in round 7 (D-106)

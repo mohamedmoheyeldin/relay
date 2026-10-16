@@ -79,14 +79,14 @@ class Script:
         return self.seen[i][1]["content"][0]["text"]
 
 
-def run(hands: FakeHands, model: Script, **kw: Any):
+def run(hands: FakeHands, model: Script, task: str = "write hello", **kw: Any):
     events: list[dict[str, Any]] = []
 
     def keep(event: dict[str, Any]) -> None:
         if event["event"] != "seen":  # what the model was shown, every step
             events.append(event)
 
-    outcome = LocalAgent(hands, model, on_event=keep, **kw).run("write hello")
+    outcome = LocalAgent(hands, model, on_event=keep, **kw).run(task)
     return outcome, events
 
 
@@ -203,9 +203,11 @@ def test_a_denial_or_the_kill_switch_stops_the_run(error: Exception) -> None:
 def test_stops_when_the_same_action_keeps_changing_nothing() -> None:
     hands = FakeHands({"left_click": "OK · no visible change"})
     click = {"action": "click", "x": 10, "y": 10}
-    outcome, _ = run(hands, Script(click, click, click))
+    model = Script(click, click, click, click)
+    outcome, _ = run(hands, model)
     assert outcome.status == "failed" and "kept changing nothing" in outcome.message
-    assert len(hands.acts()) == 3
+    assert len(hands.acts()) == 4  # one warning first (D-112)
+    assert "changed nothing" in model.prompt(3)
 
 
 def test_clicking_the_same_spot_twice_gets_a_note_to_type_or_change_course() -> None:
@@ -236,19 +238,20 @@ def test_focusing_the_same_window_again_and_again_is_stuck() -> None:
     # Notepad in round 6: seven focus_window steps in a row, each "is in front" (D-106).
     hands = FakeHands({"focus_window": '"Untitled - Notepad" is in front'})
     focus = {"action": "focus_window", "window": "Notepad"}
-    outcome, _ = run(hands, Script(focus, focus, focus))
-    assert outcome.status == "failed" and len(hands.acts()) == 3
+    outcome, _ = run(hands, Script(focus, focus, focus, focus))
+    assert outcome.status == "failed" and len(hands.acts()) == 4
 
 
 def test_the_same_named_element_three_times_with_no_change_is_stuck() -> None:
     # The web form in round 7: "Blue" invoked under a new id each step (D-106).
     listings = iter(
-        f'Elements (ids ...):\n[e1] Window "Form"\n  [e{n}] ListItem "Blue"' for n in (5, 6, 7, 8)
+        f'Elements (ids ...):\n[e1] Window "Form"\n  [e{n}] ListItem "Blue"'
+        for n in (5, 6, 7, 8, 9)
     )
     hands = FakeHands(
         {"uia_tree": lambda _: next(listings), "uia_invoke": "Invoked · OK · no visible change"}
     )
-    model = Script(*({"action": "invoke", "element": f"e{n}"} for n in (5, 6, 7)))
+    model = Script(*({"action": "invoke", "element": f"e{n}"} for n in (5, 6, 7, 8)))
     outcome, _ = run(hands, model)
     assert outcome.status == "failed" and "kept changing nothing" in outcome.message
 
@@ -673,6 +676,7 @@ def test_one_reply_can_run_several_actions() -> None:
     assert outcome.message == "Searched." and len(model.seen) == 2
     assert hands.acts() == [
         ("uia_set_value", {"element": "e20", "value": "python"}),
+        ("key", {"text": "enter"}),  # a search box searches on Enter (D-112)
         ("key", {"text": "Return"}),
     ]
     timing = [e for e in events if e["event"] == "timing"]
@@ -919,11 +923,12 @@ def test_a_writing_task_opens_a_new_tab_before_typing() -> None:
     )
     outcome = LocalAgent(hands, model, instant=False).run("open notepad and write a shopping list")
     acts = hands.acts()
-    assert acts[0] == ("key", {"text": "ctrl+n"})  # before any typing
+    first_type = next(i for i, a in enumerate(acts) if a[0] == "type")
+    assert ("key", {"text": "ctrl+n"}) in acts[:first_type]  # before any typing
     assert [a for a in acts if a[0] == "type"] == [
         ("type", {"text": "Shopping List\n- Milk\n- Eggs\n- Bread"})
     ]  # typed once
-    assert "already typed in step 1" in outcome.steps[1].result
+    assert "already typed in step 2" in outcome.steps[2].result  # step 1 focused Notepad
 
 
 def test_the_same_batch_twice_is_sent_back_not_run() -> None:
@@ -1112,8 +1117,8 @@ def test_a_click_only_the_raw_numbers_put_on_a_control_uses_them() -> None:
 def test_the_same_failing_action_three_times_is_stuck() -> None:
     hands = FakeHands({"left_click": ActionError("outside the window in front")})
     click = {"action": "click", "x": 10, "y": 10}
-    outcome, _ = run(hands, Script(click, click, click, click))
-    assert outcome.status == "failed" and len(hands.acts()) == 3
+    outcome, _ = run(hands, Script(click, click, click, click, click))
+    assert outcome.status == "failed" and len(hands.acts()) == 4
 
 
 def test_focusing_the_program_returns_to_its_exact_window() -> None:
@@ -1218,7 +1223,7 @@ def test_switching_windows_back_and_forth_gets_a_note_then_stops() -> None:
     model = Script(*([a, b] * 6))
     outcome, _ = run(FakeHands(), model)
     assert "switched windows 4 times" in model.prompt(4)
-    assert outcome.status == "failed" and len(model.seen) == 8
+    assert outcome.status == "failed" and len(model.seen) == 9
 
 
 def test_plans_lose_save_steps_the_task_never_asked_for() -> None:
@@ -1289,3 +1294,65 @@ def test_an_unexpected_error_fails_one_step_not_the_task() -> None:
     outcome, events = run(hands, Script({"action": "key", "keys": "ctrl+a"}, done()))
     assert outcome.status == "done"
     assert next(e for e in events if e["event"] == "step")["result"].startswith("failed: COMError")
+
+
+@pytest.mark.parametrize(
+    ("task", "app"),
+    [
+        ("Open File Explorer and show the Downloads folder.", "File Explorer"),
+        ("Open Notepad, type hello", "Notepad"),
+        ("Open a new tab and search for shoes", None),
+        ("open the file report.pdf and print it", None),
+        ("Go to dice.com and apply", None),
+    ],
+)
+def test_the_app_a_task_opens_with(task: str, app: str | None) -> None:
+    from relay_screen.agent.local import lead_app
+
+    assert lead_app(task) == app
+
+
+def test_the_app_a_task_opens_with_is_opened_before_the_model() -> None:
+    hands = FakeHands({"focus_window": ActionError("no open window matches 'Paint'")})
+    model = Script(done())
+    outcome, _ = run(hands, model, task="Open Paint and draw a circle")
+    assert hands.acts()[:2] == [
+        ("focus_window", {"window": "Paint"}),
+        ("launch_app", {"name": "Paint"}),
+    ]
+    assert outcome.steps[0].action["action"] == "launch_app"
+
+
+def test_windows_settings_launches_as_settings() -> None:
+    calls: list[str] = []
+
+    def launch(params: dict[str, Any]) -> str:
+        calls.append(params["name"])
+        if params["name"] != "Settings":
+            raise ActionError("No installed app matches")
+        return "Opened Settings"
+
+    hands = FakeHands({"launch_app": launch})
+    run(hands, Script({"action": "launch_app", "name": "Windows Settings"}, done()))
+    assert calls == ["Windows Settings", "Settings"]
+
+
+def test_the_last_thought_is_kept_for_the_next_window() -> None:
+    model = Script(
+        {"thought": "The cheapest is Nimbus 14 at $749.", "action": "key", "keys": "ctrl+n"},
+        done(),
+    )
+    run(FakeHands(), model)
+    assert "Your last thought: The cheapest is Nimbus 14 at $749." in model.prompt(1)
+
+
+def test_click_text_presses_the_listed_button_of_that_name() -> None:
+    tree = (
+        "Elements:\n"
+        '  [e2] Edit "Search the catalogue" {value} center (50, 50)\n'
+        '  [e3] Button "Search" {invoke} center (90, 50)'
+    )
+    hands = FakeHands({"uia_tree": tree})
+    run(hands, Script({"action": "click_text", "text": "Search"}, done()))
+    assert ("uia_invoke", {"element": "e3"}) in hands.acts()
+    assert not any(a[0] == "find_text" for a in hands.acts())

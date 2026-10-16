@@ -1888,3 +1888,35 @@ co-author trailers or footers. History is not rewritten for this.
 
 Settings saved before this change keep their old model and effort under a key
 Relay no longer reads, so those two fall back to the CLI's default once.
+
+## D-112 Operator: general skills from the never-tuned tasks
+*2026-10-16 · accepted · from Diagnostics rounds 13 and 14 (D-109)*
+
+The two never-tuned scenarios and three older ones failed for reasons that apply to
+any program, so the fixes are general:
+- **The model remembers its last thought.** Each step repeats the model's last
+  thought with the history. What it read in one window (the cheapest laptop) was
+  gone once another window's element list replaced it, and it switched back and
+  forth to find it again.
+- **The app a task opens with is opened first, without the model.** "Open File
+  Explorer and ..." focuses an open window of it or launches it before the first
+  model step. The model had tried to click the taskbar.
+- **launch_app tries the name without "Windows" or "Microsoft"**, so "Windows
+  Settings" opens Settings.
+- **A batch ends when another window comes to the front.** The new window's
+  element ids are fresh, and a planned set_value meant for the browser went to Notepad.
+- **Saving needs the task to ask for it.** Ctrl+S or a Save control is refused
+  when the task doesn't say save.
+- **A search box searches on Enter.** set_value into an Edit named for search
+  presses Enter, the way the address bar already did (D-097).
+- **click_text presses a listed control with exactly that name first.** OCR's
+  first "Search" was a text box's label.
+- **Typing that went nowhere is put into the empty box** the thought names, or the
+  page's only empty box.
+- **The same spot clicked twice gets a note** to type now or change course.
+- **Stuck gets one warning.** Before the task ends for repeating itself, the model
+  is told once to reply done if the screen already shows the result. Settings showed
+  About while the model kept clicking "About". Waiting three times in a row counts
+  as stuck.
+- File Explorer and file dialogs: the prompt says to press ctrl+l and type the
+  folder.
