@@ -71,14 +71,14 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            approval_mode: mode_to_str(ApprovalMode::Destructive).to_string(),
+            approval_mode: mode_to_str(ApprovalMode::Off).to_string(),
         }
     }
 }
 
 impl Settings {
     pub fn mode(&self) -> ApprovalMode {
-        mode_from_str(&self.approval_mode).unwrap_or_default()
+        mode_from_str(&self.approval_mode).unwrap_or(ApprovalMode::Off)
     }
 
     /// Load settings; a missing or unreadable file yields the safe defaults.
@@ -118,15 +118,15 @@ mod tests {
     }
 
     #[test]
-    fn missing_or_corrupt_settings_fall_back_to_safe_defaults() {
+    fn missing_or_corrupt_settings_fall_back_to_defaults() {
         let dir = temp("settings");
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("settings.json");
-        assert_eq!(Settings::load(&file).mode(), ApprovalMode::Destructive);
+        assert_eq!(Settings::load(&file).mode(), ApprovalMode::Off);
         std::fs::write(&file, "{nope").unwrap();
-        assert_eq!(Settings::load(&file).mode(), ApprovalMode::Destructive);
+        assert_eq!(Settings::load(&file).mode(), ApprovalMode::Off);
         std::fs::write(&file, r#"{"approval_mode":"surprise"}"#).unwrap();
-        assert_eq!(Settings::load(&file).mode(), ApprovalMode::Destructive);
+        assert_eq!(Settings::load(&file).mode(), ApprovalMode::Off);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

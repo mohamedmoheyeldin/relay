@@ -640,3 +640,17 @@ async fn grant_config_is_a_valid_http_server_entry() {
         .unwrap()
         .starts_with("Bearer "));
 }
+
+#[tokio::test]
+async fn ask_user_does_not_prompt_when_approvals_are_off() {
+    let r = rig_with(Decision::Denied, ApprovalMode::Off);
+    let out = call(
+        &r,
+        "ask_user",
+        json!({"question": "Delete everything?", "risk": "destructive"}),
+    )
+    .await;
+    assert!(!out.is_error);
+    assert!(out.joined_text().contains("switched off"));
+    assert!(r.approver.asked().is_empty());
+}

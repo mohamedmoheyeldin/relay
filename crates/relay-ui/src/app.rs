@@ -187,9 +187,9 @@ fn SettingsPanel(chat: RwSignal<ChatState>, open: RwSignal<bool>) -> impl IntoVi
                         call(chat, "set_approval_mode", json!({"mode": value}));
                     }
                 >
-                    <option value="destructive">"Destructive or irreversible actions (recommended)"</option>
+                    <option value="off">"Nothing: act without asking"</option>
+                    <option value="destructive">"Destructive or irreversible actions"</option>
                     <option value="always">"Every action"</option>
-                    <option value="off">"Nothing (unattended; not recommended)"</option>
                 </select>
                 <p class="hint">"Other apps (Gmail, GitHub, …) connect through MCP. Add servers to:"</p>
                 <code class="path">{move || mcp_path.get()}</code>
@@ -238,23 +238,16 @@ pub fn App() -> impl IntoView {
     view! {
         <main class="app">
             <header class="top">
-                <h1>"Relay"</h1>
+                <h1><span class="logo" aria-hidden="true">"✻"</span>"Relay"</h1>
                 <span class=move || chip().1>{move || chip().0}</span>
                 <div class="spacer"></div>
-                <button
-                    class="btn danger"
-                    disabled=move || !running()
-                    title=move || format!("Stop everything ({})", hotkey())
-                    on:click=move |_| call(chat, "stop_task", json!({}))
-                >
-                    "Stop"
-                </button>
-                <button class="btn" title="Start a new conversation" on:click=move |_| {
+                <button class="iconbtn" title="New chat" aria-label="New chat" on:click=move |_| {
                     chat.update(|c| c.clear());
                     call(chat, "new_conversation", json!({}));
-                }>"New"</button>
+                }>"＋"</button>
                 <button
-                    class="btn icon"
+                    class="iconbtn"
+                    title="Settings"
                     aria-label="Settings"
                     aria-expanded=move || settings_open.get().to_string()
                     on:click=move |_| settings_open.update(|o| *o = !*o)
@@ -269,8 +262,8 @@ pub fn App() -> impl IntoView {
                     if items.is_empty() {
                         view! {
                             <div class="empty">
-                                <h2>"What should I do?"</h2>
-                                <p>"Describe a task. I can see your screen and use the mouse and keyboard, and I'll ask before anything that can't be undone."</p>
+                                <div class="spark" aria-hidden="true">"✻"</div>
+                                <h2>"What can I do for you?"</h2>
                                 <p class="hint">{move || format!("Emergency stop: {}", hotkey())}</p>
                             </div>
                         }
@@ -285,21 +278,41 @@ pub fn App() -> impl IntoView {
                 }}
             </div>
             <footer class="composer">
-                <textarea
-                    rows="2"
-                    placeholder="Ask Relay to do something…  (Enter to send, Shift+Enter for a new line)"
-                    prop:value=move || draft.get()
-                    on:input=move |ev| draft.set(event_target_value(&ev))
-                    on:keydown=move |ev: web_sys::KeyboardEvent| {
-                        if ev.key() == "Enter" && !ev.shift_key() && !ev.is_composing() {
-                            ev.prevent_default();
-                            send(chat, draft);
+                <div class="box">
+                    <textarea
+                        rows="1"
+                        placeholder="How can I help you today?"
+                        prop:value=move || draft.get()
+                        on:input=move |ev| draft.set(event_target_value(&ev))
+                        on:keydown=move |ev: web_sys::KeyboardEvent| {
+                            if ev.key() == "Enter" && !ev.shift_key() && !ev.is_composing() {
+                                ev.prevent_default();
+                                send(chat, draft);
+                            }
                         }
-                    }
-                ></textarea>
-                <button class="btn primary" disabled=move || running() || draft.get().trim().is_empty() on:click=move |_| send(chat, draft)>
-                    "Send"
-                </button>
+                    ></textarea>
+                    <div class="row">
+                        <span class="note">{move || if running() { format!("Working… stop with {}", hotkey()) } else { String::new() }}</span>
+                        <Show
+                            when=running
+                            fallback=move || view! {
+                                <button
+                                    class="send"
+                                    aria-label="Send message"
+                                    disabled=move || draft.get().trim().is_empty()
+                                    on:click=move |_| send(chat, draft)
+                                >"↑"</button>
+                            }
+                        >
+                            <button
+                                class="send stop"
+                                aria-label="Stop"
+                                title=move || format!("Stop everything ({})", hotkey())
+                                on:click=move |_| call(chat, "stop_task", json!({}))
+                            >"■"</button>
+                        </Show>
+                    </div>
+                </div>
             </footer>
         </main>
     }

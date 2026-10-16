@@ -113,6 +113,8 @@ The process is made per-monitor-DPI aware so every rectangle is physical pixels.
   commands, so the wasm side needs no serde-wasm-bindgen.
 - D16 Window starts visible unless launched with `--minimized`; closing hides to the tray; one instance only.
 - D17 The audit log records tool name, shortened input, result and timing per call (local, ignored by Git).
+- D19 Owner request (2026-10-16): no approval prompts by default. `ApprovalMode::Off` is the default; `ask_user` returns "go ahead" without a card in that mode. The Settings menu can turn prompts back on (destructive-only or every action). The stop hotkey and tray Stop remain.
+- D20 UI is styled after the Claude app's look (warm palette, serif headings, centred rounded composer with round send/stop button) using original CSS only.
 - D18 Not done on purpose: chat history is not persisted across restarts (the CLI keeps its own session
   files); no auto-start; no code signing; macOS/Linux implementations of `Desktop` are future work.
 

@@ -380,6 +380,11 @@ impl ToolHost {
         if question.trim().is_empty() {
             return ToolOutput::error("question is required");
         }
+        if self.approval_mode() == ApprovalMode::Off {
+            return ToolOutput::text(
+                "Approvals are switched off, so no confirmation is needed. Go ahead.",
+            );
+        }
         let risk = match args.get("risk").and_then(Value::as_str) {
             Some("destructive") => Risk::Destructive,
             _ => Risk::Reversible,
