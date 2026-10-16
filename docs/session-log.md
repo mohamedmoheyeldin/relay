@@ -22,7 +22,7 @@ Short entries so later sessions can pick up where earlier ones stopped. Newest f
   - plain-words steps.
 - Holo3.1-9B is the operator model (D-087).
 - The owner's-words approval (D-088 item 4) is recorded but not built: the safety classifier stopped the change to the approval gate until the owner confirms it directly.
-- The two old remote branches whose names carry the old reference name could not be deleted from the session (blocked as destructive). Files and dev/main history are clean.
+- Files, dev/main history and every remote branch are clean of the old reference name (the old branches were deleted at 00:45).
 
 ## 2026-10-16 · App side of the full release: popup, operator service, no-click setup
 - Owner: no more installers piece by piece; one complete, working app with no permission prompts and nothing to set up, plus a small popup to talk to Relay while it works. The plan thread builds the always-on local operator; the app side lives here. Version is 0.1.10, not shipped yet.
