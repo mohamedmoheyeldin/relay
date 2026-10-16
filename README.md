@@ -51,45 +51,38 @@ service and is not meant to run on anyone else's subscription.
 
 ## How it works
 
-```
- you ── chat / floating popup ──▶ Relay app (Tauri + React)
-                                     │
-                                     ▼
-                     relay-core (Rust)  ── router ───────────────┐
-                                     │                           │ heavy reasoning
-              screen and OS tasks    ▼                           ▼
-        ┌──────────────────────────────────────────┐   Claude Code (official CLI,
-        │ Local operator                           │   your subscription login)
-        │  Tier 0  instant moves, no model  1-100ms│     + MCP connectors
-        │  Tier 1  text planner over the UIA map,  │       (Gmail, Calendar, Drive …)
-        │          several actions per call        │
-        │  Tier 2  GUI vision model, only when the │
-        │          element map can't find the      │
-        │          target                          │
-        │  Tier 3  ask Claude when it needs        │
-        │          judgment                        │
-        │                                          │
-        │  Perception: UI Automation, OCR, capture │
-        │  Hands: UIA patterns first, SendInput    │
-        │  Safety: kill switch, audit log          │
-        └───────────────────┬──────────────────────┘
-                            ▼
-              local model on your GPU (llama.cpp, kept warm in VRAM)
+```mermaid
+flowchart LR
+    you(["You<br/>chat or floating popup"]) --> app["<b>Relay app</b><br/>routes each request"]
+
+    app -- "screen and OS work" --> op
+    app -- "heavy reasoning" --> claude
+
+    subgraph op["<b>Local operator</b> · on your PC"]
+        direction TB
+        t0["<b>Tier 0</b><br/>instant moves, no model"]
+        t1["<b>Tier 1</b><br/>plans over the UI Automation map"]
+        t2["<b>Tier 2</b><br/>Holo3.1-9B vision on your GPU"]
+        t0 --> t1 --> t2
+    end
+
+    subgraph cloud["<b>Claude</b> · your subscription"]
+        claude["Claude Code CLI<br/>+ MCP connectors"]
+    end
+
+    op --> pc(["Any Windows app<br/>or website"])
+    op <-. "Tier 3: asks for judgment" .-> claude
 ```
 
-- **Read the app, not the pixels.** Windows UI Automation gives exact names,
-  roles, positions and actions for most programs, including Chromium browsers.
-  Screenshots and the vision model are the fallback, not the default.
-- **Cheapest reliable path first:** connector or API, then UI Automation, then
-  OCR, then the local vision model, then Claude with a screenshot.
-- **Batches, not one click per round trip.** One model call plans several
-  actions; each is checked before it runs and the batch stops at the first
-  surprise.
-- **Your browser, your logins.** Relay works in the browser and accounts you
-  are already signed in to. You always do your own logins.
-- **Stop at any time.** Moving the mouse into the top-left corner, or pressing
-  Ctrl+Alt+Pause, stops Relay instantly. Every action is written to a local
-  audit log.
+- **Reads the app, not the pixels.** Windows UI Automation gives exact names,
+  roles, positions and actions for most programs, Chromium browsers included.
+  Screenshots and the vision model are the fallback.
+- **Several actions per model call.** Each is checked before it runs, and the
+  batch stops at the first surprise.
+- **Claude thinks, Relay acts.** Claude plans and writes; it never clicks.
+- **Your browser, your logins.** Relay works where you are already signed in.
+- **Stop any time.** Mouse to the top-left corner or Ctrl+Alt+Pause stops
+  Relay instantly, and every action goes to a local audit log.
 
 The full design is in [docs/architecture.md](docs/architecture.md) and every
 non-obvious choice is recorded in [docs/decisions.md](docs/decisions.md).
