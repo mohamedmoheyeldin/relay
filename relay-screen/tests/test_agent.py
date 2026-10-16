@@ -541,3 +541,34 @@ def test_rich_element_lists_skip_the_screenshot() -> None:
     assert "No screenshot this time" in model.prompt(1)
     assert any(e["event"] == "bad_reply" and "look" in e["error"] for e in events)
     assert hands.acts() == [("uia_invoke", {"element": "e3"})]
+
+
+def test_a_browser_in_front_is_read_from_its_page() -> None:
+    windows = (
+        "2 open window(s), topmost first:\n"
+        '"Jobs - Dice - Brave" · brave.exe · in front\n'
+        '"Relay" · relay.exe · Relay itself, never the target'
+    )
+    calls: list[tuple[str, dict[str, Any]]] = []
+
+    def find(params: dict[str, Any]) -> str:
+        if params.get("role") == "Document":
+            return '1 match(es), best first:\n[e40] Document "Dice" center (1720, 700) box [..]'
+        return "1 match(es), best first:\n[e41] Edit \"Address and search bar\" value='dice.com'"
+
+    def tree(params: dict[str, Any]) -> str:
+        calls.append(("uia_tree", params))
+        return 'Elements (ids ...):\n[e40] Document "Dice"\n  [e42] Edit "Search jobs" {value}'
+
+    hands = FakeHands({"list_windows": windows, "uia_find": find, "uia_tree": tree})
+    model = Script({"action": "done", "summary": "ok"})
+    LocalAgent(hands, model).run("search python jobs on this page")
+    prompt = model.prompt(0)
+    assert "[e41] Edit \"Address and search bar\" value='dice.com'" in prompt
+    assert '[e42] Edit "Search jobs"' in prompt
+    assert calls[0][1] == {"root": "e40", "depth": 40, "interactive": True}
+
+
+def test_a_thinking_block_before_the_json_is_ignored() -> None:
+    reply = '<think>The button {maybe} is here</think>{"action": "key", "keys": "Return"}'
+    assert parse_reply(reply) == {"action": "key", "keys": "Return"}

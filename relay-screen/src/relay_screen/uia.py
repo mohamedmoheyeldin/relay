@@ -31,6 +31,11 @@ MAX_IDS = 5_000  # remembered element ids
 NAME_LIMIT = 80
 ACTIONS = frozenset({"invoke", "toggle", "expand", "select", "value"})
 LAYOUT_ROLES = frozenset({"Pane", "Group", "Custom", "Text"})
+# What the operator can act on, for interactive listings of big trees like web pages.
+INPUT_ROLES = frozenset(
+    {"Edit", "ComboBox", "CheckBox", "RadioButton", "Button", "Hyperlink", "Link", "MenuItem",
+     "TabItem", "ListItem", "Slider", "Spinner", "SplitButton", "DataItem", "TreeItem"}
+)  # fmt: skip
 
 
 class UiaElement(Protocol):
@@ -65,6 +70,17 @@ class UiaBackend(Protocol):
     def run(self, work: Callable[[], object]) -> object:
         """Run ``work`` with COM initialized for the calling thread."""
         ...
+
+
+class Snapshots(Protocol):
+    def snapshot(self, roots: Sequence[UiaElement]) -> Sequence[UiaElement]:
+        """The same subtrees read in one cached call each (UIA CacheRequest), so a
+        listing doesn't cross into the app once per property (D-089)."""
+        ...
+
+
+def _interactive(element: UiaElement) -> bool:
+    return element.role in INPUT_ROLES or bool(element.patterns() & ACTIONS)
 
 
 @dataclass
@@ -214,6 +230,15 @@ class UiaService:
             child_indent = indent + 1 if shown else indent
             stack.extend((level + 1, child_indent, k) for k in reversed(kids))
 
+    def _snapshot(self, roots: Sequence[UiaElement]) -> Sequence[UiaElement]:
+        snap = getattr(self.backend, "snapshot", None)
+        if snap is None:
+            return roots
+        try:
+            return snap(roots)
+        except Exception:  # an app that refuses the cache is read the slow way
+            return roots
+
     def tree(
         self,
         geometry: ScreenshotGeometry,
@@ -221,20 +246,28 @@ class UiaService:
         depth: int = 6,
         filter: str | None = None,
         displays: Sequence[Display] = (),
+        root: str | None = None,
+        interactive: bool = False,
     ) -> str:
-        if not 1 <= depth <= 30:
-            raise ActionError("depth must be between 1 and 30")
+        """`root` lists from an element id (a web page's document); `interactive` keeps
+        only controls that can be acted on, plus their named containers' children."""
+        if not 1 <= depth <= 60:
+            raise ActionError("depth must be between 1 and 60")
+        start = self.element(root) if root else None
 
         def work() -> str:
-            roots = self.backend.windows(window)
+            roots = [start] if start is not None else self.backend.windows(window)
             if not roots:
                 raise ActionError(_no_window(window))
+            roots = self._snapshot(roots)
             deadline = self.clock() + SEARCH_SECONDS
             lines: list[str] = []
             size = 0
             truncated = ""
             listed = 0
             hide = None if filter else _noise
+            if interactive:
+                hide = lambda element: not _interactive(element)  # noqa: E731
             for level, element in self._walk(roots, depth, MAX_SEARCH_NODES, deadline, hide):
                 if filter and not _matches(element, filter):
                     continue
@@ -273,6 +306,7 @@ class UiaService:
             roots = self.backend.windows(window)
             if not roots:
                 raise ActionError(_no_window(window))
+            roots = self._snapshot(roots)
             deadline = self.clock() + SEARCH_SECONDS
             q = query.strip().casefold()
             exact: list[UiaElement] = []

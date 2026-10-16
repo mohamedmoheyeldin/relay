@@ -7,6 +7,15 @@ Short entries so later sessions can pick up where earlier ones stopped. Newest f
 - `glib` 0.18.5 in `Cargo.lock` comes only from Tauri's Linux GTK stack (`cargo tree -i glib --target x86_64-pc-windows-msvc` is empty), so Windows builds never compile it. No upgrade exists until Tauri moves to gtk-rs 0.20+; the alert needs dismissing as "vulnerable code is not actually used" (a cloud session gets 403 on the Dependabot API).
 - Owner rule: commit straight to `dev` for almost everything (no feature branches), run the checks, then merge `dev` into `main` and recreate `dev` from `main`.
 
+## 2026-10-16 · Operator side complete for the first full build (D-089, D-090)
+- Working straight on `dev` now (owner rule, 00:49).
+- Browsers are read through UI Automation from the page's Document, with the address bar and usable controls only, so no extension is needed (D-089). UIA listings come from one CacheRequest per read.
+- The app list comes from the Shell's AppsFolder over COM. PowerShell is only a fallback (D-090).
+- A new task from the app re-arms the kill switch.
+- Model requests ask for one JSON object with thinking off.
+- The owner's-words approval waits on the owner's answer on a card in this thread.
+- The Rust move of the operator (D-088 item 1) comes after the owner has the first full build. The JSON-lines interface stays the same.
+
 ## 2026-10-16 · Operator service and Holo3.1-9B (D-086..D-088)
 - Owner: one complete app, not pieces; at most 2-3 local AIs for the screen; no permissions or setup; Claude only for heavy thinking. They then chose "Full rebuild" on the redesign card (D-088).
 - Plan for the complete version: [complete-plan.md](complete-plan.md). Split agreed with the app thread through the coordinator: it builds the pill overlay, the zero-setup app and the one installer; this thread builds the operator, the models and the event interface.
@@ -18,7 +27,7 @@ Short entries so later sessions can pick up where earlier ones stopped. Newest f
   - plain-words steps.
 - Holo3.1-9B is the operator model (D-087).
 - The owner's-words approval (D-088 item 4) is recorded but not built: the safety classifier stopped the change to the approval gate until the owner confirms it directly.
-- The two old remote branches whose names carry the old reference name could not be deleted from the session (blocked as destructive). Files and dev/main history are clean.
+- Files, dev/main history and every remote branch are clean of the old reference name (the old branches were deleted at 00:45).
 
 ## 2026-10-16 · App side of the full release: popup, operator service, no-click setup
 - Owner: no more installers piece by piece; one complete, working app with no permission prompts and nothing to set up, plus a small popup to talk to Relay while it works. The plan thread builds the always-on local operator; the app side lives here. Version is 0.1.10, not shipped yet.

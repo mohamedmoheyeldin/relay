@@ -110,11 +110,100 @@ class WinElement:
         self._pattern("ValuePattern").SetValue(value, waitTime=0)
 
 
+# UIA property ids (UIAutomationClient.h) cached in one call per listing (D-089).
+NAME, CONTROL_TYPE, AUTOMATION_ID, IS_ENABLED, BOUNDS = 30005, 30003, 30011, 30010, 30001
+VALUE = 30045
+PATTERN_AVAILABLE = {
+    "invoke": 30031,
+    "value": 30043,
+    "toggle": 30041,
+    "expand": 30028,
+    "select": 30036,
+}
+TREE_SCOPE_SUBTREE = 7
+MAX_CACHED_DEPTH = 60
+
+
+class CachedElement:
+    """An element whose properties and children came from one CacheRequest (D-089).
+
+    Reads cost nothing; invoke and set_value go to the live element.
+    """
+
+    def __init__(self, element: Any, auto: Any, depth: int = 0) -> None:
+        self._e = element
+        self._auto = auto
+        self._depth = depth
+        self._patterns: frozenset[str] | None = None
+
+    def _prop(self, prop: int) -> Any:
+        return self._e.GetCachedPropertyValue(prop)
+
+    @property
+    def role(self) -> str:
+        names = getattr(self._auto, "ControlTypeNames", {})
+        name = names.get(self._e.CachedControlType, "Unknown")
+        return name.removesuffix("Control") or name
+
+    @property
+    def name(self) -> str:
+        return self._e.CachedName or ""
+
+    @property
+    def automation_id(self) -> str:
+        return self._e.CachedAutomationId or ""
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self._e.CachedIsEnabled)
+
+    @property
+    def rect(self) -> Rect | None:
+        r = self._e.CachedBoundingRectangle
+        width, height = r.right - r.left, r.bottom - r.top
+        if width <= 0 or height <= 0:
+            return None
+        return Rect(r.left, r.top, width, height)
+
+    def children(self) -> Sequence[CachedElement]:
+        if self._depth >= MAX_CACHED_DEPTH:
+            return []
+        kids = self._e.GetCachedChildren()
+        if not kids:
+            return []
+        return [
+            CachedElement(kids.GetElement(i), self._auto, self._depth + 1)
+            for i in range(kids.Length)
+        ]
+
+    def patterns(self) -> frozenset[str]:
+        if self._patterns is None:
+            self._patterns = frozenset(
+                k for k, prop in PATTERN_AVAILABLE.items() if self._prop(prop)
+            )
+        return self._patterns
+
+    def value(self) -> str | None:
+        value = self._prop(VALUE)
+        return value if isinstance(value, str) else None
+
+    def _live(self) -> WinElement:
+        control = self._auto.Control.CreateControlFromElement(self._e)
+        return WinElement(control, self._auto)
+
+    def invoke(self) -> str:
+        return self._live().invoke()
+
+    def set_value(self, value: str) -> None:
+        self._live().set_value(value)
+
+
 class WinUiaBackend:
     def __init__(self) -> None:
         win32.require_windows()
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="relay-uia")
         self._auto: Any = self._executor.submit(self._init).result()
+        self._request: Any = None
 
     @staticmethod
     def _init() -> Any:
@@ -126,6 +215,33 @@ class WinUiaBackend:
 
     def run(self, work: Callable[[], object]) -> object:
         return self._executor.submit(work).result()
+
+    def _cache_request(self) -> Any:
+        if self._request is None:
+            # The package's star import leaves out underscore names, so import it directly.
+            from uiautomation.uiautomation import (  # pyright: ignore[reportMissingImports]
+                _AutomationClient,
+            )
+
+            client = _AutomationClient.instance().IUIAutomation
+            request = client.CreateCacheRequest()
+            for prop in (NAME, CONTROL_TYPE, AUTOMATION_ID, IS_ENABLED, BOUNDS, VALUE):
+                request.AddProperty(prop)
+            for prop in PATTERN_AVAILABLE.values():
+                request.AddProperty(prop)
+            request.TreeScope = TREE_SCOPE_SUBTREE
+            request.TreeFilter = client.ControlViewCondition
+            self._request = request
+        return self._request
+
+    def snapshot(self, roots: Sequence[Any]) -> list[CachedElement]:
+        """Each root's whole subtree in one cross-process call (runs on the UIA thread)."""
+        request = self._cache_request()
+        out: list[CachedElement] = []
+        for root in roots:
+            element = root._e if isinstance(root, CachedElement) else root._c.Element
+            out.append(CachedElement(element.BuildUpdatedCache(request), self._auto))
+        return out
 
     def element_at(self, x: int, y: int) -> WinElement | None:
         control = self._auto.ControlFromPoint(x, y)

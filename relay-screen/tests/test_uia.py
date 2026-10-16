@@ -275,3 +275,44 @@ def test_risky_mode_asks_only_before_irreversible_clicks(owner_displays):
     backend_uia.at = send
     computer.run("left_click", {"coordinate": [120, 110]})
     assert [r.detail for r in prompter.requests] == ['Left click at (120, 110) on Button "Send"']
+
+
+# --- D-089: cached snapshots, page roots, interactive listings ----------------
+
+
+class SnapshotBackend(Backend):
+    def __init__(self, windows: dict[str, list[El]], fail: bool = False) -> None:
+        super().__init__(windows)
+        self.snapshots = 0
+        self.fail = fail
+
+    def snapshot(self, roots: Sequence[El]) -> Sequence[El]:
+        self.snapshots += 1
+        if self.fail:
+            raise OSError("the app refused the cache request")
+        return roots
+
+
+@pytest.mark.parametrize("fail", [False, True])
+def test_listings_read_through_one_snapshot_or_fall_back(owner_displays, fail: bool):
+    window, _, _ = notepad()
+    backend = SnapshotBackend({"foreground": [window]}, fail=fail)
+    uia = UiaService(backend)
+    assert '"Text editor"' in uia.tree(geometry(owner_displays))
+    assert "match" in uia.find(geometry(owner_displays), "Save")
+    assert backend.snapshots == 2
+
+
+def test_a_page_lists_from_its_document_and_only_what_can_be_used(owner_displays):
+    search = El("Edit", "Search jobs", rect=Rect(100, 300, 400, 40), pats=frozenset({"value"}))
+    blurb = El("Text", "Thousands of tech jobs", rect=Rect(100, 200, 600, 40))
+    link = El("Hyperlink", "Python Developer", rect=Rect(100, 400, 300, 30))
+    page = El("Document", "Dice", rect=Rect(0, 150, 3440, 1200), kids=[blurb, search, link])
+    toolbar = El("ToolBar", "Navigation", rect=Rect(0, 0, 3440, 100))
+    window = El("Window", "Dice - Brave", rect=Rect(0, 0, 3440, 1440), kids=[toolbar, page])
+    uia = UiaService(Backend({"foreground": [window]}))
+    found = uia.find(geometry(owner_displays), "document", role="Document")
+    doc = found.splitlines()[1].split("]")[0].removeprefix("[")
+    listing = uia.tree(geometry(owner_displays), root=doc, depth=40, interactive=True)
+    assert '"Search jobs"' in listing and '"Python Developer"' in listing
+    assert "Thousands" not in listing and "Navigation" not in listing

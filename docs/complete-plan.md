@@ -45,8 +45,8 @@ targets.
 | 3 | Holo3.1-9B in the catalog and Setup; pixel coordinates on a 32-px aligned image (D-087) | plan thread, **done** |
 | 4 | **Operator service** (`relay-screen operator`, D-086): JSON lines over stdio for the app, local socket for `ui_task`; task/say/stop/route/state/quit | plan thread, **done** |
 | 5 | Background awareness in the service: foreground history, open windows, app catalog, browser address | plan thread, **done** |
-| 6 | Cached UI Automation (one CacheRequest per read, uncached fallback); web pages listed from the document element | plan thread |
-| 7 | App catalog from the Shell's AppsFolder (COM), PowerShell only as a fallback | plan thread |
+| 6 | Cached UI Automation (one CacheRequest per read, uncached fallback); web pages listed from the document element (D-089) | plan thread, **done** |
+| 7 | App catalog from the Shell's AppsFolder (COM), PowerShell only as a fallback (D-090) | plan thread, **done** |
 | 8 | Ask-Claude action from the operator (`claude -p`, no tools, text answer) | plan thread, **done** |
 | 9 | Router: operator or Claude, in the service | plan thread, **done** |
 | 10 | Pill overlay, chat on service events, start/stop the service, route messages | app thread |

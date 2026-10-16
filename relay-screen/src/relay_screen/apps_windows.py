@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import ctypes
 import json
 import os
@@ -160,7 +161,39 @@ class WinAppBackend:
     # -- discovery ------------------------------------------------------------
 
     def start_apps(self) -> list[App]:
-        """Everything in the Start menu's All apps list, Store apps included."""
+        """Everything in the Start menu's All apps list, Store apps included.
+
+        Read from the Shell's AppsFolder over COM (D-090); PowerShell's Get-StartApps,
+        which reads the same folder, is only the fallback.
+        """
+        try:
+            apps = self._apps_folder()
+        except Exception:
+            apps = []
+        return apps or self._start_apps_powershell()
+
+    @staticmethod
+    def _apps_folder() -> list[App]:
+        import comtypes  # pyright: ignore[reportMissingImports]
+        import comtypes.client  # pyright: ignore[reportMissingImports]
+
+        with contextlib.suppress(OSError):
+            comtypes.CoInitialize()  # this thread may not have COM yet
+        shell = comtypes.client.CreateObject("Shell.Application", dynamic=True)
+        folder = shell.NameSpace("shell:AppsFolder")
+        if folder is None:
+            return []
+        apps = []
+        items = folder.Items()
+        for i in range(items.Count):
+            item = items.Item(i)
+            name, app_id = str(item.Name or ""), str(item.Path or "")
+            if not name or not app_id or app_id.lower().startswith(("http:", "https:")):
+                continue
+            apps.append(App(name, app_id=app_id, exe=exe_from_app_id(app_id)))
+        return apps
+
+    def _start_apps_powershell(self) -> list[App]:
         out = subprocess.run(
             ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", _START_APPS_SCRIPT],
             capture_output=True,
