@@ -5,10 +5,10 @@ use leptos::task::spawn_local;
 use relay_protocol::{ErrorKind, Risk, StatusInfo, UiEvent};
 use serde_json::{json, Value};
 use std::time::Duration;
-use wasm_bindgen::JsCast;
 
 use crate::bridge;
 use crate::chat::{ChatState, ConfirmState, Item, ToolState};
+use crate::settings_view::SettingsView;
 
 fn report(chat: RwSignal<ChatState>, message: String) {
     chat.update(|c| {
@@ -138,64 +138,23 @@ fn render_item(item: Item, chat: RwSignal<ChatState>) -> AnyView {
     }
 }
 
-fn status_chip(status: Option<StatusInfo>, running: bool) -> (String, &'static str) {
+fn status_chip(
+    status: Option<StatusInfo>,
+    running: bool,
+    engine: Option<(String, String)>,
+) -> (String, &'static str) {
     match status {
         None => ("Checking…".into(), "chip"),
-        Some(_) if running => ("Working".into(), "chip busy"),
+        Some(_) if running => (
+            match engine {
+                Some((kind, name)) if kind == "local" => format!("Working · local {name}"),
+                Some((_, name)) => format!("Working · {name}"),
+                None => "Working".to_string(),
+            },
+            "chip busy",
+        ),
         Some(s) if s.ready => ("Ready".into(), "chip ok"),
         Some(s) => (s.detail, "chip warn"),
-    }
-}
-
-#[component]
-fn SettingsPanel(chat: RwSignal<ChatState>, open: RwSignal<bool>) -> impl IntoView {
-    let mode = RwSignal::new("destructive".to_string());
-    let mcp_path = RwSignal::new(String::new());
-    let data_dir = RwSignal::new(String::new());
-    Effect::new(move |_| {
-        if open.get() {
-            spawn_local(async move {
-                if let Ok(Some(text)) = bridge::invoke("get_settings", json!({})).await {
-                    if let Ok(v) = serde_json::from_str::<Value>(&text) {
-                        mode.set(
-                            v["approval_mode"]
-                                .as_str()
-                                .unwrap_or("destructive")
-                                .to_string(),
-                        );
-                        mcp_path.set(v["mcp_config"].as_str().unwrap_or("").to_string());
-                        data_dir.set(v["data_dir"].as_str().unwrap_or("").to_string());
-                    }
-                }
-            });
-        }
-    });
-    view! {
-        <Show when=move || open.get()>
-            <section class="settings" aria-label="Settings">
-                <label for="approval">"Ask me before"</label>
-                <select
-                    id="approval"
-                    prop:value=move || mode.get()
-                    on:change=move |ev| {
-                        let value = ev
-                            .target()
-                            .and_then(|t| t.dyn_into::<web_sys::HtmlSelectElement>().ok())
-                            .map(|s| s.value())
-                            .unwrap_or_default();
-                        mode.set(value.clone());
-                        call(chat, "set_approval_mode", json!({"mode": value}));
-                    }
-                >
-                    <option value="off">"Nothing: act without asking"</option>
-                    <option value="destructive">"Destructive or irreversible actions"</option>
-                    <option value="always">"Every action"</option>
-                </select>
-                <p class="hint">"Other apps (Gmail, GitHub, …) connect through MCP. Add servers to:"</p>
-                <code class="path">{move || mcp_path.get()}</code>
-                <button class="btn" on:click=move |_| call(chat, "open_data_folder", json!({}))>"Open Relay's folder"</button>
-            </section>
-        </Show>
     }
 }
 
@@ -225,7 +184,7 @@ pub fn App() -> impl IntoView {
     });
 
     let running = move || chat.with(|c| c.running);
-    let chip = move || chat.with(|c| status_chip(c.status.clone(), c.running));
+    let chip = move || chat.with(|c| status_chip(c.status.clone(), c.running, c.engine.clone()));
     let hotkey = move || {
         chat.with(|c| {
             c.status
@@ -255,7 +214,7 @@ pub fn App() -> impl IntoView {
                     "⚙"
                 </button>
             </header>
-            <SettingsPanel chat=chat open=settings_open />
+            <SettingsView chat=chat open=settings_open />
             <div class="list" node_ref=list_ref aria-live="polite">
                 {move || {
                     let items = chat.with(|c| c.items.clone());

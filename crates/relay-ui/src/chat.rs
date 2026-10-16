@@ -46,6 +46,19 @@ pub struct ChatState {
     pub items: Vec<Item>,
     pub running: bool,
     pub status: Option<StatusInfo>,
+    /// `(kind, name)` of the engine working on the current task.
+    pub engine: Option<(String, String)>,
+    /// Latest long-job progress (model download).
+    pub progress: Option<ProgressState>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProgressState {
+    pub id: String,
+    pub label: String,
+    pub percent: Option<u8>,
+    pub done: bool,
+    pub error: Option<String>,
 }
 
 impl ChatState {
@@ -191,6 +204,25 @@ impl ChatState {
             UiEvent::Status(status) => {
                 self.running = status.busy;
                 self.status = Some(status.clone());
+            }
+            UiEvent::Engine { kind, name, .. } => {
+                self.engine = Some((kind.clone(), name.clone()));
+            }
+            UiEvent::Notice { text } => self.items.push(Item::Notice(text.clone())),
+            UiEvent::Progress {
+                id,
+                label,
+                percent,
+                done,
+                error,
+            } => {
+                self.progress = Some(ProgressState {
+                    id: id.clone(),
+                    label: label.clone(),
+                    percent: *percent,
+                    done: *done,
+                    error: error.clone(),
+                });
             }
         }
     }
@@ -371,9 +403,34 @@ mod tests {
             detail: "Ready".into(),
             busy: true,
             kill_hotkey: "Ctrl+Alt+Shift+Esc".into(),
+            local_model: None,
+            route_mode: "auto".into(),
         }));
         assert!(s.running);
         assert_eq!(s.status.as_ref().map(|x| x.ready), Some(true));
+    }
+
+    #[test]
+    fn engine_notice_and_progress_events() {
+        let mut s = ChatState::default();
+        s.apply(&UiEvent::Engine {
+            run_id: 1,
+            kind: "local".into(),
+            name: "qwen3:14b".into(),
+        });
+        assert_eq!(s.engine, Some(("local".into(), "qwen3:14b".into())));
+        s.apply(&UiEvent::Notice {
+            text: "Handing over to Claude".into(),
+        });
+        assert_eq!(s.items, vec![Item::Notice("Handing over to Claude".into())]);
+        s.apply(&UiEvent::Progress {
+            id: "pull".into(),
+            label: "Downloading".into(),
+            percent: Some(40),
+            done: false,
+            error: None,
+        });
+        assert_eq!(s.progress.as_ref().and_then(|p| p.percent), Some(40));
     }
 
     #[test]

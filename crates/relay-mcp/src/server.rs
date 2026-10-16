@@ -229,8 +229,11 @@ pub async fn handle_message(host: &ToolHost, ctx: &CallCtx, message: Value) -> O
         }
         "ping" => ok(json!({})),
         "tools/list" => {
+            // With approvals off there is nothing to ask, so the AI is not offered the tool.
+            let asking = host.approval_mode() != crate::ApprovalMode::Off;
             let tools: Vec<Value> = tool_specs()
                 .into_iter()
+                .filter(|s| asking || s.name != "ask_user")
                 .map(|s| {
                     json!({"name": s.name, "description": s.description, "inputSchema": s.schema})
                 })

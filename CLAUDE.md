@@ -39,7 +39,9 @@ crates/
   relay-ai        `AiProvider` trait; process runner (stdin prompt, streaming, timeouts, tree kill);
                   `claude::ClaudeProvider` (stream-json parser, argument builder); `fake_cli` test binary
   relay-mcp       tool catalogue, argument validation, safety gate, `ToolHost`, loopback MCP server, audit log
-  relay-agent     `Agent` orchestrator, `ConfirmBridge` (approval cards), system prompt
+  relay-agent     `Agent` orchestrator (routes each task to the local model or the cloud CLI, hands over on
+                  escalation), `ConfirmBridge` (approval cards), prompts; `local/`: Ollama client, local
+                  tool loop (PowerShell, files, open, desktop tools), router, model choice
   relay-ui        Leptos CSR chat window (wasm via trunk); `chat.rs` is a pure, tested reducer
 src-tauri         Tauri v2 shell (package `relay-app`): tray, window, hotkey, commands, wiring
 ```
@@ -115,6 +117,22 @@ The process is made per-monitor-DPI aware so every rectangle is physical pixels.
 - D17 The audit log records tool name, shortened input, result and timing per call (local, ignored by Git).
 - D19 Owner request (2026-10-16): no approval prompts by default. `ApprovalMode::Off` is the default; `ask_user` returns "go ahead" without a card in that mode. The Settings menu can turn prompts back on (destructive-only or every action). The stop hotkey and tray Stop remain.
 - D20 UI is styled after the Claude app's look (warm palette, serif headings, centred rounded composer with round send/stop button) using original CSS only.
+- D21 Two engines (owner request 2026-10-16). The **local** engine is an Ollama model on this PC that does
+  OS chores and desktop automation with its own tool loop (powershell, read/write files, list, open, the desktop
+  tools). The **cloud** engine is Claude Code. `RouteMode` (Settings): Auto (local first; web, coding, writing,
+  long or screen-reading tasks without a vision model go to the cloud), Local only, Claude only. The local model
+  can call `escalate`, and three identical failures or running out of steps escalate automatically; the cloud
+  engine then continues with the original request plus a summary of what the local one did. In Auto mode a
+  local failure also falls back to the cloud.
+- D22 Ollama is not installed on the owner PC at the time of writing, so everything routes to Claude until it is.
+  Settings detects the server, lists models (tool and vision capability from `/api/show`), lets the owner pick
+  one or leave it on Automatic, and downloads a model (`/api/pull`, default suggestion `qwen3:14b`) with progress.
+  Relay does not install Ollama itself.
+- D23 Autonomy: the cloud system prompt forbids questions and confirmations, `AskUserQuestion` is disallowed, and
+  `ask_user` is not even offered while approvals are off. Conversation history (last 6 turns) is passed to
+  whichever engine has no session of its own.
+- D24 The installer uses the Relay colours (terracotta sidebar and header images); NSIS dialogs keep the stock
+  window chrome. Product name is "Relay Rust" so it does not collide with the old app's install.
 - D18 Not done on purpose: chat history is not persisted across restarts (the CLI keeps its own session
   files); no auto-start; no code signing; macOS/Linux implementations of `Desktop` are future work.
 

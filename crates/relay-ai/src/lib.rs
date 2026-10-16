@@ -48,6 +48,8 @@ impl Default for Timeouts {
 /// Everything needed to start one run.
 #[derive(Debug, Clone)]
 pub struct RunRequest {
+    /// Identifies the task for tool calls and the audit log.
+    pub run_id: u64,
     pub prompt: String,
     pub session: SessionMode,
     /// Working directory of the child process.
@@ -58,6 +60,8 @@ pub struct RunRequest {
     pub permission_prompt_tool: Option<String>,
     /// Tool name patterns that never need a prompt.
     pub allowed_tools: Vec<String>,
+    /// Tools the AI must not use at all (e.g. ones that stop to ask the owner questions).
+    pub disallowed_tools: Vec<String>,
     /// Extra instructions appended to the system prompt.
     pub system_prompt_append: Option<String>,
     pub model: Option<String>,
@@ -100,6 +104,12 @@ pub enum Finish {
     Cancelled,
     TimedOut(TimeoutKind),
     Failed(AiError),
+    /// The engine decided the task needs a stronger one (used by the local model).
+    Escalate {
+        reason: String,
+        /// What it already did, to hand over to the next engine.
+        summary: String,
+    },
 }
 
 /// A running AI process: its event stream and a way to cancel it.

@@ -5,7 +5,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use relay_agent::{Agent, AgentConfig, ConfirmBridge, EventSink, SubmitError};
+use relay_agent::{
+    Agent, AgentConfig, AgentParts, ConfirmBridge, EventSink, LocalConfig, LocalProvider,
+    RouteMode, SubmitError,
+};
 use relay_ai::{
     AiError, AiEvent, AiProvider, Finish, ProviderStatus, RunHandle, RunRequest, SessionMode,
     Timeouts,
@@ -203,13 +206,24 @@ async fn world(script: Script, user_mcp: Option<std::path::PathBuf>) -> World {
             ..HostOptions::default()
         },
     ));
-    let server = Arc::new(McpServer::start(host).await.unwrap());
+    let server = Arc::new(McpServer::start(host.clone()).await.unwrap());
     let provider = Scripted::new(script);
+    let local = LocalProvider::new(
+        LocalConfig {
+            base_url: "http://127.0.0.1:1".into(),
+            model: None,
+        },
+        host.clone(),
+    );
     let agent = Agent::new(
-        provider.clone(),
-        server.clone(),
-        kill.clone(),
-        bridge,
+        AgentParts {
+            cloud: provider.clone(),
+            local,
+            route: RouteMode::Auto,
+            mcp: server.clone(),
+            kill: kill.clone(),
+            bridge,
+        },
         AgentConfig {
             work_dir: std::env::temp_dir(),
             user_mcp_config: user_mcp,
@@ -280,11 +294,12 @@ async fn request_carries_prompt_tools_and_safety_settings() {
         Some("mcp__relay__approve")
     );
     assert_eq!(req.allowed_tools, vec!["mcp__relay".to_string()]);
+    assert_eq!(req.disallowed_tools, vec!["AskUserQuestion".to_string()]);
     assert!(req
         .system_prompt_append
         .as_deref()
         .unwrap()
-        .contains("ask_user"));
+        .contains("Do not ask the owner questions"));
     assert_eq!(req.mcp_servers["relay"]["type"], "http");
     assert!(matches!(req.session, SessionMode::New(_)));
 }

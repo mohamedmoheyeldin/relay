@@ -6,6 +6,8 @@ pub mod chat;
 mod app;
 #[cfg(target_arch = "wasm32")]
 mod bridge;
+#[cfg(target_arch = "wasm32")]
+mod settings_view;
 
 /// Mount the UI into the page.
 #[cfg(target_arch = "wasm32")]

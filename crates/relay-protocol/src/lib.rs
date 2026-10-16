@@ -64,6 +64,12 @@ pub struct StatusInfo {
     pub detail: String,
     pub busy: bool,
     pub kill_hotkey: String,
+    /// The local model that would run now, if any.
+    #[serde(default)]
+    pub local_model: Option<String>,
+    /// `auto`, `local_only` or `cloud_only`.
+    #[serde(default)]
+    pub route_mode: String,
 }
 
 /// Events pushed from the backend to the chat window.
@@ -111,6 +117,24 @@ pub enum UiEvent {
         message: String,
     },
     Status(StatusInfo),
+    /// Which engine is working on the task now (`local` or `cloud`).
+    Engine {
+        run_id: RunId,
+        kind: String,
+        name: String,
+    },
+    /// A short note for the transcript (for example, a hand-over to the cloud engine).
+    Notice {
+        text: String,
+    },
+    /// Progress of a long job such as a model download.
+    Progress {
+        id: String,
+        label: String,
+        percent: Option<u8>,
+        done: bool,
+        error: Option<String>,
+    },
 }
 
 #[cfg(test)]

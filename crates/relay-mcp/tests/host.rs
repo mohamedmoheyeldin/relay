@@ -654,3 +654,31 @@ async fn ask_user_does_not_prompt_when_approvals_are_off() {
     assert!(out.joined_text().contains("switched off"));
     assert!(r.approver.asked().is_empty());
 }
+
+#[tokio::test]
+async fn ask_user_is_not_offered_when_approvals_are_off() {
+    async fn names(r: &Rig) -> Vec<String> {
+        let server = McpServer::start(r.host.clone()).await.unwrap();
+        let grant = server.grant(1);
+        let list: Value = reqwest::Client::new()
+            .post(&grant.url)
+            .bearer_auth(&grant.token)
+            .json(&json!({"jsonrpc":"2.0","id":1,"method":"tools/list"}))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        list["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["name"].as_str().unwrap().to_string())
+            .collect()
+    }
+    let r = rig_with(Decision::Approved, ApprovalMode::Off);
+    assert!(!names(&r).await.contains(&"ask_user".to_string()));
+    r.host.set_approval_mode(ApprovalMode::Destructive);
+    assert!(names(&r).await.contains(&"ask_user".to_string()));
+}

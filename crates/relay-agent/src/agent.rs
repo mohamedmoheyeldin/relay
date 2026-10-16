@@ -1,4 +1,7 @@
 //! The orchestrator: one task at a time, from the user's message to the finished run.
+//!
+//! A task goes to the local model or the cloud CLI (see [`crate::local::route`]). The local
+//! model can hand a task over to the cloud CLI, which then continues with what was done.
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -15,6 +18,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 use crate::bridge::{ConfirmBridge, EventSink};
+use crate::local::{decide, Engine, LocalProvider, RouteMode};
 use crate::prompt::SYSTEM_PROMPT;
 
 /// Settings for the agent.
@@ -25,6 +29,7 @@ pub struct AgentConfig {
     /// Optional `{"mcpServers": {...}}` file with the owner's own MCP servers (Gmail, GitHub, ...).
     pub user_mcp_config: Option<PathBuf>,
     pub timeouts: Timeouts,
+    /// Model override for the cloud CLI.
     pub model: Option<String>,
     /// Shown in the UI so the owner knows how to stop the agent.
     pub kill_hotkey: String,
@@ -47,10 +52,16 @@ struct State {
     active: Option<Active>,
     session_id: Option<String>,
     next_run: RunId,
+    /// Recent (request, final answer) pairs, so every engine has the conversation so far.
+    history: Vec<(String, String)>,
 }
 
+const HISTORY_TURNS: usize = 6;
+
 pub struct Agent {
-    provider: Arc<dyn AiProvider>,
+    cloud: Arc<dyn AiProvider>,
+    local: Arc<LocalProvider>,
+    route: Mutex<RouteMode>,
     mcp: Arc<McpServer>,
     kill: KillSwitch,
     bridge: Arc<ConfirmBridge>,
@@ -90,9 +101,13 @@ pub async fn load_user_servers(path: &std::path::Path) -> Result<Map<String, Val
 
 fn error_to_ui(error: &AiError) -> (ErrorKind, String) {
     match error {
-        AiError::NotInstalled { .. } => (
+        AiError::NotInstalled { program } => (
             ErrorKind::CliNotInstalled,
-            "Claude Code was not found. Install it, make sure `claude` runs in a terminal, then restart Relay.".into(),
+            if program.contains("Ollama") {
+                "The local AI server is not running. Install Ollama and download a model in Settings, or switch Settings to Cloud only.".to_string()
+            } else {
+                "Claude Code was not found. Install it, make sure `claude` runs in a terminal, then restart Relay.".to_string()
+            },
         ),
         AiError::NotLoggedIn(_) => (
             ErrorKind::NotLoggedIn,
@@ -102,7 +117,7 @@ fn error_to_ui(error: &AiError) -> (ErrorKind, String) {
             ErrorKind::Timeout,
             match kind {
                 TimeoutKind::Total => "The task took too long and was stopped.".into(),
-                TimeoutKind::Idle => "Claude Code stopped responding and was stopped.".into(),
+                TimeoutKind::Idle => "The AI stopped responding and was stopped.".into(),
             },
         ),
         AiError::Cancelled => (ErrorKind::Cancelled, "The task was stopped.".into()),
@@ -117,14 +132,20 @@ fn tool_display(name: &str, input: &Value) -> (String, String) {
             .unwrap_or_else(|_| short.to_string());
         return (short.to_string(), summary);
     }
+    // Local-model tools use bare names; describe desktop actions the same way.
+    if let Ok(action) = parse_action(name, input) {
+        return (name.to_string(), action.describe());
+    }
     let brief = [
         "command",
         "file_path",
         "path",
+        "target",
         "url",
         "pattern",
         "query",
         "description",
+        "reason",
     ]
     .iter()
     .find_map(|k| input.get(*k).and_then(Value::as_str))
@@ -167,20 +188,49 @@ pub fn map_event(run_id: RunId, event: &AiEvent) -> Vec<UiEvent> {
     }
 }
 
+/// Prefix a request with the recent conversation so an engine without its own memory has it.
+pub fn with_context(history: &[(String, String)], prompt: &str) -> String {
+    if history.is_empty() {
+        return prompt.to_string();
+    }
+    let mut out = String::from("Earlier in this conversation:\n");
+    for (ask, answer) in history {
+        out.push_str(&format!(
+            "- Owner: {}\n  You: {}\n",
+            truncate(ask, 300),
+            truncate(answer, 400)
+        ));
+    }
+    out.push_str("\nCurrent request:\n");
+    out.push_str(prompt);
+    out
+}
+
+fn handoff_prompt(prompt: &str, reason: &str, summary: &str) -> String {
+    format!(
+        "{prompt}\n\n[A faster local assistant already started this and handed it over because: {reason}\nWhat it did so far:\n{summary}\nContinue from there; do not repeat finished steps.]"
+    )
+}
+
+/// The collaborators an [`Agent`] is built from.
+pub struct AgentParts {
+    pub cloud: Arc<dyn AiProvider>,
+    pub local: Arc<LocalProvider>,
+    pub route: RouteMode,
+    pub mcp: Arc<McpServer>,
+    pub kill: KillSwitch,
+    pub bridge: Arc<ConfirmBridge>,
+}
+
 impl Agent {
-    pub fn new(
-        provider: Arc<dyn AiProvider>,
-        mcp: Arc<McpServer>,
-        kill: KillSwitch,
-        bridge: Arc<ConfirmBridge>,
-        config: AgentConfig,
-        sink: EventSink,
-    ) -> Arc<Self> {
+    pub fn new(parts: AgentParts, config: AgentConfig, sink: EventSink) -> Arc<Self> {
         Arc::new(Self {
-            provider,
-            mcp,
-            kill,
-            bridge,
+            cloud: parts.cloud,
+            local: parts.local,
+            route: Mutex::new(parts.route),
+            mcp: parts.mcp,
+            kill: parts.kill,
+            bridge: parts.bridge,
             config,
             sink,
             state: Mutex::new(State {
@@ -202,9 +252,27 @@ impl Agent {
         self.state().active.is_some()
     }
 
+    pub fn route_mode(&self) -> RouteMode {
+        *self.route.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    pub fn set_route_mode(&self, mode: RouteMode) {
+        *self.route.lock().unwrap_or_else(|p| p.into_inner()) = mode;
+    }
+
+    pub fn local(&self) -> &Arc<LocalProvider> {
+        &self.local
+    }
+
+    pub fn cloud(&self) -> &Arc<dyn AiProvider> {
+        &self.cloud
+    }
+
     /// Forget the conversation so the next task starts fresh.
     pub fn new_conversation(&self) {
-        self.state().session_id = None;
+        let mut state = self.state();
+        state.session_id = None;
+        state.history.clear();
     }
 
     /// The owner's click on a confirmation card.
@@ -223,13 +291,22 @@ impl Agent {
     }
 
     pub async fn status(&self) -> StatusInfo {
-        let provider = self.provider.status().await;
+        let cloud = self.cloud.status().await;
+        let local = self.local.overview().await;
         StatusInfo {
-            provider: self.provider.name().to_string(),
-            ready: provider.ready(),
-            detail: provider.detail,
+            provider: self.cloud.name().to_string(),
+            ready: cloud.ready() || local.active.is_some(),
+            detail: if cloud.ready() {
+                cloud.detail
+            } else if let Some(m) = &local.active {
+                format!("Local model {}", m.name)
+            } else {
+                cloud.detail
+            },
             busy: self.is_busy(),
             kill_hotkey: self.config.kill_hotkey.clone(),
+            local_model: local.active.map(|m| m.name),
+            route_mode: self.route_mode().as_str().to_string(),
         }
     }
 
@@ -239,7 +316,7 @@ impl Agent {
         if prompt.is_empty() {
             return Err(SubmitError::Empty);
         }
-        let (run_id, stop, session) = {
+        let (run_id, stop) = {
             let mut state = self.state();
             if state.active.is_some() {
                 return Err(SubmitError::Busy);
@@ -248,55 +325,28 @@ impl Agent {
             state.next_run += 1;
             let stop = CancellationToken::new();
             state.active = Some(Active { stop: stop.clone() });
-            let session = match &state.session_id {
-                Some(id) => SessionMode::Resume(id.clone()),
-                None => SessionMode::New(uuid::Uuid::new_v4().to_string()),
-            };
-            (run_id, stop, session)
+            (run_id, stop)
         };
         // A new task is the owner's explicit go-ahead, so the earlier stop is lifted.
         self.kill.rearm();
         self.emit(UiEvent::RunStarted { run_id });
         let this = self.clone();
         tokio::spawn(async move {
-            this.run_task(run_id, prompt, session, stop).await;
+            this.run_task(run_id, prompt, stop).await;
         });
         Ok(run_id)
     }
 
-    async fn run_task(
-        self: Arc<Self>,
+    /// Run one engine to completion, forwarding its events to the chat.
+    async fn drive(
+        &self,
         run_id: RunId,
-        prompt: String,
-        session: SessionMode,
-        stop: CancellationToken,
-    ) {
-        let grant = self.mcp.grant(run_id);
-        let user_servers = match &self.config.user_mcp_config {
-            Some(path) => load_user_servers(path).await.unwrap_or_else(|problem| {
-                warn!("{problem}");
-                self.emit(UiEvent::Error {
-                    run_id: Some(run_id),
-                    kind: ErrorKind::Internal,
-                    message: format!("Your MCP server list was ignored: {problem}"),
-                });
-                Map::new()
-            }),
-            None => Map::new(),
-        };
-        let request = RunRequest {
-            prompt,
-            session,
-            work_dir: self.config.work_dir.clone(),
-            mcp_servers: merge_servers(grant.server_config(), user_servers),
-            permission_prompt_tool: Some(PERMISSION_TOOL.to_string()),
-            allowed_tools: vec![format!("mcp__{SERVER_NAME}")],
-            system_prompt_append: Some(SYSTEM_PROMPT.to_string()),
-            model: self.config.model.clone(),
-            timeouts: self.config.timeouts,
-        };
-
-        let outcome = match self.provider.run(request).await {
+        provider: &Arc<dyn AiProvider>,
+        request: RunRequest,
+        stop: &CancellationToken,
+        is_cloud: bool,
+    ) -> Finish {
+        match provider.run(request).await {
             Err(error) => Finish::Failed(error),
             Ok(mut handle) => {
                 let mut cancelled = false;
@@ -311,7 +361,9 @@ impl Agent {
                             Some(AiEvent::Finished(finish)) => break finish,
                             Some(event) => {
                                 if let AiEvent::Started { session_id, .. } = &event {
-                                    self.state().session_id = Some(session_id.clone());
+                                    if is_cloud && !session_id.is_empty() {
+                                        self.state().session_id = Some(session_id.clone());
+                                    }
                                 }
                                 for ui in map_event(run_id, &event) {
                                     self.emit(ui);
@@ -321,15 +373,147 @@ impl Agent {
                     }
                 }
             }
+        }
+    }
+
+    fn request(
+        &self,
+        run_id: RunId,
+        prompt: String,
+        session: SessionMode,
+        mcp_servers: Value,
+        cloud: bool,
+    ) -> RunRequest {
+        RunRequest {
+            run_id,
+            prompt,
+            session,
+            work_dir: self.config.work_dir.clone(),
+            mcp_servers,
+            permission_prompt_tool: cloud.then(|| PERMISSION_TOOL.to_string()),
+            allowed_tools: if cloud {
+                vec![format!("mcp__{SERVER_NAME}")]
+            } else {
+                Vec::new()
+            },
+            // The owner wants uninterrupted work: never stop to ask questions.
+            disallowed_tools: if cloud {
+                vec!["AskUserQuestion".to_string()]
+            } else {
+                Vec::new()
+            },
+            system_prompt_append: cloud.then(|| SYSTEM_PROMPT.to_string()),
+            model: if cloud {
+                self.config.model.clone()
+            } else {
+                None
+            },
+            timeouts: self.config.timeouts,
+        }
+    }
+
+    async fn run_task(self: Arc<Self>, run_id: RunId, prompt: String, stop: CancellationToken) {
+        let grant = self.mcp.grant(run_id);
+        let user_servers = match &self.config.user_mcp_config {
+            Some(path) => load_user_servers(path).await.unwrap_or_else(|problem| {
+                warn!("{problem}");
+                self.emit(UiEvent::Error {
+                    run_id: Some(run_id),
+                    kind: ErrorKind::Internal,
+                    message: format!("Your MCP server list was ignored: {problem}"),
+                });
+                Map::new()
+            }),
+            None => Map::new(),
+        };
+        let mcp_servers = merge_servers(grant.server_config(), user_servers);
+        let mode = self.route_mode();
+        let overview = self.local.overview().await;
+        let ability = overview.ability();
+        let history = self.state().history.clone();
+        let mut engine = decide(mode, &prompt, ability);
+        let mut handoff: Option<(String, String)> = None;
+        let mut local_name = overview.active.map(|m| m.name);
+
+        let outcome = loop {
+            let finish = match engine {
+                Engine::Local => {
+                    self.emit(UiEvent::Engine {
+                        run_id,
+                        kind: "local".into(),
+                        name: local_name.clone().unwrap_or_else(|| "Local AI".into()),
+                    });
+                    let request = self.request(
+                        run_id,
+                        with_context(&history, &prompt),
+                        SessionMode::New(uuid::Uuid::new_v4().to_string()),
+                        Value::Null,
+                        false,
+                    );
+                    let provider: Arc<dyn AiProvider> = self.local.clone();
+                    self.drive(run_id, &provider, request, &stop, false).await
+                }
+                Engine::Cloud => {
+                    self.emit(UiEvent::Engine {
+                        run_id,
+                        kind: "cloud".into(),
+                        name: self.cloud.name().to_string(),
+                    });
+                    let (session, base) = {
+                        let state = self.state();
+                        match &state.session_id {
+                            Some(id) => (SessionMode::Resume(id.clone()), prompt.clone()),
+                            None => (
+                                SessionMode::New(uuid::Uuid::new_v4().to_string()),
+                                with_context(&state.history, &prompt),
+                            ),
+                        }
+                    };
+                    let text = match &handoff {
+                        Some((reason, summary)) => handoff_prompt(&base, reason, summary),
+                        None => base,
+                    };
+                    let request = self.request(run_id, text, session, mcp_servers.clone(), true);
+                    let provider = self.cloud.clone();
+                    self.drive(run_id, &provider, request, &stop, true).await
+                }
+            };
+            // Local problems fall back to the cloud engine unless the owner chose local only.
+            let fallback = match (&finish, engine, mode) {
+                (Finish::Escalate { reason, summary }, Engine::Local, _) => {
+                    Some((reason.clone(), summary.clone()))
+                }
+                (Finish::Failed(e), Engine::Local, RouteMode::Auto) => {
+                    Some((e.to_string(), String::new()))
+                }
+                _ => None,
+            };
+            match fallback {
+                Some((reason, summary)) if mode != RouteMode::LocalOnly && !stop.is_cancelled() => {
+                    self.emit(UiEvent::Notice {
+                        text: format!("Handing this to Claude: {reason}"),
+                    });
+                    handoff = Some((reason, summary));
+                    engine = Engine::Cloud;
+                    local_name = None;
+                }
+                _ => break finish,
+            }
         };
 
         self.mcp.revoke(&grant);
         self.bridge.deny_all();
         let run_outcome = match &outcome {
-            Finish::Completed { session_id, .. } => {
+            Finish::Completed {
+                session_id, result, ..
+            } => {
+                let mut state = self.state();
                 if let Some(id) = session_id {
-                    self.state().session_id = Some(id.clone());
+                    state.session_id = Some(id.clone());
                 }
+                state.history.push((prompt.clone(), result.clone()));
+                let excess = state.history.len().saturating_sub(HISTORY_TURNS);
+                state.history.drain(..excess);
                 RunOutcome::Completed
             }
             Finish::Cancelled => RunOutcome::Cancelled,
@@ -351,6 +535,14 @@ impl Agent {
                     run_id: Some(run_id),
                     kind,
                     message,
+                });
+                RunOutcome::Failed
+            }
+            Finish::Escalate { reason, .. } => {
+                self.emit(UiEvent::Error {
+                    run_id: Some(run_id),
+                    kind: ErrorKind::Cli,
+                    message: format!("The local model could not finish this ({reason}). Switch Settings to Auto or Cloud to let Claude handle it."),
                 });
                 RunOutcome::Failed
             }
@@ -398,6 +590,17 @@ mod tests {
                 summary: "Left click at (4, 5)".into()
             }]
         );
+        let local = map_event(
+            3,
+            &AiEvent::ToolUse {
+                id: "l".into(),
+                name: "left_click".into(),
+                input: json!({"coordinate": [1, 2]}),
+            },
+        );
+        assert!(
+            matches!(&local[0], UiEvent::ToolStarted { summary, .. } if summary == "Left click at (1, 2)")
+        );
         let other = map_event(
             3,
             &AiEvent::ToolUse {
@@ -440,6 +643,10 @@ mod tests {
         });
         assert_eq!(kind, ErrorKind::CliNotInstalled);
         assert!(msg.contains("Install"));
+        let (_, msg) = error_to_ui(&AiError::NotInstalled {
+            program: "a local AI server (Ollama) at x".into(),
+        });
+        assert!(msg.contains("Ollama"));
         assert_eq!(
             error_to_ui(&AiError::Timeout(TimeoutKind::Idle)).0,
             ErrorKind::Timeout
@@ -451,6 +658,15 @@ mod tests {
             }),
             (ErrorKind::Cli, "boom".to_string())
         );
+    }
+
+    #[test]
+    fn context_and_handoff_prompts() {
+        assert_eq!(with_context(&[], "do x"), "do x");
+        let ctx = with_context(&[("a".into(), "b".into())], "do x");
+        assert!(ctx.contains("Owner: a") && ctx.contains("You: b") && ctx.ends_with("do x"));
+        let h = handoff_prompt("do x", "needs web", "ran dir");
+        assert!(h.contains("needs web") && h.contains("ran dir") && h.starts_with("do x"));
     }
 
     #[tokio::test]

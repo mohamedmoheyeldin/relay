@@ -15,12 +15,14 @@ fn fake() -> ClaudeProvider {
 
 fn request(prompt: &str) -> RunRequest {
     RunRequest {
+        run_id: 1,
         prompt: prompt.to_string(),
         session: SessionMode::New("11111111-1111-4111-8111-111111111111".into()),
         work_dir: std::env::temp_dir(),
         mcp_servers: serde_json::json!({"relay": {"type": "http", "url": "http://127.0.0.1:1/mcp"}}),
         permission_prompt_tool: Some("mcp__relay__approve".into()),
         allowed_tools: vec!["mcp__relay".into()],
+        disallowed_tools: vec!["AskUserQuestion".into()],
         system_prompt_append: Some("be careful".into()),
         model: None,
         timeouts: Timeouts {

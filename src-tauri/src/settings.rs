@@ -3,6 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use relay_agent::RouteMode;
 use relay_mcp::ApprovalMode;
 use serde::{Deserialize, Serialize};
 
@@ -64,19 +65,32 @@ pub fn mode_from_str(text: &str) -> Option<ApprovalMode> {
 
 /// Settings stored in `settings.json`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Settings {
     pub approval_mode: String,
+    /// `auto`, `local_only` or `cloud_only`.
+    pub route_mode: String,
+    /// Local model name; `None` picks the best installed one.
+    pub local_model: Option<String>,
+    pub local_url: String,
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
             approval_mode: mode_to_str(ApprovalMode::Off).to_string(),
+            route_mode: RouteMode::Auto.as_str().to_string(),
+            local_model: None,
+            local_url: relay_agent::local::DEFAULT_URL.to_string(),
         }
     }
 }
 
 impl Settings {
+    pub fn route(&self) -> RouteMode {
+        RouteMode::parse(&self.route_mode).unwrap_or_default()
+    }
+
     pub fn mode(&self) -> ApprovalMode {
         mode_from_str(&self.approval_mode).unwrap_or(ApprovalMode::Off)
     }
@@ -131,15 +145,34 @@ mod tests {
     }
 
     #[test]
+    fn old_settings_files_without_new_fields_still_load() {
+        let dir = temp("old");
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("settings.json");
+        std::fs::write(&file, r#"{"approval_mode":"always"}"#).unwrap();
+        let s = Settings::load(&file);
+        assert_eq!(s.mode(), ApprovalMode::Always);
+        assert_eq!(s.route(), RouteMode::Auto);
+        assert_eq!(s.local_url, relay_agent::local::DEFAULT_URL);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn settings_persist() {
         let dir = temp("persist");
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("settings.json");
         let s = Settings {
             approval_mode: "always".into(),
+            route_mode: "local_only".into(),
+            local_model: Some("qwen3:14b".into()),
+            ..Settings::default()
         };
         s.save(&file).unwrap();
-        assert_eq!(Settings::load(&file).mode(), ApprovalMode::Always);
+        let back = Settings::load(&file);
+        assert_eq!(back.mode(), ApprovalMode::Always);
+        assert_eq!(back.route(), RouteMode::LocalOnly);
+        assert_eq!(back.local_model.as_deref(), Some("qwen3:14b"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -38,6 +38,10 @@ pub fn build_args(
         args.push("--allowedTools".into());
         args.push(request.allowed_tools.join(","));
     }
+    if !request.disallowed_tools.is_empty() {
+        args.push("--disallowedTools".into());
+        args.push(request.disallowed_tools.join(","));
+    }
     if let Some(path) = system_prompt_file {
         args.push("--append-system-prompt-file".into());
         args.push(path.display().to_string());
@@ -67,12 +71,14 @@ mod tests {
 
     fn request(session: SessionMode) -> RunRequest {
         RunRequest {
+            run_id: 1,
             prompt: "do it".into(),
             session,
             work_dir: PathBuf::from("."),
             mcp_servers: serde_json::json!({}),
             permission_prompt_tool: Some("mcp__relay__approve".into()),
             allowed_tools: vec!["mcp__relay".into(), "Read".into()],
+            disallowed_tools: vec!["AskUserQuestion".into()],
             system_prompt_append: None,
             model: None,
             timeouts: Timeouts::default(),
@@ -154,10 +160,12 @@ mod tests {
         let mut r = request(SessionMode::New("x".into()));
         r.permission_prompt_tool = None;
         r.allowed_tools.clear();
+        r.disallowed_tools.clear();
         let args = build_args(&r, Path::new("m"), None);
         for flag in [
             "--permission-prompt-tool",
             "--allowedTools",
+            "--disallowedTools",
             "--append-system-prompt-file",
             "--model",
         ] {

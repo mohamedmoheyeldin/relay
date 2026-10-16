@@ -4,7 +4,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
-use relay_agent::{Agent, AgentConfig, ConfirmBridge, EventSink};
+use relay_agent::{
+    Agent, AgentConfig, AgentParts, ConfirmBridge, EventSink, LocalConfig, LocalProvider,
+};
 use relay_ai::claude::ClaudeProvider;
 use relay_ai::{AiProvider, Timeouts};
 use relay_mcp::audit::AuditLog;
@@ -31,6 +33,8 @@ pub struct AppState {
     pub host: Arc<ToolHost>,
     pub paths: Paths,
     pub settings: Mutex<Settings>,
+    /// Where the cloud CLI was found, shown in Settings.
+    pub cloud_path: String,
     // Keeps the MCP server alive for the life of the app.
     pub _mcp: Arc<McpServer>,
 }
@@ -181,12 +185,25 @@ fn setup(app: &mut tauri::App) -> Result<()> {
         tauri::async_runtime::block_on(McpServer::start(host.clone()))
             .context("starting the tool server")?,
     );
-    let provider: Arc<dyn AiProvider> = Arc::new(ClaudeProvider::discover());
+    let claude = ClaudeProvider::discover();
+    let cloud_path = claude.program().display().to_string();
+    let cloud: Arc<dyn AiProvider> = Arc::new(claude);
+    let local = LocalProvider::new(
+        LocalConfig {
+            base_url: settings.local_url.clone(),
+            model: settings.local_model.clone(),
+        },
+        host.clone(),
+    );
     let agent = Agent::new(
-        provider,
-        mcp.clone(),
-        kill,
-        bridge,
+        AgentParts {
+            cloud,
+            local,
+            route: settings.route(),
+            mcp: mcp.clone(),
+            kill,
+            bridge,
+        },
         AgentConfig {
             work_dir: paths.work_dir.clone(),
             user_mcp_config: Some(paths.mcp_config.clone()),
@@ -201,6 +218,7 @@ fn setup(app: &mut tauri::App) -> Result<()> {
         host,
         paths,
         settings: Mutex::new(settings),
+        cloud_path,
         _mcp: mcp,
     });
 
@@ -272,9 +290,14 @@ pub fn run() -> Result<()> {
             commands::answer_confirm,
             commands::new_conversation,
             commands::get_status,
-            commands::get_settings,
+            commands::get_engines,
             commands::set_approval_mode,
+            commands::set_route_mode,
+            commands::set_local_model,
+            commands::set_local_url,
+            commands::pull_model,
             commands::open_data_folder,
+            commands::open_link,
         ])
         .run(tauri::generate_context!())
         .context("running the application")

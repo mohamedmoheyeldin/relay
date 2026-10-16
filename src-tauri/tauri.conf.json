@@ -41,7 +41,10 @@
     "shortDescription": "AI desktop operator",
     "windows": {
       "nsis": {
-        "installMode": "both"
+        "installMode": "both",
+        "installerIcon": "icons/icon.ico",
+        "sidebarImage": "installer/sidebar.bmp",
+        "headerImage": "installer/header.bmp"
       }
     }
   }
