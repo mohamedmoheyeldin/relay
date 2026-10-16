@@ -955,10 +955,22 @@ PYTHONS = ("python.exe", "pythonw.exe")
 
 
 def group_processes(
-    procs: Sequence[Mapping[str, Any]], vram: Mapping[int, int], me: int
+    procs: Sequence[Mapping[str, Any]],
+    vram: Mapping[int, int],
+    me: int,
+    python_dir: str | None = None,
 ) -> dict[str, dict[str, int]]:
-    """Relay's processes by role, with their RAM (working set), private bytes and VRAM."""
+    """Relay's processes by role, with their RAM (working set), private bytes and VRAM.
+
+    `python_dir` is the folder of Relay's own Python: other programs' Python (the
+    Claude desktop app's MCP servers, say) is not Relay's and isn't counted.
+    """
     by_pid = {int(p["pid"]): p for p in procs}
+
+    def relays(p: Mapping[str, Any]) -> bool:
+        if python_dir is None or not p.get("path"):
+            return True
+        return str(p["path"]).casefold().startswith(python_dir.casefold())
 
     def ancestors(pid: int) -> list[str]:
         names: list[str] = []
@@ -980,6 +992,8 @@ def group_processes(
             role = "app"
         elif name == "msedgewebview2.exe" and "relay.exe" in up:
             role = "app window (WebView2)"
+        elif name in PYTHONS and not relays(p):
+            continue
         elif name in PYTHONS and "relay.exe" in up:
             role = "local AI service"
         elif name in PYTHONS and ("claude.exe" in up or me in _pids(p, by_pid)):
