@@ -920,6 +920,11 @@ def _listed_named(elements: str, text: str, roles: tuple[str, ...] = TARGET_ROLE
     return None
 
 
+def _role(elements: str, element_id: str) -> str:
+    found = re.search(rf"\[{re.escape(element_id)}\] (\w+)", elements)
+    return found.group(1) if found else ""
+
+
 def _intended_element(elements: str, thought: str) -> list[int] | None:
     found = _named(elements, thought, TARGET_ROLES)
     return found[1] if found else None
@@ -1547,7 +1552,10 @@ class LocalAgent:
             if thought:
                 # What it read in one window is gone from the next window's list: the
                 # cheapest laptop was forgotten on the way to Notepad (D-112).
-                lines.append(f"Your last thought: {' '.join(thought.split())[:THOUGHT_CHARS]}")
+                lines.append(
+                    "What you noted before your last actions (the screen may have moved on "
+                    f"since): {' '.join(thought.split())[:THOUGHT_CHARS]}"
+                )
         if self.notes:
             lines.append("The owner added while you worked (follow it):")
             lines.extend(f"- {n}" for n in self.notes[-5:])
@@ -2015,6 +2023,10 @@ class LocalAgent:
             if listed is not None:
                 # OCR reads only the active display; the Explorer window on the other
                 # monitor listed "incoming" but OCR never saw it (D-106).
+                centre = _center(self.elements, listed)
+                if centre is not None and _role(self.elements, listed) in FIELD_ROLES:
+                    # A text box has nothing to invoke: click into it (D-112).
+                    return self.hands.run("left_click", {"coordinate": centre})
                 return self._invoke(listed)
             raise ActionError(f"no text like {text!r} on the screen")
         check = getattr(self.hands, "outside_front", None)

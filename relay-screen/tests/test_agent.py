@@ -1358,7 +1358,9 @@ def test_the_last_thought_is_kept_for_the_next_window() -> None:
         done(),
     )
     run(FakeHands(), model)
-    assert "Your last thought: The cheapest is Nimbus 14 at $749." in model.prompt(1)
+    assert "the screen may have moved on since): The cheapest is Nimbus 14 at $749." in (
+        model.prompt(1)
+    )
 
 
 def test_click_text_presses_the_listed_button_of_that_name() -> None:
@@ -1383,3 +1385,10 @@ def test_typing_the_screen_check_missed_is_confirmed_by_ui_automation() -> None:
     _, events = run(hands, Script({"action": "type", "text": "Hi"}, done()))
     step = next(e for e in events if e["event"] == "step")
     assert step["result"] == 'OK · typed; the text is now in Document "Text editor"'
+
+
+def test_click_text_on_a_listed_text_box_clicks_into_it() -> None:
+    tree = 'Elements:\n[e5] Edit "Address Bar" {value} center (40, 8) box [0, 0, 80, 16]'
+    hands = FakeHands({"uia_tree": tree, "find_text": "No text found"})
+    run(hands, Script({"action": "click_text", "text": "Address Bar"}, done()))
+    assert ("left_click", {"coordinate": [40, 8]}) in hands.acts()
