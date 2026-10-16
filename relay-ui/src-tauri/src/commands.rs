@@ -68,6 +68,11 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
         approval_answer,
         chat_send,
         chat_stop,
+        popup_say,
+        popup_grab,
+        popup_release,
+        popup_hide,
+        popup_open_main,
         chat_new,
         browsers,
         playbooks_list,
@@ -769,6 +774,49 @@ async fn chat_stop(state: State<'_, AppState>) -> Res<()> {
         turn.stop().await;
     }
     Ok(())
+}
+
+// ---------------------------------------------------------------- popup
+
+/// The owner typed in the floating popup. While Relay works this is a change of plan:
+/// the running turn stops and the message goes on in the same conversation.
+#[tauri::command]
+async fn popup_say(app: AppHandle, text: String) -> Res<()> {
+    let st = app.state::<AppState>();
+    if st.turn.lock().await.is_some() {
+        chat_stop(app.state::<AppState>()).await?;
+        // The turn's task clears `turn` once Claude or the local AI has exited.
+        for _ in 0..100 {
+            if st.turn.lock().await.is_none() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+    }
+    let _ = app.emit("chat-user", &text);
+    chat_send(app.clone(), text).await
+}
+
+#[tauri::command]
+fn popup_grab(app: AppHandle) {
+    crate::popup::grab(&app);
+}
+
+#[tauri::command]
+fn popup_release(app: AppHandle) {
+    crate::popup::release(&app);
+}
+
+#[tauri::command]
+fn popup_hide(app: AppHandle) {
+    crate::popup::release(&app);
+    crate::popup::hide(&app);
+}
+
+#[tauri::command]
+fn popup_open_main(app: AppHandle) {
+    crate::popup::hide(&app);
+    crate::show_main(&app);
 }
 
 /// The owner's answer on an in-app approval card.

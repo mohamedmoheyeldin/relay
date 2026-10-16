@@ -1,4 +1,6 @@
-//! Relay's desktop app: a tray app with one window (chat, first-run setup, settings).
+//! Relay's desktop app: a tray app with a main window (chat, first-run setup, settings).
+//!
+//! A small floating popup (`popup.rs`) shows what Relay is doing while it works.
 //!
 //! The UI talks to relay-core through the commands in `commands.rs`. Long jobs
 //! (installs, downloads) report progress as `job` events; chat turns stream as `chat`
@@ -7,6 +9,7 @@
 mod approvals;
 mod commands;
 mod jobs;
+mod popup;
 mod pty;
 mod stage;
 mod state;
@@ -35,6 +38,7 @@ pub fn run() {
             show_main(app);
         }))
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
@@ -44,6 +48,20 @@ pub fn run() {
         .manage(approvals::Approvals::default())
         .setup(|app| {
             tray::create(app.handle())?;
+            popup::create(app.handle())?;
+            {
+                use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+                let handle = app.handle().clone();
+                // Another program may own the shortcut already; Relay works without it.
+                let _ = app
+                    .global_shortcut()
+                    .on_shortcut(popup::SHORTCUT, move |_, _, event| {
+                        if event.state == ShortcutState::Pressed {
+                            popup::toggle(&handle);
+                            let _ = handle.emit_to(popup::LABEL, "popup-focus", ());
+                        }
+                    });
+            }
             let minimized = std::env::args().any(|a| a == MINIMIZED_ARG);
             let setup_done = app.state::<AppState>().settings().setup.completed;
             if !minimized || !setup_done {
