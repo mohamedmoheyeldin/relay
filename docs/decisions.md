@@ -1952,3 +1952,15 @@ any program, so the fixes are general:
   controls share refuses and lists their ids and rows, unless the thought names one
   of them. Typing while a menu is open is refused (keys pick menu items), and saving
   is refused when the text area in front is empty after the task typed something.
+- Round 20 (22/24): click_text on a text box's own name clicks into the box and
+  says it has the focus, instead of clicking its label. The model's thought is
+  capped at 600 characters in the reply schema, so a rambling thought can't run
+  past the reply's token limit and leave cut-off JSON.
+
+## D-113 · Commits go through GitHub's API so they show as Verified
+- Owner, 2026-10-16: the dev commits showed "Unverified" (signed, but by an email no
+  GitHub account owns). Commits now land through GitHub's API (the connector's
+  push-files call) instead of `git push`; GitHub signs them and no tool or vendor
+  name appears. Merges are done on
+  GitHub, which signs them too. Commits already on main stay as they were (history is
+  not rewritten).
