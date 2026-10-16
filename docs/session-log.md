@@ -2,7 +2,7 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
-## 2026-10-16 · Diagnostics findings, the owner's input, RAM (D-099)
+## 2026-10-16 · Diagnostics findings, the owner's input, RAM (D-100)
 - Holo3.1-9B now runs even when Settings still names Qwen3-VL as the operator.
 - Before real input the operator waits for the owner to pause, then brings its window back. Each step re-reads the screen, so the task carries on.
 - Repeated batches are sent back. Checkboxes show checked or unchecked. Calculator sums are typed.

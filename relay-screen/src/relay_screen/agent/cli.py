@@ -73,7 +73,7 @@ def pick_model(
 
     # An explicit operator choice wins when it can plan; the describe/grounding picks are
     # for looking, so a downloaded planner comes before them (D-087). An older Setup
-    # saved Qwen3-VL ("check") as the operator, which kept Holo3.1 unused (D-099).
+    # saved Qwen3-VL ("check") as the operator, which kept Holo3.1 unused (D-100).
     if (found := chosen("agent")) and _plans(found):
         return found
     for model_id in PLANNER_ORDER:

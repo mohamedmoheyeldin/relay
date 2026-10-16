@@ -254,7 +254,7 @@ def test_pick_model_prefers_the_flag_then_settings_then_a_planner() -> None:
     assert pick_model(installed("holo-3.1-9b", "qwen3-vl-8b-instruct"), {}, None) == "holo-3.1-9b"
     assert pick_model(have, {"agent": {"model_id": "gone"}}, None) == "qwen3-vl-8b-instruct"
     assert pick_model(installed("mine"), {}, None) == "mine"
-    # An older Setup saved Qwen3-VL ("check") as the operator; Holo3.1 plans (D-099).
+    # An older Setup saved Qwen3-VL ("check") as the operator; Holo3.1 plans (D-100).
     old_pin = {"agent": {"model_id": "qwen3-vl-8b-instruct"}}
     both = installed("holo-3.1-9b", "qwen3-vl-8b-instruct")
     assert pick_model(both, old_pin, None) == "holo-3.1-9b"
@@ -833,7 +833,7 @@ def test_a_writing_task_opens_a_new_tab_before_typing() -> None:
 
 
 def test_the_same_batch_twice_is_sent_back_not_run() -> None:
-    """Calculator: one 6-action batch repeated until the step limit (D-099)."""
+    """Calculator: one 6-action batch repeated until the step limit (D-100)."""
     hands = FakeHands()
     batch = {
         "thought": "",

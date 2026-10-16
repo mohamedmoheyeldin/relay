@@ -763,7 +763,7 @@ class LocalAgent:
             thought, actions = plan
             batch = json.dumps([[m, p] for _, m, p in actions], sort_keys=True)
             if len(actions) > 1 and batch == last_batch:
-                # The Calculator run repeated one 6-action batch to the step limit (D-099).
+                # The Calculator run repeated one 6-action batch to the step limit (D-100).
                 repeats += 1
                 if repeats >= MAX_BAD_REPLIES:
                     message = "The local model kept repeating the same actions, so Relay stopped."
@@ -1187,7 +1187,7 @@ class LocalAgent:
 
     def _wait_for_owner(self) -> None:
         """Let the owner finish what they are doing before Relay moves the real mouse
-        or types (D-099). UIA invoke and set_value never come here: they need neither."""
+        or types (D-100). UIA invoke and set_value never come here: they need neither."""
         told = False
         until = time.monotonic() + OWNER_PATIENCE
         while time.monotonic() < until:

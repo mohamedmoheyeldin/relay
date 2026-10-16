@@ -89,7 +89,7 @@ class WinElement:
         return pattern.Value if pattern else None
 
     def toggled(self) -> bool | None:
-        """Whether a checkbox or switch is on; None when it isn't one (D-099)."""
+        """Whether a checkbox or switch is on; None when it isn't one (D-100)."""
         pattern = self._pattern("TogglePattern") if "toggle" in self.patterns() else None
         return {0: False, 1: True}.get(pattern.ToggleState) if pattern else None
 

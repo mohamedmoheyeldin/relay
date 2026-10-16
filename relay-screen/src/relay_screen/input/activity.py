@@ -1,4 +1,4 @@
-"""When the owner last used the mouse or keyboard (D-099).
+"""When the owner last used the mouse or keyboard (D-100).
 
 The operator works alongside the owner: before real input it waits for a pause in
 theirs, instead of fighting them for the cursor. Windows counts Relay's own SendInput

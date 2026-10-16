@@ -49,6 +49,7 @@ FINAL = ("done", "failed", "stopped", "unavailable")
 ANSWER = "Use your default choice. This is Relay's diagnostics run and nobody is watching."
 CLAUDE_TIMEOUT = 420.0
 TASK_TIMEOUT = 900.0
+EXPLORER_TEST = "relay-explorer-test"  # a folder the other-monitor scenario opens
 SHOT_WIDTH = 1600  # recorded screenshots are scaled down to this width
 LOG_TAIL = 4_000_000  # bytes of a log copied into the run at most
 
@@ -66,13 +67,19 @@ class Scenario:
     offline: bool = False  # the local AI may not ask Claude (as if signed out)
     max_steps: int = 20
     close_tab: str = ""  # a browser tab whose title has this is closed afterwards
+    answer: str = ""  # the owner's answer if the operator asks (else ANSWER)
+    setup: str = ""  # something to prepare first, see Tools.setup
+    interfere: bool = False  # the "owner" moves the mouse and types after step 1
+    cleanup_files: tuple[str, ...] = ()
 
 
-def scenarios(stamp: str, form_url: str) -> list[Scenario]:
+def scenarios(stamp: str, site: str) -> list[Scenario]:
     """The full run, in order. `stamp` makes the typed text unique to this run."""
     note = f"Relay diagnostics {stamp}"
     query = f"relay diagnostics {stamp}"
     claude_note = f"Claude sent this {stamp}"
+    form_url = f"{site}/form"
+    saved = f"relay-diag-{stamp}.txt"
     return [
         Scenario("displays", "Every monitor: screenshot and pointer", "displays"),
         Scenario("route", "Routing: local AI or Claude", "route"),
@@ -128,6 +135,80 @@ def scenarios(stamp: str, form_url: str) -> list[Scenario]:
             offline=True,
             max_steps=15,
         ),
+        # Harder, closer to real use: several pages, apps and decisions in one task.
+        Scenario(
+            "job-application",
+            "Browser: a three-page job application",
+            "operator",
+            f"Go to {site}/job and apply. Full name: Alex Relay. Email: alex.relay@example.com. "
+            "Phone: 555 0100. Then press Next. On the next page choose Backend developer as "
+            "the role, 6 years of experience, Remote work style, and for Why this job write: "
+            "I like reliable tools. Press Next, tick the box to confirm the details, and "
+            "submit the application.",
+            (
+                {
+                    "form": {
+                        "full_name": "Alex Relay",
+                        "email": "alex.relay@example.com",
+                        "phone": "555 0100",
+                        "role": "backend",
+                        "years": "6",
+                        "style": "remote",
+                        "why": "I like reliable tools",
+                        "confirm": "on",
+                    },
+                    "path": "/applied",
+                },
+            ),
+            max_steps=35,
+            close_tab="Application",
+        ),
+        Scenario(
+            "compare-and-copy",
+            "Browser to Notepad: find the cheapest and write it down",
+            "operator",
+            f"Go to {site}/prices, find the cheapest laptop there, then open Notepad and "
+            "write down its name and price.",
+            (
+                {"uia_text": {"window": "Notepad", "contains": "Nimbus 14"}},
+                {"uia_text": {"window": "Notepad", "contains": "749"}},
+            ),
+            max_steps=20,
+            close_tab="Laptop prices",
+        ),
+        Scenario(
+            "save-where",
+            "Notepad: save a file when the place isn't given",
+            "operator",
+            f"Open Notepad, type Relay saved this {stamp}, and save it as {saved}",
+            ({"file_contains": {"path": f"~/Downloads/{saved}", "text": f"saved this {stamp}"}},),
+            max_steps=20,
+            answer="Save it in my Downloads folder.",
+            cleanup_files=(f"~/Downloads/{saved}", f"~/Documents/{saved}", f"~/Desktop/{saved}"),
+        ),
+        Scenario(
+            "other-monitor",
+            "A window on another monitor",
+            "operator",
+            f"In the File Explorer window that shows the {EXPLORER_TEST} folder, open the "
+            "incoming folder in it.",
+            ({"front_window": "incoming"},),
+            max_steps=12,
+            setup="explorer-other-display",
+        ),
+        Scenario(
+            "owner-interrupts",
+            "The owner moves the mouse and types mid-task",
+            "operator",
+            f"Open Notepad and type: First line {stamp}. Then press Enter and type: "
+            f"Second line {stamp}",
+            (
+                {"uia_text": {"window": "Notepad", "contains": f"First line {stamp}"}},
+                {"uia_text": {"window": "Notepad", "contains": f"Second line {stamp}"}},
+            ),
+            max_steps=20,
+            interfere=True,
+        ),
         Scenario("claude-text", "Claude round trip", "claude-text"),
         Scenario(
             "claude-ui",
@@ -147,7 +228,9 @@ class OperatorLink(Protocol):
 
     name: str
 
-    def run(self, task: str, on_event: Event, *, offline: bool, max_steps: int) -> None: ...
+    def run(
+        self, task: str, on_event: Event, *, offline: bool, max_steps: int, answer: str = ANSWER
+    ) -> None: ...
 
 
 class ClaudeLink(Protocol):
@@ -169,6 +252,10 @@ class Tools:
     select_display: Callable[[int], object] = lambda display_id: None
     active_display: Callable[[], int] = lambda: 0
     form: FormServer | None = None
+    # Prepares a scenario's `setup`; returns why it can't run here, or None.
+    setup: Callable[[Scenario], str | None] = lambda s: None
+    # Stands in for the owner using the PC mid-task; returns what it did.
+    interfere: Callable[[], str] = lambda: "nothing"
     clock: Callable[[], float] = time.monotonic
     sleep: Callable[[float], None] = time.sleep
 
@@ -256,24 +343,107 @@ input,select,button{font:inherit;padding:6px}</style></head>
 </form></body></html>"""
 
 
+JOB_STYLE = (
+    "<style>body{font:18px system-ui;margin:48px;max-width:720px}label{display:block;"
+    "margin:16px 0}input,select,textarea,button{font:inherit;padding:6px}"
+    "textarea{width:100%}</style>"
+)
+
+
+def _page(title: str, body: str) -> str:
+    return (
+        f'<!doctype html><html><head><meta charset="utf-8"><title>{html.escape(title)}</title>'
+        f"{JOB_STYLE}</head><body><h1>{html.escape(title)}</h1>{body}</body></html>"
+    )
+
+
+def _hidden(fields: Mapping[str, str]) -> str:
+    return "".join(
+        f'<input type="hidden" name="{html.escape(k)}" value="{html.escape(v)}">'
+        for k, v in fields.items()
+    )
+
+
+PRICES_PAGE = _page(
+    "Laptop prices",
+    "<p>Three laptops, all in stock.</p><table border=1 cellpadding=8>"
+    "<tr><th>Laptop</th><th>Price</th></tr>"
+    "<tr><td>Orion 15</td><td>$1,049</td></tr>"
+    "<tr><td>Nimbus 14</td><td>$749</td></tr>"
+    "<tr><td>Vega 13</td><td>$899</td></tr></table>",
+)
+
+
+def site_page(path: str, fields: Mapping[str, str]) -> str:
+    """The test site's pages: a one-page form, a three-page job application and a
+    price list. Each page passes on what was entered before in hidden fields."""
+    if path == "/sent":
+        shown = html.escape(fields.get("name", ""))
+        return f"<title>Relay form sent: {shown}</title><h1>Sent: {shown}</h1>"
+    if path == "/prices":
+        return PRICES_PAGE
+    if path == "/job":
+        return _page(
+            "Job application - step 1 of 3: about you",
+            '<form action="/job2" method="get">'
+            '<label>Full name <input name="full_name" aria-label="Full name"></label>'
+            '<label>Email <input name="email" type="email" aria-label="Email"></label>'
+            '<label>Phone <input name="phone" aria-label="Phone"></label>'
+            '<button type="submit">Next</button></form>',
+        )
+    if path == "/job2":
+        return _page(
+            "Job application - step 2 of 3: experience",
+            f'<form action="/job3" method="get">{_hidden(fields)}'
+            '<label>Role <select name="role" aria-label="Role"><option value="">Choose...</option>'
+            '<option value="frontend">Frontend developer</option>'
+            '<option value="backend">Backend developer</option>'
+            '<option value="data">Data analyst</option></select></label>'
+            '<label>Years of experience <input name="years" type="number" '
+            'aria-label="Years of experience"></label>'
+            "<fieldset><legend>Work style</legend>"
+            '<label><input type="radio" name="style" value="remote"> Remote</label>'
+            '<label><input type="radio" name="style" value="office"> Office</label></fieldset>'
+            '<label>Why this job? <textarea name="why" rows="3" aria-label="Why this job?">'
+            "</textarea></label>"
+            '<button type="submit">Next</button></form>',
+        )
+    if path == "/job3":
+        rows = "".join(
+            f"<tr><td>{html.escape(k)}</td><td>{html.escape(v)}</td></tr>"
+            for k, v in fields.items()
+        )
+        return _page(
+            "Job application - step 3 of 3: review",
+            f'<table border=1 cellpadding=6>{rows}</table><form action="/applied" method="get">'
+            f'{_hidden(fields)}<label><input type="checkbox" name="confirm"> '
+            "I confirm these details are correct</label>"
+            '<button type="submit">Submit application</button></form>',
+        )
+    if path == "/applied":
+        return _page("Application received", "<p>Thank you.</p>")
+    return FORM_PAGE
+
+
+def _same(got: str, want: str) -> bool:
+    """Equal, ignoring case, spaces at the ends and a final full stop."""
+    return got.strip().rstrip(".").casefold() == want.strip().rstrip(".").casefold()
+
+
 class FormServer:
-    """A one-page web form on 127.0.0.1; what it receives is checked from outside."""
+    """The test site on 127.0.0.1; what its forms receive is checked from outside."""
 
     def __init__(self) -> None:
-        self.received: list[dict[str, str]] = []
+        self.received: list[tuple[str, dict[str, str]]] = []
         server = self
 
         class Handler(http.server.BaseHTTPRequestHandler):
             def do_GET(self) -> None:
                 url = urllib.parse.urlparse(self.path)
-                if url.path == "/sent":
-                    fields = {k: v[-1] for k, v in urllib.parse.parse_qs(url.query).items()}
-                    server.received.append(fields)
-                    shown = html.escape(fields.get("name", ""))
-                    body = f"<title>Relay form sent: {shown}</title><h1>Sent: {shown}</h1>"
-                else:
-                    body = FORM_PAGE
-                data = body.encode("utf-8")
+                fields = {k: v[-1] for k, v in urllib.parse.parse_qs(url.query).items()}
+                if url.path in ("/sent", "/job2", "/job3", "/applied"):
+                    server.received.append((url.path, fields))
+                data = site_page(url.path, fields).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(data)))
@@ -284,16 +454,20 @@ class FormServer:
                 del format, args
 
         self.httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        self.url = f"http://127.0.0.1:{self.httpd.server_address[1]}/form"
+        self.base = f"http://127.0.0.1:{self.httpd.server_address[1]}"
+        self.url = f"{self.base}/form"
         threading.Thread(target=self.httpd.serve_forever, name="relay-form", daemon=True).start()
 
-    def check(self, want: Mapping[str, str]) -> str | None:
-        for got in reversed(self.received):
-            if all(got.get(k, "").casefold() == v.casefold() for k, v in want.items()):
+    def check(self, want: Mapping[str, str], path: str = "/sent") -> str | None:
+        got_here = [f for p, f in self.received if p == path]
+        for got in reversed(got_here):
+            if all(_same(got.get(k, ""), v) for k, v in want.items()):
                 return None
-        if not self.received:
-            return "the form was never submitted"
-        return f"the form was submitted with {self.received[-1]}, expected {dict(want)}"
+        if not got_here:
+            pages = sorted({p for p, _ in self.received})
+            reached = f" (it reached {', '.join(pages)})" if pages else ""
+            return f"the form was never submitted to {path}{reached}"
+        return f"{path} got {got_here[-1]}, expected {dict(want)}"
 
     def close(self) -> None:
         self.httpd.shutdown()
@@ -308,7 +482,7 @@ def check(tools: Tools, spec: Mapping[str, Any]) -> str | None:
     if "form" in spec:
         if tools.form is None:
             return "no form server"
-        return tools.form.check(spec["form"])
+        return tools.form.check(spec["form"], str(spec.get("path", "/sent")))
     if "front_window" in spec:
         return front_window(tools.hands, str(spec["front_window"]))
     return tools.desktop.check(spec)
@@ -335,7 +509,24 @@ def progress(s: Scenario, event: Mapping[str, Any]) -> dict[str, Any]:
 
 def run_operator(s: Scenario, tools: Tools, rec: Recorder, emit: Event) -> Result:
     before = set(tools.desktop.titles())
+    remove_files(s)
+    if s.setup:
+        why = tools.setup(s)
+        if why:
+            cleanup(s, tools, before)
+            return _skipped(s, why)
+        rec.event({"event": "setup", "what": s.setup})
+        tools.sleep(1.5)
     rec.shot("before")
+    interfered = threading.Event()
+
+    def interfere() -> None:
+        try:
+            done = tools.interfere()
+        except Exception as exc:
+            done = f"failed: {exc}"
+        rec.event({"event": "interference", "what": done})
+
     final: dict[str, Any] = {}
     model: str | None = None
     steps = 0
@@ -352,6 +543,9 @@ def run_operator(s: Scenario, tools: Tools, rec: Recorder, emit: Event) -> Resul
             if first_step is None:
                 first_step = line["t"]
             rec.shot(f"step-{steps:02d}")
+            if s.interfere and not interfered.is_set():
+                interfered.set()
+                threading.Thread(target=interfere, name="relay-interfere", daemon=True).start()
         elif kind == "timing":
             timings.append({k: v for k, v in event.items() if k not in ("event", "id")})
         elif kind == "model":
@@ -372,7 +566,9 @@ def run_operator(s: Scenario, tools: Tools, rec: Recorder, emit: Event) -> Resul
 
     start = tools.clock()
     try:
-        tools.link.run(s.task, on_event, offline=s.offline, max_steps=s.max_steps)
+        tools.link.run(
+            s.task, on_event, offline=s.offline, max_steps=s.max_steps, answer=s.answer or ANSWER
+        )
     except Exception as exc:
         final = {"event": "failed", "message": f"{type(exc).__name__}: {exc}"}
         rec.event({"event": "error", "message": final["message"]})
@@ -387,8 +583,11 @@ def run_operator(s: Scenario, tools: Tools, rec: Recorder, emit: Event) -> Resul
     else:
         status = "passed" if not failed and status_word != "stopped" else "failed"
     cleanup(s, tools, before)
+    remove_files(s)
     # The operator said done but the check from outside disagrees (D-098).
     details["false_done"] = status_word == "done" and bool(failed)
+    if s.interfere:
+        details["interfered"] = interfered.is_set()
     think = [t.get("think_ms", 0) for t in timings]
     return Result(
         s.id,
@@ -413,6 +612,14 @@ def run_operator(s: Scenario, tools: Tools, rec: Recorder, emit: Event) -> Resul
         },
         {**details, "operator_status": status_word, "link": tools.link.name},
     )
+
+
+def remove_files(s: Scenario) -> None:
+    from relay_screen.agent.bench import expand
+
+    for name in s.cleanup_files:
+        with contextlib.suppress(OSError):
+            expand(name).unlink(missing_ok=True)
 
 
 def cleanup(s: Scenario, tools: Tools, before: set[int]) -> None:
@@ -631,9 +838,17 @@ RUNNERS: dict[str, Callable[[Scenario, Tools, Recorder, Event], Result]] = {
 }
 
 
-def run_all(chosen: Sequence[Scenario], tools: Tools, folder: Path, emit: Event) -> list[Result]:
+def run_all(
+    chosen: Sequence[Scenario],
+    tools: Tools,
+    folder: Path,
+    emit: Event,
+    watch: ResourceWatch | None = None,
+) -> list[Result]:
     results: list[Result] = []
     for n, s in enumerate(chosen, 1):
+        if watch is not None:
+            watch.scenario = s.id
         emit({"event": "scenario", "scenario": s.id, "title": s.title, "n": n, "of": len(chosen)})
         rec = Recorder(folder / f"{n:02d}-{s.id}", tools.capture, tools.clock)
         try:
@@ -652,6 +867,145 @@ def run_all(chosen: Sequence[Scenario], tools: Tools, folder: Path, emit: Event)
     return results
 
 
+# -- RAM and VRAM -------------------------------------------------------------------
+
+MB = 1024 * 1024
+# What Relay may use while it works, besides the model's weights in VRAM: the app and
+# its window, the operator service and relay-screen. llama-server gets its own budget
+# because it holds the model's working buffers.
+RAM_BUDGET_MB = {"relay": 1500, "llama-server": 2500}
+PYTHONS = ("python.exe", "pythonw.exe")
+
+
+def group_processes(
+    procs: Sequence[Mapping[str, Any]], vram: Mapping[int, int], me: int
+) -> dict[str, dict[str, int]]:
+    """Relay's processes by role, with their RAM (working set), private bytes and VRAM."""
+    by_pid = {int(p["pid"]): p for p in procs}
+
+    def ancestors(pid: int) -> list[str]:
+        names: list[str] = []
+        seen: set[int] = set()
+        while pid in by_pid and pid not in seen and len(names) < 12:
+            seen.add(pid)
+            pid = int(by_pid[pid]["parent"])
+            if pid in by_pid:
+                names.append(str(by_pid[pid]["name"]))
+        return names
+
+    groups: dict[str, dict[str, int]] = {}
+    for p in procs:
+        pid, name = int(p["pid"]), str(p["name"])
+        up = ancestors(pid)
+        if pid == me:
+            role = "this test"
+        elif name == "relay.exe":
+            role = "app"
+        elif name == "msedgewebview2.exe" and "relay.exe" in up:
+            role = "app window (WebView2)"
+        elif name in PYTHONS and "relay.exe" in up:
+            role = "local AI service"
+        elif name in PYTHONS and ("claude.exe" in up or me in _pids(p, by_pid)):
+            role = "relay-screen for Claude"
+        elif name.startswith("llama-server"):
+            role = "llama-server"
+        else:
+            continue
+        g = groups.setdefault(role, {"processes": 0, "ram_mb": 0, "private_mb": 0, "vram_mb": 0})
+        g["processes"] += 1
+        g["ram_mb"] += int(p.get("ram") or 0) // MB
+        g["private_mb"] += int(p.get("private") or 0) // MB
+        g["vram_mb"] += int(vram.get(pid, 0)) // MB
+    return groups
+
+
+def _pids(p: Mapping[str, Any], by_pid: Mapping[int, Mapping[str, Any]]) -> set[int]:
+    """The pids above `p`."""
+    found: set[int] = set()
+    pid = int(p["parent"])
+    while pid in by_pid and pid not in found and len(found) < 12:
+        found.add(pid)
+        pid = int(by_pid[pid]["parent"])
+    return found
+
+
+class ResourceWatch:
+    """Samples Relay's RAM and VRAM every few seconds while the run goes."""
+
+    def __init__(
+        self,
+        sample: Callable[[], dict[str, dict[str, int]]],
+        out: Path,
+        every: float = 2.0,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self.sample = sample
+        self.out = out
+        self.every = every
+        self.clock = clock
+        self.start = clock()
+        self.peaks: dict[str, dict[str, int]] = {}
+        self.peak_relay_ram = 0
+        self.samples = 0
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+        self.scenario = ""
+
+    def take(self) -> None:
+        try:
+            groups = self.sample()
+        except Exception as exc:
+            groups = {}
+            line = {"t": round(self.clock() - self.start, 1), "error": str(exc)}
+        else:
+            line = {"t": round(self.clock() - self.start, 1), "scenario": self.scenario}
+            line["groups"] = groups
+        self.samples += 1
+        relay = sum(
+            g["ram_mb"] for k, g in groups.items() if k not in ("llama-server", "this test")
+        )
+        self.peak_relay_ram = max(self.peak_relay_ram, relay)
+        for role, g in groups.items():
+            peak = self.peaks.setdefault(role, {k: 0 for k in g})
+            for k, v in g.items():
+                peak[k] = max(peak.get(k, 0), v)
+        with self.out.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(line) + "\n")
+
+    def begin(self) -> None:
+        def loop() -> None:
+            while not self._stop.is_set():
+                self.take()
+                self._stop.wait(self.every)
+
+        self._thread = threading.Thread(target=loop, name="relay-resources", daemon=True)
+        self._thread.start()
+
+    def end(self) -> dict[str, Any]:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(5)
+        llama = self.peaks.get("llama-server", {}).get("ram_mb", 0)
+        over = []
+        if self.peak_relay_ram > RAM_BUDGET_MB["relay"]:
+            over.append(
+                f"Relay used {self.peak_relay_ram} MB of RAM at its peak "
+                f"(budget {RAM_BUDGET_MB['relay']} MB, not counting the model)"
+            )
+        if llama > RAM_BUDGET_MB["llama-server"]:
+            over.append(
+                f"llama-server used {llama} MB of RAM at its peak "
+                f"(budget {RAM_BUDGET_MB['llama-server']} MB)"
+            )
+        return {
+            "samples": self.samples,
+            "peak_relay_ram_mb": self.peak_relay_ram,
+            "budget_mb": RAM_BUDGET_MB,
+            "over_budget": over,
+            "peaks": self.peaks,
+        }
+
+
 # -- the summary and the report ---------------------------------------------------
 
 
@@ -661,6 +1015,7 @@ def summarize(
     folder: Path,
     started: str,
     seconds: float,
+    resources: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     counts = {k: sum(1 for r in results if r.status == k) for k in ("passed", "failed", "skipped")}
     problems = [
@@ -668,9 +1023,11 @@ def summarize(
         for r in results
         if r.status == "failed"
     ]
+    problems += list((resources or {}).get("over_budget", []))
     return {
         "schema": SCHEMA,
         "overview": overview(results),
+        "resources": dict(resources or {}),
         "started": started,
         "seconds": round(seconds, 1),
         "folder": str(folder),
@@ -743,6 +1100,7 @@ h2{{font-size:17px;margin:4px 0}}h2 span{{font-size:13px;padding:2px 8px;border-
 .shots img{{height:120px;margin:4px;border:1px solid #8884;border-radius:6px}}
 </style></head><body><h1>Relay diagnostics</h1><p>{e(head)}</p>
 <pre>{e(json.dumps(summary.get("overview", {}), indent=2))}</pre>
+<h2>RAM and VRAM (peaks)</h2><pre>{e(json.dumps(summary.get("resources", {}), indent=2))}</pre>
 <details><summary>Environment</summary><pre>{e(json.dumps(env, indent=2))}</pre></details>
 {"".join(rows)}</body></html>"""
 
@@ -795,7 +1153,9 @@ class ServiceLink:
         conn.sendall((json.dumps({"token": self.token, **command}) + "\n").encode("utf-8"))
         return conn
 
-    def run(self, task: str, on_event: Event, *, offline: bool, max_steps: int) -> None:
+    def run(
+        self, task: str, on_event: Event, *, offline: bool, max_steps: int, answer: str = ANSWER
+    ) -> None:
         command = {"op": "task", "text": task, "source": "diagnostics", "offline": offline}
         command["max_steps"] = max_steps
         with self._send(command) as conn, conn.makefile("rb") as stream:
@@ -807,7 +1167,7 @@ class ServiceLink:
                 if not isinstance(event, dict):
                     continue
                 if event.get("event") == "question":
-                    say = {"op": "say", "id": event.get("id"), "text": ANSWER}
+                    say = {"op": "say", "id": event.get("id"), "text": answer}
                     with contextlib.suppress(OSError):
                         self._send(say).close()
                 on_event(event)
@@ -824,7 +1184,9 @@ class LocalLink:
         self.ask = ask
         self._operator: Any = None
 
-    def run(self, task: str, on_event: Event, *, offline: bool, max_steps: int) -> None:
+    def run(
+        self, task: str, on_event: Event, *, offline: bool, max_steps: int, answer: str = ANSWER
+    ) -> None:
         from relay_screen.agent.operator import LocalOperator
         from relay_screen.runtime.supervisor import RuntimeUnavailable
 
@@ -834,7 +1196,7 @@ class LocalLink:
 
         def emit(event: dict[str, Any]) -> None:
             if event.get("event") == "question":
-                answers.put(ANSWER)
+                answers.put(answer)
             on_event(event)
 
         def inbox() -> list[str]:

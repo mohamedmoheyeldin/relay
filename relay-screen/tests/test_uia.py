@@ -323,7 +323,7 @@ def test_a_page_lists_from_its_document_and_only_what_can_be_used(owner_displays
 
 
 def test_checkboxes_show_whether_they_are_ticked(owner_displays):
-    """The web-form run skipped "I agree" and said done (D-099)."""
+    """The web-form run skipped "I agree" and said done (D-100)."""
     agree = El(
         "CheckBox", "I agree", rect=Rect(10, 10, 20, 20), pats=frozenset({"toggle"}), on=False
     )
