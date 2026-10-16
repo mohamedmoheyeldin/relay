@@ -248,3 +248,20 @@ def test_a_new_task_from_the_app_re_arms_the_kill_switch(tmp_path: Path) -> None
         service.stopping.set()
         sock.close()
     assert rearmed == ["app"]
+
+
+def test_only_the_owners_own_task_grants_approval(tmp_path: Path) -> None:
+    granted: list[str | None] = []
+    runner = FakeRunner()
+    runner.go.set()
+    service = OperatorService(runner, None, Events(), grant=granted.append)
+    thread = service.handle({"op": "task", "id": "t1", "text": "send the draft"})
+    assert thread is not None
+    thread.join(5)
+    sock = serve_port(service, tmp_path)
+    try:
+        hand_off(tmp_path, "send the draft", 10, timeout=5)  # Claude's words
+    finally:
+        service.stopping.set()
+        sock.close()
+    assert granted == ["send the draft", None, None, None]
