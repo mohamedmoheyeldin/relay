@@ -1,7 +1,7 @@
 // First-run setup (D-044): one page of checks that run on their own. Buttons only
 // appear where something needs the owner: installing Claude Code, signing in,
 // downloading the suggested model.
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect } from "react";
 import { ArrowRight, CpuChip01, Globe01, ShieldTick, Stars01 } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
 import { Card } from "@/components/relay/ui";
@@ -32,6 +32,13 @@ export const Wizard = ({ settings, save, onFinish }: { settings: Settings; save:
         await api.setupComplete();
         onFinish();
     };
+    // Nothing to click: once Claude is connected Relay opens the chat by itself, and
+    // downloads keep going in the background.
+    useEffect(() => {
+        if (!ready) return;
+        const t = setTimeout(finish, 2500);
+        return () => clearTimeout(t);
+    }, [ready]);
 
     return (
         <div className="flex h-full min-h-0 flex-col bg-primary">
@@ -63,7 +70,7 @@ export const Wizard = ({ settings, save, onFinish }: { settings: Settings; save:
             <footer className="border-t border-secondary bg-secondary">
                 <div className="mx-auto flex w-full max-w-3xl flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-8">
                     <p className="text-sm text-tertiary">
-                        {ready ? "Claude is connected. Downloads can keep going in the background." : "Relay needs Claude before it can do tasks."}
+                        {ready ? "Claude is connected. Opening Relay; downloads keep going in the background." : "Relay needs Claude before it can do tasks."}
                     </p>
                     <div className="flex gap-3">
                         {!ready && (

@@ -2,8 +2,11 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
-## 2026-10-16 · 0.1.10: ship main as it stands
-- Owner wants an app they can run and test, not more documents. Built main (4283268) as 0.1.10: D-081 (chat has no shell or scripts, and screen work goes through `ui_task`) plus 0.1.9's extension install. From now on each local-operator slice the plan thread merges into main gets a fresh installer in Downloads.
+## 2026-10-16 · App side of the full release: popup, operator service, no-click setup
+- Owner: no more installers piece by piece; one complete, working app with no permission prompts and nothing to set up, plus a small popup to talk to Relay while it works. The plan thread builds the always-on local operator; the app side lives here. Version is 0.1.10, not shipped yet.
+- Floating popup (`popup.rs`, `screens/popup.tsx`): appears when Relay steps aside for screen work and opens anytime with Ctrl+Shift+Space. It shows the live step, a Stop button, and a box to redirect Relay. It doesn't take focus until its box is clicked, and it is excluded from screen capture (`WDA_EXCLUDEFROMCAPTURE`), so the operator never sees it.
+- Operator service client (`relay-core/src/operator.rs`): one warm `relay_screen.server operator` process over JSON lines. Chat messages are routed first: screen tasks go to the operator and the rest to Claude. Popup follow-ups go into the running task with `say`, Claude's forwarded `ui_task` steps show in chat, and the app quits the service with Relay. Without the service, chat works as before.
+- The wizard opens the chat by itself once Claude is connected.
 
 ## 2026-10-15 · 0.1.9: the Playwright Extension installs itself
 - Owner on 0.1.7: Relay should install the extension it needs without stopping the work. They chose on the decision card to let the installer set a browser policy (accepting "Managed by your organization").
