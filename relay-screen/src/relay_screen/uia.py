@@ -195,6 +195,10 @@ class UiaService:
             parts.append(f"value={_clip(value, 60)!r}")
         if not e.enabled:
             parts.append("disabled")
+        toggled = getattr(e, "toggled", None)
+        state = toggled() if callable(toggled) else None
+        if state is not None:  # a checkbox the model must see is still unticked (D-099)
+            parts.append("checked" if state else "unchecked")
         actions = sorted(e.patterns() & ACTIONS)
         if actions:
             parts.append("{" + ",".join(actions) + "}")

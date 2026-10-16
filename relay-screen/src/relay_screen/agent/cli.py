@@ -52,6 +52,11 @@ REPLY_TOKENS = 700  # a batch of 6 actions with its thought fits (D-084)
 REPLY_TIMEOUT = 180.0
 
 
+def _plans(model_id: str) -> bool:
+    spec = catalog.find(model_id)
+    return spec is None or spec.role == "both"  # a custom model is the owner's call
+
+
 def pick_model(
     installed: Mapping[str, InstalledModel], settings: Mapping[str, Any], wanted: str | None
 ) -> str:
@@ -66,9 +71,10 @@ def pick_model(
         model_id = choice.get("model_id") if isinstance(choice, dict) else None
         return model_id if isinstance(model_id, str) and model_id in installed else None
 
-    # An explicit operator choice wins; the describe/grounding picks are for looking,
-    # so a downloaded planner comes before them (D-087).
-    if found := chosen("agent"):
+    # An explicit operator choice wins when it can plan; the describe/grounding picks are
+    # for looking, so a downloaded planner comes before them (D-087). An older Setup
+    # saved Qwen3-VL ("check") as the operator, which kept Holo3.1 unused (D-099).
+    if (found := chosen("agent")) and _plans(found):
         return found
     for model_id in PLANNER_ORDER:
         if model_id in installed:

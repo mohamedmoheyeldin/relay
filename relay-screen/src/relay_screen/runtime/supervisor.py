@@ -393,6 +393,10 @@ class Supervisor:
             "--port", str(port),
             "--alias", model_id,
             "--jinja",  # the model's own chat template, so enable_thinking applies
+            # RAM (D-099): the weights live in VRAM, so don't also keep the file mapped in
+            # RAM, and turn off the host-memory prompt cache (several GB by default).
+            "--no-mmap",
+            "--cache-ram", "0",
         ]  # fmt: skip
         process = self.launch(command, self.store.paths.home / "logs" / f"llama-{model_id}.log")
         started = self.clock()

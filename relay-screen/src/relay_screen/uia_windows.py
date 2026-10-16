@@ -88,6 +88,11 @@ class WinElement:
         pattern = self._pattern("ValuePattern")
         return pattern.Value if pattern else None
 
+    def toggled(self) -> bool | None:
+        """Whether a checkbox or switch is on; None when it isn't one (D-099)."""
+        pattern = self._pattern("TogglePattern") if "toggle" in self.patterns() else None
+        return {0: False, 1: True}.get(pattern.ToggleState) if pattern else None
+
     def invoke(self) -> str:
         patterns = self.patterns()
         if "invoke" in patterns:
@@ -113,6 +118,7 @@ class WinElement:
 # UIA property ids (UIAutomationClient.h) cached in one call per listing (D-089).
 NAME, CONTROL_TYPE, AUTOMATION_ID, IS_ENABLED, BOUNDS = 30005, 30003, 30011, 30010, 30001
 VALUE = 30045
+TOGGLE_STATE = 30086  # UIA_ToggleToggleStatePropertyId: 0 off, 1 on, 2 mixed
 PATTERN_AVAILABLE = {
     "invoke": 30031,
     "value": 30043,
@@ -187,6 +193,11 @@ class CachedElement:
         value = self._prop(VALUE)
         return value if isinstance(value, str) else None
 
+    def toggled(self) -> bool | None:
+        if "toggle" not in self.patterns():
+            return None
+        return {0: False, 1: True}.get(self._prop(TOGGLE_STATE))
+
     def _live(self) -> WinElement:
         control = self._auto.Control.CreateControlFromElement(self._e)
         return WinElement(control, self._auto)
@@ -225,7 +236,15 @@ class WinUiaBackend:
 
             client = _AutomationClient.instance().IUIAutomation
             request = client.CreateCacheRequest()
-            for prop in (NAME, CONTROL_TYPE, AUTOMATION_ID, IS_ENABLED, BOUNDS, VALUE):
+            for prop in (
+                NAME,
+                CONTROL_TYPE,
+                AUTOMATION_ID,
+                IS_ENABLED,
+                BOUNDS,
+                VALUE,
+                TOGGLE_STATE,
+            ):
                 request.AddProperty(prop)
             for prop in PATTERN_AVAILABLE.values():
                 request.AddProperty(prop)
