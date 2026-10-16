@@ -612,6 +612,9 @@ def run_operator(s: Scenario, tools: Tools, rec: Recorder, emit: Event) -> Resul
     if status_word == "unavailable":
         status, failed = "failed", [*failed, "the local AI could not run"]
     else:
+        if status_word == "failed" and not failed:
+            # The screen is right, but the operator never saw it was done (D-106).
+            failed = ["the result is there, but the local AI never said it was done"]
         status = "passed" if not failed and status_word != "stopped" else "failed"
     cleanup(s, tools, before)
     remove_files(s)
@@ -939,9 +942,18 @@ def run_all(
         (rec.folder / "result.json").write_text(json.dumps(asdict(result), indent=2), "utf-8")
         results.append(result)
         emit({"event": "result", **asdict(result)})
-        if result.details.get("operator_status") == "stopped":
+        if result.details.get("operator_status") == "stopped" and _owner_stopped(result):
             break  # the owner stopped Relay (kill switch or Stop): don't keep going
     return results
+
+
+APPROVAL_STOPS = ("No answer from the owner", "The owner denied", "Relay could not show")
+
+
+def _owner_stopped(result: Result) -> bool:
+    """Stop or the kill switch, not an approval prompt (D-106): an unanswered or
+    refused prompt fails its own scenario and the run goes on."""
+    return not result.message.startswith(APPROVAL_STOPS)
 
 
 # -- RAM and VRAM -------------------------------------------------------------------

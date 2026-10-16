@@ -65,9 +65,27 @@ Launch = Callable[[list[str], Path], Process]
 """Start a command, sending its output to the log file at the given path."""
 
 
-def popen(command: list[str], log: Path) -> Process:
+# Pinned (page-locked) host buffers count fully against RAM and can't be paged out;
+# with every layer in VRAM they only speed up a few small copies (D-107).
+SERVER_ENV = {"GGML_CUDA_NO_PINNED": "1"}
+
+
+def _server_env() -> dict[str, str]:
+    return {**os.environ, **SERVER_ENV}
+
+
+def _open_log(log: Path) -> Any:
+    """Append, never truncate: a second load must not empty the log of a server that
+    is still running (round 5 found it at 0 bytes)."""
     log.parent.mkdir(parents=True, exist_ok=True)
-    out = log.open("wb")
+    out = log.open("ab")
+    out.write(f"\n--- started {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n".encode())
+    out.flush()
+    return out
+
+
+def popen(command: list[str], log: Path) -> Process:
+    out = _open_log(log)
     flags = CREATE_NO_WINDOW if sys.platform == "win32" else 0
     try:
         return subprocess.Popen(
@@ -76,6 +94,7 @@ def popen(command: list[str], log: Path) -> Process:
             stderr=subprocess.STDOUT,
             stdin=subprocess.DEVNULL,
             creationflags=flags,
+            env=_server_env(),
         )
     finally:
         out.close()
@@ -113,6 +132,13 @@ def ram_flags(help_text: str) -> list[str]:
     return flags
 
 
+def log_flags(help_text: str, log: Path) -> list[str]:
+    """llama.cpp's own log file, flushed line by line, beside the captured output."""
+    if "--log-file" not in help_text:
+        return []
+    return ["--log-file", str(log.with_suffix(".server.log"))]
+
+
 def popen_detached(command: list[str], log: Path) -> Process:
     """Like `popen`, but the server outlives the relay-screen process that started it.
 
@@ -121,8 +147,7 @@ def popen_detached(command: list[str], log: Path) -> Process:
     """
     if sys.platform != "win32":
         return popen(command, log)
-    log.parent.mkdir(parents=True, exist_ok=True)
-    out = log.open("wb")
+    out = _open_log(log)
     base = CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP
     try:
         for flags in (base | CREATE_BREAKAWAY_FROM_JOB, base):
@@ -133,6 +158,7 @@ def popen_detached(command: list[str], log: Path) -> Process:
                     stderr=subprocess.STDOUT,
                     stdin=subprocess.DEVNULL,
                     creationflags=flags,
+                    env=_server_env(),
                 )
             except OSError:  # the job doesn't allow breakaway
                 if flags == base:
@@ -414,6 +440,7 @@ class Supervisor:
             )
 
         port = self.port()
+        log = self.store.paths.home / "logs" / f"llama-{model_id}.log"
         command = [
             str(exe),
             "--model", str(weights),
@@ -431,8 +458,9 @@ class Supervisor:
             # RAM (D-100): the weights live in VRAM, so don't also keep the file mapped in
             # RAM, and turn off the host-memory prompt cache (several GB by default).
             *ram_flags(self.help(str(exe))),
+            *log_flags(self.help(str(exe)), log),
         ]  # fmt: skip
-        process = self.launch(command, self.store.paths.home / "logs" / f"llama-{model_id}.log")
+        process = self.launch(command, log)
         started = self.clock()
         while self.clock() - started < self.load_timeout:
             if process.poll() is not None:

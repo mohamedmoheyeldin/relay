@@ -1710,3 +1710,57 @@ From round 5 of the full test (D-103):
   soon as stdin closes instead of waiting for worker threads. (Most of the 11
   "relay-screen for Claude" processes in round 5 were the Claude desktop app's own
   MCP servers, which the diagnostics count no longer includes.)
+
+## D-106 Operator clicks: listed centres, the window in front, honest status
+*2026-10-16 · accepted · from round 6 of the full test (D-103)*
+
+- **Listed centres are screen pixels.** The element list gives centres in
+  screenshot pixels, but the image sent to the model is smaller (1280 px), and
+  a click was always scaled from that image. When a click names a listed centre
+  (within 3 px), it is used as is. On the web form the model copied the Colour
+  box's centre and the click landed 20% off.
+- **Clicks stay in the window in front.** Before a coordinate click the
+  operator asks `Computer.outside_front`; a point outside the front window is
+  refused with a note to use an element id or look again. The job-application
+  click landed on another program beside the browser, on text with "delete" in
+  it, and waited 120 s on an approval nobody could answer.
+- **An approval prompt doesn't end the full test.** An unanswered or refused
+  prompt fails its own scenario; only Stop or the kill switch end the run.
+- **"Not finished" is a failure.** A scenario whose operator status is
+  failed now fails even when the outside checks pass: Notepad got the line, but
+  the operator ran 25 steps without saying it was done.
+
+Round 7 added, under the same decision:
+- **Raw numbers that land on a control win.** When the scaled click lands on
+  no listed element but the model's raw numbers do, the raw point is used.
+  Holo answered Calculator's Multiply in the list's pixels, and the scaled
+  point fell below the window twenty times.
+- **Repeats are stuck.** The same failing action three times, the same option
+  (list item, radio, tab, menu or tree item) picked three times under new ids,
+  or focusing the same window three times ends the task as stuck.
+- **Dropdown options are selected.** A web `<select>` option says Invoked but
+  stays unpicked; when it's still unselected after Invoke, Relay uses
+  SelectionItem.Select. Radio buttons and tabs are selected directly.
+- **The task's own window.** The operator remembers the exact window it works
+  in (its handle). Bringing it back, or a focus_window naming the same program,
+  returns to that window, not the owner's other Notepad document.
+- **click_text stays in the window in front.** Matches outside it are skipped.
+- **Save dialogs get the full path.** When the task names a file and a folder
+  (or the owner answers where), Ctrl+S or Save after typing fills the dialog's
+  File name box with the full path and presses Enter. Models clicked
+  Downloads in the side pane until they were stuck.
+
+## D-107 llama-server: no pinned host memory, a log that is never emptied
+*2026-10-16*
+
+- Round 6 compared load modes on the PC (Holo3.1-9B Q5_K_M, 16k context): working
+  set 1,560 MB with `none` and `dio`, 6,388 MB with `mmap`; private bytes 9.1 to
+  9.8 GB in every mode, about the model's VRAM (+7.5 GB) plus 2 GB. `dio` stays.
+- Private bytes tracking VRAM points at the GPU driver committing host backing for
+  the device allocations (inferred, not measured apart). It is commit charge, not RAM
+  in use; Task Manager's Memory column shows the working set. The part Relay controls
+  is pinned host memory: llama-server now runs with `GGML_CUDA_NO_PINNED=1`, so its
+  host buffers are ordinary pageable memory.
+- The llama log was 0 bytes while the server ran. The log is now opened for append
+  with a start marker (a second load used to truncate it), and builds with
+  `--log-file` also write llama.cpp's own flushed log to `llama-<model>.server.log`.

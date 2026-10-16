@@ -4,7 +4,7 @@ import io
 import json
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 from PIL import Image
@@ -18,6 +18,7 @@ from relay_screen.agent.local import (
     ReplyError,
     _prioritize,
     parse_reply,
+    save_target,
     to_member,
     with_paths,
 )
@@ -197,6 +198,27 @@ def test_stops_when_the_same_action_keeps_changing_nothing() -> None:
     outcome, _ = run(hands, Script(click, click, click))
     assert outcome.status == "failed" and "kept changing nothing" in outcome.message
     assert len(hands.acts()) == 3
+
+
+def test_focusing_the_same_window_again_and_again_is_stuck() -> None:
+    # Notepad in round 6: seven focus_window steps in a row, each "is in front" (D-106).
+    hands = FakeHands({"focus_window": '"Untitled - Notepad" is in front'})
+    focus = {"action": "focus_window", "window": "Notepad"}
+    outcome, _ = run(hands, Script(focus, focus, focus))
+    assert outcome.status == "failed" and len(hands.acts()) == 3
+
+
+def test_the_same_named_element_three_times_with_no_change_is_stuck() -> None:
+    # The web form in round 7: "Blue" invoked under a new id each step (D-106).
+    listings = iter(
+        f'Elements (ids ...):\n[e1] Window "Form"\n  [e{n}] ListItem "Blue"' for n in (5, 6, 7, 8)
+    )
+    hands = FakeHands(
+        {"uia_tree": lambda _: next(listings), "uia_invoke": "Invoked · OK · no visible change"}
+    )
+    model = Script(*({"action": "invoke", "element": f"e{n}"} for n in (5, 6, 7)))
+    outcome, _ = run(hands, model)
+    assert outcome.status == "failed" and "kept changing nothing" in outcome.message
 
 
 def test_gives_up_after_max_steps() -> None:
@@ -890,6 +912,55 @@ def test_a_save_with_no_place_asks_the_owner_where() -> None:
         assert not [e for e in events if e["event"] == "question"]
 
 
+def test_save_target_joins_the_file_name_and_the_folder(tmp_path: Path) -> None:
+    task = "Open Notepad, type hi, and save it as relay-diag-1.txt"
+    assert save_target(task, "The owner answered: Downloads", tmp_path) == str(
+        tmp_path / "Downloads" / "relay-diag-1.txt"
+    )
+    assert save_target(task + " on my Desktop", "", tmp_path).endswith("Desktop/relay-diag-1.txt")
+    assert save_target(r"save it as C:\Temp\a.txt") == r"C:\Temp\a.txt"
+    assert save_target(task, "", tmp_path) == "" and save_target("save it", "Downloads") == ""
+
+
+def test_ctrl_s_after_typing_fills_the_save_dialog_with_the_full_path() -> None:
+    # Round 7: the model clicked "Downloads" in the dialog's side pane until it was
+    # stuck; Relay now types the full path into File name itself (D-106).
+    hands = FakeHands({"uia_find": '1 match(es):\n[e44] Edit "File name:" center (300, 400)'})
+    model = Script(
+        {"action": "type", "text": "Relay saved this"},
+        {"action": "key", "keys": "ctrl+s"},
+        {"action": "done", "summary": "ok"},
+    )
+    agent = LocalAgent(hands, model, instant=False)
+    agent.run("Open Notepad, type Relay saved this, and save it in Downloads as r.txt")
+    want = str(Path.home() / "Downloads" / "r.txt")
+    acts = hands.acts()
+    assert ("uia_set_value", {"element": "e44", "value": want}) in acts
+    assert acts[acts.index(("uia_set_value", {"element": "e44", "value": want})) + 1] == (
+        "key",
+        {"text": "enter"},
+    )
+
+
+def test_click_text_skips_matches_outside_the_window_in_front() -> None:
+    class Hands(FakeHands):
+        def outside_front(self, coordinate: Any) -> str | None:
+            return "Laptop prices - Brave" if coordinate[0] < 800 else None
+
+    found = '"Notepad" center (100, 50) box [..]\n"Notepad" center (900, 50) box [..]'
+    hands = Hands({"find_text": found})
+    model = Script(
+        {"action": "click_text", "text": "Notepad"},
+        {"action": "done", "summary": "ok"},
+    )
+    run(hands, model)
+    assert ("left_click", {"coordinate": [900, 50]}) in hands.acts()
+    hands = Hands({"find_text": '"Notepad" center (100, 50) box [..]'})
+    _, events = run(hands, Script({"action": "click_text", "text": "Notepad"}, done()))
+    assert not [a for a in hands.acts() if a[0] == "left_click"]
+    assert any("only outside" in e.get("result", "") for e in events if e["event"] == "step")
+
+
 def test_typing_into_notepad_gets_a_new_tab_but_editing_does_not() -> None:
     windows = '1 open window(s), topmost first:\n"notes - Notepad" · notepad.exe · in front'
     done = {"thought": "", "action": "done", "summary": "ok"}
@@ -916,3 +987,87 @@ def test_folder_answers_get_their_full_path() -> None:
     text = with_paths("The owner answered: my Downloads folder", home)
     assert str(home / "Downloads") in text
     assert with_paths("anywhere", home) == "anywhere"
+
+
+def test_a_click_on_a_listed_centre_is_taken_as_screen_pixels() -> None:
+    # The web-form run: the model copied the Colour box's centre from the list, and
+    # Relay scaled it as if it were a pixel of the smaller image (D-106).
+    tree = 'Elements (ids ...):\n[e1] Window "Form"\n  [e7] ComboBox "Colour" center (857, 142)'
+    hands = FakeHands({"uia_tree": tree})
+    hands.shot = png(1568, 656)
+    model = Script(
+        {"action": "click", "x": 856, "y": 142},
+        {"action": "click", "x": 640, "y": 300},
+        {"action": "done", "summary": "ok"},
+    )
+    outcome, _ = run(hands, model)
+    assert outcome.status == "done"
+    first, second = hands.acts()
+    assert first == ("left_click", {"coordinate": [857, 142]})
+    assert second[1]["coordinate"] != [640, 300]  # a point of the image is still scaled
+
+
+def test_a_click_outside_the_window_in_front_is_refused() -> None:
+    class Hands(FakeHands):
+        def outside_front(self, coordinate: Any) -> str | None:
+            return "Job application - Brave" if coordinate[0] < 800 else None
+
+    hands = Hands()
+    model = Script(
+        {"action": "click", "x": 100, "y": 100},
+        {"action": "click", "x": 1000, "y": 100},
+        {"action": "done", "summary": "ok"},
+    )
+    outcome, events = run(hands, model)
+    assert outcome.status == "done"
+    clicks = [a for a in hands.acts() if a[0] == "left_click"]
+    assert len(clicks) == 1 and clicks[0][1]["coordinate"][0] >= 800
+    refused = next(e for e in events if e["event"] == "step")
+    assert "outside" in refused["result"] and '"Job application - Brave"' in refused["result"]
+
+
+def test_a_click_only_the_raw_numbers_put_on_a_control_uses_them() -> None:
+    # Calculator, round 7: Multiply is listed at screen pixels (262..282, 485..505); the
+    # model said (270, 495), which scaled from its 1280 px image falls below the window.
+    tree = (
+        'Elements (ids ...):\n[e1] Window "Calculator" center (200, 300) box [0, 0, 400, 520]\n'
+        '  [e9] Button "Multiply by" center (272, 495) box [262, 485, 282, 505]'
+    )
+    hands = FakeHands({"uia_tree": tree})
+    hands.shot = png(1568, 656)
+    model = Script({"action": "click", "x": 266, "y": 499}, done())
+    run(hands, model)
+    assert ("left_click", {"coordinate": [266, 499]}) in hands.acts()
+
+
+def test_the_same_failing_action_three_times_is_stuck() -> None:
+    hands = FakeHands({"left_click": ActionError("outside the window in front")})
+    click = {"action": "click", "x": 10, "y": 10}
+    outcome, _ = run(hands, Script(click, click, click, click))
+    assert outcome.status == "failed" and len(hands.acts()) == 3
+
+
+def test_focusing_the_program_returns_to_its_exact_window() -> None:
+    # Two Notepad windows: "Notepad" brought the owner's other document (D-106).
+    class Hands(FakeHands):
+        front = 11
+        brought: ClassVar[list[int]] = []
+
+        def front_handle(self) -> int:
+            return self.front
+
+        def bring_back(self, handle: int) -> bool:
+            self.brought.append(handle)
+            self.front = handle
+            return True
+
+    windows = '2 open window(s), topmost first:\n"Untitled - Notepad" · Notepad.exe · in front'
+    hands = Hands({"list_windows": windows, "launch_app": "Opened Notepad"})
+    model = Script(
+        {"action": "launch_app", "name": "Notepad"},
+        {"action": "focus_window", "window": "Notepad"},
+        done(),
+    )
+    run(hands, model)
+    assert hands.brought == [11]
+    assert ("focus_window", {"window": "Notepad"}) not in hands.acts()
