@@ -119,6 +119,8 @@ def test_depth_and_filter(owner_displays):
         "Save",
     ]
     assert uia.tree(geometry(owner_displays), filter="nothing") == "No elements match 'nothing'."
+    # A text box's contents count: the second line of a Notepad document (D-106).
+    assert "Text editor" in uia.tree(geometry(owner_displays), filter="hello")
     with pytest.raises(ActionError, match="depth"):
         uia.tree(geometry(owner_displays), depth=0)
 

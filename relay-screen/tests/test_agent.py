@@ -1158,3 +1158,24 @@ def test_a_dropdown_option_is_picked_by_typing_its_name() -> None:
         ("key", {"text": "Return"}),
         ("uia_invoke", {"element": "e7"}),  # not in a dropdown: invoked as before
     ]
+
+
+def test_switching_windows_back_and_forth_gets_a_note_then_stops() -> None:
+    # Round 10: Brave, Notepad, Brave, Notepad... until the step limit (D-106).
+    a, b = {"action": "focus_window", "window": "Brave"}, {"action": "focus_window", "window": "N"}
+    model = Script(*([a, b] * 6))
+    outcome, _ = run(FakeHands(), model)
+    assert "switched windows 4 times" in model.prompt(4)
+    assert outcome.status == "failed" and len(model.seen) == 8
+
+
+def test_plans_lose_save_steps_the_task_never_asked_for() -> None:
+    plan = {
+        "action": "plan",
+        "goal": "copy",
+        "app": "Notepad",
+        "steps": ["Open Notepad", "Type the price", "Save the file"],
+    }
+    model = Script(done(), done(), plan=plan)
+    LocalAgent(FakeHands(), model, instant=False).run("open Notepad and write the price")
+    assert "Save the file" not in model.prompt(0) and "Type the price" in model.prompt(0)

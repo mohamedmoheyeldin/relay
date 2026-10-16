@@ -660,6 +660,7 @@ TYPE_IN_EDITOR = re.compile(
 )
 # A task that saves a file but doesn't say where: Relay asks the owner (D-104).
 SAVES = re.compile(r"\bsave\b", re.IGNORECASE)
+UNASKED = re.compile(r"\b(save|close|exit|quit)\b", re.IGNORECASE)
 PLACE = re.compile(
     r"[a-z]:\\|\\\\|/|\b(folder|desktop|documents|downloads|pictures|music|videos|"
     r"onedrive|drive|in my|to my|same place|where it was)\b",
@@ -811,6 +812,16 @@ def _dropdown_option(elements: str, element_id: str) -> tuple[str, list[int]] | 
             indent = len(parent.group(1))
         return None
     return None
+
+
+SWITCHES = 4  # focus_window steps in a row before the model is told to act
+
+
+def _switching(steps: list[Step]) -> bool:
+    last = steps[-SWITCHES:]
+    return len(last) == SWITCHES and all(
+        s.action.get("action") in ("focus_window", "focus", "switch_to") for s in last
+    )
 
 
 def _element_label(elements: str, element_id: str) -> str:
@@ -1070,6 +1081,15 @@ class LocalAgent:
                 if self._stuck(steps):
                     message = "The same action kept changing nothing, so Relay stopped."
                     return self._finish("failed", message, steps)
+                if _switching(steps):
+                    # Brave, Notepad, Brave, Notepad... in round 10 (D-106).
+                    note = (
+                        f"You switched windows {SWITCHES} times in a row. The window in front "
+                        "is the one you last chose: act in it now (type, invoke, set_value), "
+                        "or reply done if the task is finished."
+                    )
+                    look = True
+                    break
                 if step.error:
                     look = True  # see what went wrong before planning again
                     if len(steps) >= FAILS_IN_A_ROW and all(
@@ -1429,6 +1449,9 @@ class LocalAgent:
         if not isinstance(plan, dict):
             return ""
         steps = [str(x) for x in plan.get("steps") or [] if str(x).strip()][:6]
+        # Plans kept adding "Save the file" to tasks that never said save, and the model
+        # then followed the plan, not the task (D-106).
+        steps = [x for x in steps if not UNASKED.search(x) or UNASKED.search(task)]
         goal, app = str(plan.get("goal") or ""), str(plan.get("app") or "")
         self.plan_app = app.strip()[:80]
         done_when = str(plan.get("done_when") or "")
@@ -1683,6 +1706,12 @@ class LocalAgent:
         last = steps[-STUCK_REPEATS:]
         if len(last) < STUCK_REPEATS:
             return False
+        if (
+            len(steps) >= 2 * SWITCHES
+            and _switching(steps[-2 * SWITCHES : -SWITCHES])
+            and (_switching(steps))
+        ):
+            return True  # still only switching windows after being told to act
         first = last[0]
         if first.target and all(
             s.target == first.target and s.action["action"] == first.action["action"] for s in last

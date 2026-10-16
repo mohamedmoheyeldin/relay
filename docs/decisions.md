@@ -1814,3 +1814,9 @@ Round 10 added:
 - **Each step records what the model was shown**: a "seen" event with the
   window in front and the top of the element list, for Diagnostics. The chat
   ignores it.
+- **Text filters match text-box contents.** uia_tree and uia_find filters now
+  also match an element's value, so a check can find Notepad's second line,
+  which is only in the document's value.
+- **Window ping-pong.** Four focus_window steps in a row get a note to act in
+  the window in front; eight in a row end the task as stuck.
+- **Plans lose steps the task never asked for**: save, close, exit or quit.

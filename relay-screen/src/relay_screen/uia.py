@@ -101,7 +101,18 @@ def _matches(element: UiaElement, query: str) -> bool:
         q in element.name.casefold()
         or q == element.role.casefold()
         or (bool(element.automation_id) and q in element.automation_id.casefold())
+        or q in _text_value(element).casefold()
     )
+
+
+def _text_value(element: UiaElement) -> str:
+    """A text box's contents: Notepad's second line is only there, never in a name, so
+    a filter for it found nothing (D-106)."""
+    try:
+        value = element.value() if "value" in element.patterns() else None
+    except Exception:
+        return ""
+    return value if isinstance(value, str) else ""
 
 
 def _noise(element: UiaElement) -> bool:
