@@ -1586,3 +1586,28 @@ The owner chose the full rebuild with every recommendation:
 - A diagnostics run's Claude starts relay-screen with RELAY_DIAGNOSTICS=1, so
   its `ui_task` hand-off is marked quiet and the app's chat never shows it.
   Diagnostics' own tasks are quiet too.
+
+## D-099 Holo3.1 always plans, the owner keeps their mouse, and less RAM
+*2026-10-16 · accepted · Diagnostics runs on 0.1.11, owner ("the app keeps using the mouse and keyboard", "using a lot of my system RAM") · amends D-087, D-093*
+
+- **The model.** A stored operator choice is used only when that model can
+  plan (role "both", or a custom model). An older Setup saved Qwen3-VL
+  ("check") as the operator, so the downloaded Holo3.1-9B never ran.
+- **The owner's input.** Before real input (click, type, key, scroll), the
+  operator waits until the owner has paused for 0.8 s, up to 20 s, and says
+  so in a note. Then the task's window comes back in front. Windows'
+  last-input time is compared with when Relay itself last sent input. UIA
+  invoke and set_value stay the first choice, since they need neither mouse
+  nor focus. Each step reads the windows and elements again, so a task carries
+  on after the owner moved things.
+- **Repeated batches.** A multi-action batch that matches the previous one
+  isn't run. The model is told to look and change course. After three such
+  batches the task fails.
+- **Checkboxes.** Element lists mark toggles as checked or unchecked. The
+  plan's done-check names every field and box, and the prompt says to tick
+  every box the task needs.
+- **Calculator.** The prompt says to type the whole sum (12*56=) rather than
+  press its buttons.
+- **RAM.** llama-server runs with `--no-mmap` and `--cache-ram 0`. The weights
+  stay in VRAM with no file mapping kept in RAM, and the host-memory prompt
+  cache (8 GB by default in recent llama.cpp) is off.
