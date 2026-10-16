@@ -1536,3 +1536,53 @@ The owner chose the full rebuild with every recommendation:
   or when Windows won't bring the open one in front.
 - The plan prompt tells the model to use what is already open: switch to open
   programs, and open pages in a new tab.
+
+## D-096 Full test runs on the owner's PC, and a dev loop Claude can drive
+*2026-10-16 · accepted · owner ("Diagnostics should have actual tests … record everything … link the Diagnostics to you so you can install the app, run Diagnostics, gather the results and keep fixing")*
+
+- `relay-screen diagnostics` runs real tasks: every monitor (screenshot size
+  and pointer read-back), the router, Notepad (instant and with the model),
+  File Explorer, a new browser tab and web search, a web form served on
+  127.0.0.1 by the run itself, Calculator with Claude off, a Claude round trip,
+  and Claude calling `ui_task`. Each result is checked from outside the agent:
+  window in front, UIA text, what the form server received.
+- Tasks go through the app's operator service over its localhost port when
+  Relay is open (the owner's own path), else an operator in the process. A
+  `diagnostics` source counts as the owner's words like `app` (D-091) but is
+  not mirrored into the chat. `offline: true` keeps the local AI from asking
+  Claude, standing in for signed out.
+- Everything goes in Downloads\Relay-diagnostics\<time>: per-step screenshots,
+  every event with its time, timings, the Claude transcript, the runtime and
+  audit log lines of the run, environment.json, summary.json (with an
+  overview) and report.html. latest.json names the newest run.
+- Settings > Developer has a Full test panel with live progress, the newest
+  result, the report and a "Copy for Claude" summary.
+- Dev loop: the installer is per-machine and needs the owner's admin yes, so
+  Claude tries builds in a copy of Relay in Downloads\Relay-dev\current instead
+  (the installer's files, unpacked; `scripts/build_dev_copy.py`, `--code` for
+  just relay-screen). `scripts/dev_loop.ps1` closes Relay, unpacks the package,
+  starts the copy, runs the diagnostics and prints where the results are.
+  Installing into Program Files still goes through the owner's Yes; Relay does
+  not keep any elevated helper to skip it.
+
+## D-097 A value put in the browser's address bar is sent with Enter
+*2026-10-16 · accepted · found by the first full test run (D-096)*
+
+- When the local operator sets the text of the browser's "Address and search
+  bar", it presses Enter right after. Text in that bar does nothing until
+  Enter, and in the test run the model pressed the search icon four times,
+  clicked around, and then said it was done with no search made.
+- The step reads "… · Enter pressed", so the model knows the page is loading.
+
+## D-098 Done is checked once against the plan, and test runs stay out of chats
+*2026-10-16 · accepted · owner's flight task stopped on a search page; a test step showed in the owner's chat*
+
+- When the local model says done and its plan has a done-when, the operator
+  looks at the screen once more and asks the model to finish only if the
+  done-when holds now. The second done ends the task. Plans without a
+  done-when finish at once, as before.
+- Diagnostics record when the operator said done but the check from outside
+  failed (`false_done`, and `said_done_but_was_not` in the overview).
+- A diagnostics run's Claude starts relay-screen with RELAY_DIAGNOSTICS=1, so
+  its `ui_task` hand-off is marked quiet and the app's chat never shows it.
+  Diagnostics' own tasks are quiet too.

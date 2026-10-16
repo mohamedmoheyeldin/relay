@@ -721,6 +721,10 @@ def main() -> None:
         from relay_screen.agent import service
 
         sys.exit(service.main(sys.argv[2:]))
+    if len(sys.argv) > 1 and sys.argv[1] == "diagnostics":
+        from relay_screen.diagnostics import cli as diagnostics_cli
+
+        sys.exit(diagnostics_cli.main(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "agent-bench":
         from relay_screen.agent import cli as agent_cli
 

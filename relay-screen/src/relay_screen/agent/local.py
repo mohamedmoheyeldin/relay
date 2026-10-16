@@ -670,6 +670,8 @@ class LocalAgent:
         self.notes: list[str] = []  # what the owner added while the task ran
         self.target = ""  # the program the task works in (its exe stem), once known
         self.plan = ""  # the plan made before the first step (D-094)
+        self.done_when = ""  # the plan's done-when, checked once before finishing (D-098)
+        self.done_checked = False
         self.typed: dict[str, int] = {}  # text typed so far -> the step that typed it
         self.new_doc = False  # a writing task: editors get a new tab first
         self.fresh: set[str] = set()  # editors that already got their new tab
@@ -750,6 +752,19 @@ class LocalAgent:
                 if self.cancelled():
                     return self._finish("stopped", "Stopped by the owner.", steps)
                 if action["action"] == "done":
+                    if self.done_when and not self.done_checked:
+                        # One look against the plan's done-when before finishing: the
+                        # model stopped after a search page in the owner's flight task
+                        # (D-098).
+                        self.done_checked = True
+                        self.emit({"event": "note", "text": "Checking that it is really done…"})
+                        note = (
+                            f"Before you finish, look at the screen and check the plan: done "
+                            f"when {self.done_when}. Reply done only if that is true now; "
+                            "otherwise keep going."
+                        )
+                        look = True
+                        break
                     return self._finish("done", str(action.get("summary") or "Done."), steps)
                 if action["action"] == "fail":
                     reason = str(action.get("reason") or "The local model gave up.")
@@ -988,6 +1003,11 @@ class LocalAgent:
                 self._remember_front()
             if not error and member in ("type", "uia_set_value"):
                 self.typed.setdefault(_typed_key(params), n)
+            if not error and member == "uia_set_value" and self._address_bar(params):
+                # A search or address in the browser's bar does nothing until Enter,
+                # and models kept pressing the search icon instead (D-097).
+                self.hands.run("key", {"text": "enter"})
+                text = f"{text} · Enter pressed"
         except Cancelled:
             text, error = "STOP: Stopped by the owner.", True
         except (KillSwitchError, ApprovalDeniedError, PromptUnavailableError) as exc:
@@ -1006,6 +1026,10 @@ class LocalAgent:
             }
         )
         return step
+
+    def _address_bar(self, params: Mapping[str, Any]) -> bool:
+        label = _element_label(self.elements, str(params.get("element", "")))
+        return label.strip('"') == ADDRESS_BAR
 
     def _ask_claude(self, question: str) -> ActionResult:
         """Claude's answer, or an error the model can work around: the local AI keeps going
@@ -1065,6 +1089,7 @@ class LocalAgent:
         text += [f"{i}. {x}" for i, x in enumerate(steps, 1)]
         if done_when:
             text.append(f"Done when: {done_when}")
+            self.done_when = done_when
         if question:
             answer = self._ask_owner(question, str(plan.get("default") or "").strip())
             text.append(f"You asked the owner: {question} {answer}")
