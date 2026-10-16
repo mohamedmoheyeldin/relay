@@ -132,11 +132,12 @@ def ram_flags(help_text: str) -> list[str]:
     return flags
 
 
-def log_flags(help_text: str, log: Path) -> list[str]:
-    """llama.cpp's own log file, flushed line by line, beside the captured output."""
-    if "--log-file" not in help_text:
+def vision_flags(help_text: str) -> list[str]:
+    """Qwen-VL models need at least 1024 image tokens (D-108); Relay's frames already
+    have that many, and this keeps llama.cpp from shrinking an image below it."""
+    if "--image-min-tokens" not in help_text:
         return []
-    return ["--log-file", str(log.with_suffix(".server.log"))]
+    return ["--image-min-tokens", "1024"]
 
 
 def popen_detached(command: list[str], log: Path) -> Process:
@@ -458,7 +459,7 @@ class Supervisor:
             # RAM (D-100): the weights live in VRAM, so don't also keep the file mapped in
             # RAM, and turn off the host-memory prompt cache (several GB by default).
             *ram_flags(self.help(str(exe))),
-            *log_flags(self.help(str(exe)), log),
+            *vision_flags(self.help(str(exe))),
         ]  # fmt: skip
         process = self.launch(command, log)
         started = self.clock()

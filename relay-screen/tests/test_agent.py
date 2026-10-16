@@ -99,10 +99,13 @@ def test_parse_reply_tolerates_fences_prose_and_coordinate_lists() -> None:
 
 def test_frame_maps_model_coordinates_to_screenshot_pixels() -> None:
     frame = Frame.from_png(png(3440, 1440))
-    assert frame.sent_size == (1280, 544)  # aligned to the 32 px patch grid
+    # Aligned to the 32 px patch grid and grown to Qwen-VL's 1024 image tokens (D-108).
+    w, h = frame.sent_size
+    assert w % 32 == 0 and h % 32 == 0 and (w // 32) * (h // 32) >= 1024
+    assert frame.sent_size == (1568, 672)
     assert frame.to_screen(500, 500, "rel1000") == [1720, 720]
     assert frame.to_screen(1000, 1000, "rel1000") == [3439, 1439]
-    assert frame.to_screen(640, 272, "pixels") == [1720, 720]
+    assert frame.to_screen(784, 336, "pixels") == [1720, 720]
     assert frame.data_url().startswith("data:image/jpeg;base64,")
     with pytest.raises(ReplyError):
         frame.to_screen("left", 3, "rel1000")

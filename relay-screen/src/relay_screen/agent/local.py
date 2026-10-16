@@ -35,6 +35,10 @@ MAX_STEPS = 25
 HISTORY = 10  # earlier steps repeated to the model as text
 SEND_EDGE = 1280  # px, long edge of the screenshot sent to the model
 ALIGN = 32  # sent sizes are multiples of the vision patch grid, so pixel models see it as sent
+# Qwen-VL models (Holo3.1) need at least this many image tokens, one per 32 px cell; with
+# fewer, llama.cpp warns and grounding suffers (D-108). Frames are grown to reach it here,
+# so the model sees exactly the image whose pixels it answers in.
+MIN_IMAGE_TOKENS = 1024
 MAX_BAD_REPLIES = 3
 FAILS_IN_A_ROW = 3  # failed steps in a row before the model is told to change approach
 STUCK_REPEATS = 3  # the same action with no visible change this many times in a row
@@ -338,6 +342,9 @@ class Frame:
         width, height = image.size
         scale = min(1.0, edge / max(width, height))
         size = (_align(width * scale), _align(height * scale))
+        while (size[0] // ALIGN) * (size[1] // ALIGN) < MIN_IMAGE_TOKENS:
+            scale *= 1.01
+            size = (_align(width * scale), _align(height * scale))
         if size != image.size:
             image = image.resize(size, Image.Resampling.LANCZOS)
         out = io.BytesIO()
