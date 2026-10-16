@@ -1443,3 +1443,17 @@ The owner chose the full rebuild with every recommendation:
   COM (`Shell.Application`). That is the folder `Get-StartApps` reads, so the
   names and AppIDs are the same.
 - PowerShell runs only when COM fails or finds nothing.
+
+## D-091 The owner's own words approve the risky steps they name
+*2026-10-16 · accepted · owner ("Yes, my words" on the decision card, 01:02) · implements D-088 item 4, amends D-073/D-080*
+
+- In "risky" mode, a task the owner sends from the app grants the risky words
+  it contains, using the same word list as D-073. For example, "fill the Dice
+  application and submit it" grants "submit".
+- A step whose target says only granted words runs without a card. The
+  approval log records "approved (the owner's task says submit)".
+- A target that also says a word the task didn't name still asks. For
+  example, "Submit and delete" asks when only "submit" was granted.
+- The grant lasts for that task only and is cleared when it ends.
+- Text not written by the owner never grants anything. That covers Claude's
+  `ui_task` hand-offs and anything read from a page.

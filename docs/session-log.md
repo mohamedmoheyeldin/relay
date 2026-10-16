@@ -12,6 +12,9 @@ Short entries so later sessions can pick up where earlier ones stopped. Newest f
 - `glib` 0.18.5 in `Cargo.lock` comes only from Tauri's Linux GTK stack (`cargo tree -i glib --target x86_64-pc-windows-msvc` is empty), so Windows builds never compile it. No upgrade exists until Tauri moves to gtk-rs 0.20+; the alert needs dismissing as "vulnerable code is not actually used" (a cloud session gets 403 on the Dependabot API).
 - Owner rule: commit straight to `dev` for almost everything (no feature branches), run the checks, then merge `dev` into `main` and recreate `dev` from `main`.
 
+## 2026-10-16 · The owner's words approve what they name (D-091)
+- The owner tapped "Yes, my words" on the card. A task sent from the app now approves the risky steps it names, such as "submit" or "send", for that task only. Claude's hand-offs never grant anything.
+
 ## 2026-10-16 · Operator side complete for the first full build (D-089, D-090)
 - Working straight on `dev` now (owner rule, 00:49).
 - Browsers are read through UI Automation from the page's Document, with the address bar and usable controls only, so no extension is needed (D-089). UIA listings come from one CacheRequest per read.

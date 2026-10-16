@@ -307,6 +307,23 @@ def test_risky_mode_asks_for_risky_acts_only():
     assert [r.detail for r in prompter.requests] == ['Activate Button "Pay now"']
 
 
+def test_the_owners_words_approve_the_steps_they_name():
+    prompter = FakePrompter("deny")
+    gate = ApprovalGate(prompter, mode="risky")
+    gate.grant("Fill the Dice application and submit it")
+    submit = ActRequest("uia_invoke", {}, summary='Activate Button "Submit application"')
+    assert gate.check(submit) == "approved (the owner's task says submit)"
+    assert prompter.requests == []
+    # A step the task didn't name still asks, even next to a granted word.
+    both = ActRequest("left_click", {}, summary='Left click on Button "Submit and delete"')
+    with pytest.raises(ApprovalDeniedError):
+        gate.check(both)
+    gate.grant(None)
+    with pytest.raises(ApprovalDeniedError):
+        gate.check(submit)
+    assert len(prompter.requests) == 2
+
+
 class _Fallback:
     def __init__(self) -> None:
         self.asked = 0

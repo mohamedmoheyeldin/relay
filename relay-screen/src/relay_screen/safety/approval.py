@@ -157,6 +157,26 @@ class ApprovalGate:
     timeout: float = PROMPT_TIMEOUT
     _batch_approved: bool = field(default=False, init=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False)
+    granted: frozenset[str] = field(default=frozenset(), init=False)
+    """Risky words the owner's own task text asked for (D-091), e.g. {"submit"}."""
+
+    def grant(self, task: str | None) -> None:
+        """The owner's words count as approval: a task saying "...and submit it" lets
+        a Submit button run without a card, for that task only (D-091). None clears it.
+        Only text the owner wrote may be passed here, never Claude's or a page's."""
+        words = RISKY.findall(task) if task else []
+        self.granted = frozenset(w.casefold() for w in words)
+
+    def _owner_asked(self, act: ActRequest) -> str | None:
+        """The word that approves this act, when every risky word on its target was
+        in the owner's task; a target that also says "delete" needs its own yes."""
+        if not self.granted or not act.summary:
+            return None
+        target = act.summary.split(" on ", 1)[-1] if act.name in CLICKS else act.summary
+        hits = {w.casefold() for w in RISKY.findall(target)}
+        if not hits or not hits <= self.granted:
+            return None
+        return sorted(hits)[0]
 
     def check(self, act: ActRequest) -> str:
         """Ask before an act. Returns how it was approved; raises if it was not."""
@@ -164,6 +184,8 @@ class ApprovalGate:
             return "not asked (approval off)"
         if self.mode == "risky" and not is_risky(act):
             return "not asked (not risky)"
+        if self.mode == "risky" and (word := self._owner_asked(act)):
+            return f"approved (the owner's task says {word})"
         in_batch = act.total is not None and act.total > 1
         if act.step in (None, 1):
             self._batch_approved = False

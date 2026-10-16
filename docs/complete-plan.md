@@ -53,7 +53,7 @@ targets.
 | 11 | Drop the browser lane, the extension policy (removed on update) and the token step | app thread |
 | 12 | One installer: runtime + Holo3.1-9B download, no prompts | app thread |
 | 13 | Operator moved into relay-core (Rust) behind the same interface (D-088) | plan thread |
-| 14 | The owner's words count as approval (D-088 item 4); waits on the owner's direct OK | plan thread |
+| 14 | The owner's words count as approval (D-091) | plan thread, **done** |
 
 ## Order
 

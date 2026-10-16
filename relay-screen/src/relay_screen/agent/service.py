@@ -246,8 +246,12 @@ class OperatorService:
         awareness: Awareness | None,
         write: Write,
         rearm: Callable[[], None] | None = None,
+        grant: Callable[[str | None], None] | None = None,
     ) -> None:
         self.runner = runner
+        # The owner's own task text approves the risky steps it names (D-091); Claude's
+        # hand-offs are Claude's words, so they never grant anything.
+        self.grant = grant or (lambda text: None)
         # The kill switch stops the task in progress. The service lives for the whole
         # session, so a new task the owner sends from the app re-arms it; Claude's
         # hand-offs never do (D-086).
@@ -355,6 +359,7 @@ class OperatorService:
                 self.write(line)
 
         emit({"event": "accepted", "text": running.text})
+        self.grant(running.text if running.source == "app" else None)
         try:
             with self._busy:
                 model_id, outcome = self.runner(
@@ -372,6 +377,7 @@ class OperatorService:
             message = f"The local AI failed: {exc.__class__.__name__}: {exc}"
             emit({"event": "failed", "message": message, "steps": 0})
         finally:
+            self.grant(None)
             with self._lock:
                 self.running = None
 
@@ -527,7 +533,14 @@ def main(argv: list[str]) -> int:
 
     awareness = Awareness(hands)
     switch = services.killswitch
-    service = OperatorService(runner, awareness, write, switch.rearm if switch else None)
+    gate = services.gate
+    service = OperatorService(
+        runner,
+        awareness,
+        write,
+        switch.rearm if switch else None,
+        gate.grant if gate else None,
+    )
     awareness.poll()
     awareness.start(service.stopping)
     sock = serve_port(service, operator.paths.home)
