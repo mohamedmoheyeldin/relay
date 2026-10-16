@@ -1628,3 +1628,21 @@ The owner chose the full rebuild with every recommendation:
 - **RAM.** llama-server runs with `--no-mmap` and `--cache-ram 0`. The weights
   stay in VRAM with no file mapping kept in RAM, and the host-memory prompt
   cache (8 GB by default in recent llama.cpp) is off.
+
+## D-101 App-function tests drive Relay's own window with no model
+
+- **What.** The full test (D-096) also uses Relay itself the way the owner
+  does: every Settings page, the model and effort picker (pick, saved to
+  settings.json, put back), a new chat with a Claude reply, the chat menu (pin,
+  rename, unpin, delete), search, attach (a file picker opens and closes) and
+  Stop during a long answer. Scenarios `app-*`, kind `app`.
+- **How.** `diagnostics/app.py` holds the scripts against a small `AppUi`
+  interface; `diagnostics/desktop.py` implements it with UI Automation on the
+  window of `relay.exe` titled "Relay": one cached tree read per look,
+  Invoke to press, focus and typed keys to fill. Names are the app's own
+  aria-labels and button text, so a renamed control fails the test on purpose.
+  No model runs, so these are fast and exact.
+- **Clean up.** Test chats are deleted, the picker goes back to what the owner
+  had, and the run ends on Settings > Developer, where a run from the app
+  starts. A signed-out chat can't be shown without signing the owner out, so
+  it stays covered by the router check (Claude off goes to the local AI).

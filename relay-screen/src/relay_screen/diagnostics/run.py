@@ -43,6 +43,7 @@ from relay_screen import __version__
 from relay_screen.agent.bench import Desktop
 from relay_screen.agent.local import Hands
 from relay_screen.agent.service import NO_TOOLS, record_path, route
+from relay_screen.diagnostics import app as app_tests
 
 SCHEMA = 1
 FINAL = ("done", "failed", "stopped", "unavailable")
@@ -53,7 +54,7 @@ EXPLORER_TEST = "relay-explorer-test"  # a folder the other-monitor scenario ope
 SHOT_WIDTH = 1600  # recorded screenshots are scaled down to this width
 LOG_TAIL = 4_000_000  # bytes of a log copied into the run at most
 
-Kind = Literal["operator", "displays", "route", "claude-text", "claude-ui"]
+Kind = Literal["operator", "displays", "route", "claude-text", "claude-ui", "app"]
 Event = Callable[[dict[str, Any]], None]
 
 
@@ -217,6 +218,11 @@ def scenarios(stamp: str, site: str) -> list[Scenario]:
             f"Open Notepad and type: {claude_note}",
             ({"uia_text": {"window": "Notepad", "contains": claude_note}},),
         ),
+        Scenario("app-settings", "Relay app: every Settings page", "app"),
+        Scenario("app-model-picker", "Relay app: model and effort picker", "app"),
+        Scenario("app-chat", "Relay app: new chat, reply, pin, rename, search, delete", "app"),
+        Scenario("app-attach", "Relay app: attach opens a file picker", "app"),
+        Scenario("app-stop", "Relay app: Stop ends an answer", "app"),
     ]
 
 
@@ -258,6 +264,9 @@ class Tools:
     interfere: Callable[[], str] = lambda: "nothing"
     clock: Callable[[], float] = time.monotonic
     sleep: Callable[[float], None] = time.sleep
+    app: app_tests.AppUi | None = None  # Relay's own window, for the app-function tests
+    settings_file: Path | None = None  # %APPDATA%\\Relay\\settings.json
+    stamp: str = ""
 
 
 @dataclass
@@ -825,6 +834,50 @@ def run_claude_ui(s: Scenario, tools: Tools, rec: Recorder, emit: Event) -> Resu
     )
 
 
+def run_app(s: Scenario, tools: Tools, rec: Recorder, emit: Event) -> Result:
+    """One app-function script on Relay's own window (D-101), no model involved."""
+    del emit
+    if tools.app is None:
+        return _skipped(s, "Relay's window can't be driven here")
+    signed_in = False
+    if tools.claude is not None:
+        status = tools.claude.status()
+        signed_in = bool(status.get("logged_in"))
+    if s.id in app_tests.NEEDS_CLAUDE and not signed_in:
+        return _skipped(s, "Claude Code is not signed in")
+    why = tools.app.ready()
+    if why:
+        return _skipped(s, why)
+    start = tools.clock()
+    ctx = app_tests.Ctx(
+        tools.app,
+        tools.clock,
+        tools.sleep,
+        rec.shot,
+        rec.event,
+        tools.settings_file,
+        tools.stamp or time.strftime("%H%M%S"),
+        signed_in,
+    )
+    rec.shot("before")
+    try:
+        app_tests.SCRIPTS[s.id](ctx)
+    finally:
+        rec.shot("after")
+    checks = ctx.checks
+    passed = len(checks) - len(ctx.failed)
+    return Result(
+        s.id,
+        s.title,
+        s.kind,
+        "passed" if checks and not ctx.failed else "failed",
+        f"{passed}/{len(checks)} checks passed" if checks else "nothing was checked",
+        round(tools.clock() - start, 2),
+        failed_checks=ctx.failed,
+        details={"checks": checks},
+    )
+
+
 def _skipped(s: Scenario, why: str, details: dict[str, Any] | None = None) -> Result:
     return Result(s.id, s.title, s.kind, "skipped", why, 0.0, details=details or {})
 
@@ -835,6 +888,7 @@ RUNNERS: dict[str, Callable[[Scenario, Tools, Recorder, Event], Result]] = {
     "route": run_route,
     "claude-text": run_claude_text,
     "claude-ui": run_claude_ui,
+    "app": run_app,
 }
 
 
