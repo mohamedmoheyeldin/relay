@@ -72,11 +72,46 @@ export default function App() {
             .catch(() => {});
     }, []);
     useEffect(loadChats, [loadChats]);
+    const [renamingId, setRenamingId] = useState<string | null>(null);
+    // Back and forward, like the Claude app's arrows: every chat or Settings visit.
+    type Place = { view: "chat"; chat: OpenChat } | { view: "settings" };
+    const [trail, setTrail] = useState<{ places: Place[]; at: number }>(() => ({ places: [{ view: "chat", chat }], at: 0 }));
+    const show = (p: Place) => {
+        setView(p.view);
+        if (p.view === "chat") setChat(p.chat);
+    };
+    const go = (p: Place) => {
+        show(p);
+        setTrail((t) => {
+            const same = t.places[t.at];
+            if (same && same.view === p.view && (p.view === "settings" || (same.view === "chat" && same.chat.id === p.chat.id))) return t;
+            const places = [...t.places.slice(0, t.at + 1), p].slice(-50);
+            return { places, at: places.length - 1 };
+        });
+    };
+    const step = (by: number) => {
+        const at = trail.at + by;
+        const p = trail.places[at];
+        if (!p) return;
+        // A chat left before anything was said in it was never saved.
+        const known = p.view === "settings" || p.chat.fresh || chats.some((c) => c.id === p.chat.id);
+        show(known ? p : { view: "chat", chat: { id: newId(), fresh: true } });
+        setTrail({ ...trail, at });
+    };
+    const openChat = (id: string) => go({ view: "chat", chat: { id, fresh: false } });
+    const newChatPlace = () => go({ view: "chat", chat: { id: newId(), fresh: true } });
     const deleteChat = async (id: string) => {
         await api.chatDelete(id).catch(() => {});
-        if (id === chat.id) setChat({ id: newId(), fresh: true });
+        if (id === chat.id) newChatPlace();
         loadChats();
     };
+    const renameChat = async (id: string, title: string | null) => {
+        setRenamingId(null);
+        if (title) await api.chatRename(id, title).catch(() => {});
+        loadChats();
+    };
+    const pinChat = (id: string, pinned: boolean) => api.chatPin(id, pinned).then(loadChats).catch(() => {});
+    const current = chats.find((c) => c.id === chat.id) ?? null;
     const toggleSidebar = () => {
         setCollapsed((c) => {
             try {
@@ -128,18 +163,22 @@ export default function App() {
                     onToggle={toggleSidebar}
                     chats={chats}
                     activeId={view === "chat" ? chat.id : null}
-                    onNew={() => {
-                        setView("chat");
-                        setChat({ id: newId(), fresh: true });
+                    settingsOpen={view === "settings"}
+                    canBack={trail.at > 0}
+                    canForward={trail.at < trail.places.length - 1}
+                    onBack={() => step(-1)}
+                    onForward={() => step(1)}
+                    onNew={newChatPlace}
+                    onOpen={(id) => (id === chat.id && view === "chat" ? undefined : openChat(id))}
+                    renamingId={renamingId}
+                    onStartRename={(id) => {
+                        if (collapsed) toggleSidebar();
+                        setRenamingId(id);
                     }}
-                    onOpen={(id) => {
-                        setView("chat");
-                        if (id !== chat.id) setChat({ id, fresh: false });
-                    }}
-                    onRename={(id, title) => api.chatRename(id, title).then(loadChats).catch(() => {})}
-                    onPin={(id, pinned) => api.chatPin(id, pinned).then(loadChats).catch(() => {})}
+                    onRename={renameChat}
+                    onPin={pinChat}
                     onDelete={deleteChat}
-                    onSettings={() => setView("settings")}
+                    onSettings={() => go({ view: "settings" })}
                 />
             )}
             <div className="flex min-w-0 flex-1 flex-col">
@@ -176,6 +215,10 @@ export default function App() {
                             ready={ready}
                             chat={chat}
                             onSaved={loadChats}
+                            saved={current}
+                            onRename={() => current && (collapsed ? (toggleSidebar(), setRenamingId(current.id)) : setRenamingId(current.id))}
+                            onPin={() => current && pinChat(current.id, !current.pinned)}
+                            onDelete={() => current && deleteChat(current.id)}
                             claudeSettings={settings.claude}
                             onClaudeSettings={(claude) => save({ ...settings, claude })}
                             approvalMode={settings.safety.approval_mode}

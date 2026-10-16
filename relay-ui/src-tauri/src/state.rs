@@ -24,6 +24,8 @@ pub struct AppState {
     pub operator_failed: Mutex<Option<std::time::Instant>>,
     /// Whether Claude Code was signed in, and when that was checked (`commands::claude_signed_in`).
     pub claude_signed_in: Mutex<Option<(bool, std::time::Instant)>>,
+    /// A Claude turn of this app is running, so its `ui_task` steps belong in the chat.
+    pub claude_turn: std::sync::atomic::AtomicBool,
 }
 
 impl AppState {
@@ -38,6 +40,7 @@ impl AppState {
             operator: tokio::sync::Mutex::default(),
             operator_failed: Mutex::default(),
             claude_signed_in: Mutex::default(),
+            claude_turn: Default::default(),
         }
     }
 

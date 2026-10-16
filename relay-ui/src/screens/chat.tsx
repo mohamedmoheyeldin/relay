@@ -3,13 +3,14 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { Header, Menu, MenuItem, MenuSection, MenuTrigger, Popover } from "react-aria-components";
-import { ArrowUp, Check, CheckCircle, ChevronDown, ChevronRight, CpuChip01, File06, Plus, Stars02, StopSquare, Tool01, XCircle, XClose } from "@untitledui/icons";
+import { ArrowUp, Check, CheckCircle, ChevronDown, ChevronRight, CpuChip01, File06, Plus, StopSquare, Tool01, XCircle, XClose } from "@untitledui/icons";
 import { TextAreaBase } from "@/components/base/textarea/textarea";
 import { Markdown } from "@/components/relay/markdown";
 import { Notice, Spinner } from "@/components/relay/ui";
-import { type ChatEvent, type Settings, api, errorText } from "@/lib/api";
+import { type ChatEvent, type ChatSummary, type Settings, api, errorText } from "@/lib/api";
 import { describeTool, isHiddenTool } from "@/lib/describe-tool";
 import { isAuthError, refreshClaude, useClaude } from "@/lib/claude";
+import { ChatMenu, RelayMark } from "@/components/relay/sidebar";
 import { SignIn } from "./sign-in";
 import { cx } from "@/utils/cx";
 
@@ -148,7 +149,7 @@ const LocalStep = ({ item }: { item: Extract<Item, { kind: "step" }> }) => {
 type ClaudeSettings = Settings["claude"];
 
 const PlanCard = ({ item }: { item: Extract<Item, { kind: "plan" }> }) => (
-    <div className="rounded-xl bg-secondary px-4 py-3 text-sm ring-1 ring-secondary animate-in fade-in slide-in-from-bottom-1 duration-300">
+    <div className="rounded-xl px-4 py-3 text-sm ring-1 ring-secondary animate-in fade-in duration-200">
         <p className="font-medium text-primary">
             {item.goal || "Plan"}
             {item.app && <span className="font-normal text-tertiary"> · {item.app}</span>}
@@ -276,6 +277,10 @@ export const ChatScreen = ({
     onLocalAi,
     chat,
     onSaved,
+    saved,
+    onRename,
+    onPin,
+    onDelete,
     claudeSettings,
     onClaudeSettings,
     approvalMode = "risky",
@@ -288,6 +293,11 @@ export const ChatScreen = ({
     chat: OpenChat;
     /** A chat was saved, so the sidebar list may have changed. */
     onSaved: () => void;
+    /** This chat as saved (for the title menu), once something was said in it. */
+    saved: ChatSummary | null;
+    onRename: () => void;
+    onPin: () => void;
+    onDelete: () => void;
     /** Settings > Claude, for the model and effort picker in the composer. */
     claudeSettings: ClaudeSettings;
     onClaudeSettings: (next: ClaudeSettings) => void;
@@ -464,73 +474,95 @@ export const ChatScreen = ({
     }, [items, busy]);
 
     const empty = items.length === 0;
+    const sendable = !!input.trim();
     const composer = (
-        <div className="rounded-3xl bg-primary_alt p-2.5 shadow-[0_0.25rem_1.25rem_rgb(0_0_0/0.035)] ring-1 ring-secondary transition duration-200 focus-within:shadow-[0_0.25rem_1.5rem_rgb(0_0_0/0.07)] focus-within:ring-primary dark:shadow-[0_0.25rem_1.25rem_rgb(0_0_0/0.25)]">
-            <TextAreaBase
-                aria-label="Message"
-                placeholder={empty ? "How can Relay help today?" : "Reply to Relay…"}
-                rows={empty ? 2 : 1}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        send();
-                    }
-                }}
-                className="max-h-60 min-h-11 resize-none rounded-none bg-transparent px-2.5 pt-2 pb-1 text-md shadow-none ring-0 focus:ring-0"
-            />
-            {files.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 px-2 pb-1">
-                    {files.map((f) => (
-                        <FileChip key={f} path={f} onRemove={() => setFiles((all) => all.filter((x) => x !== f))} />
-                    ))}
+        <div>
+            <div className="rounded-2xl bg-primary_alt ring-1 ring-secondary transition duration-150 focus-within:ring-primary">
+                {files.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 px-3 pt-3">
+                        {files.map((f) => (
+                            <FileChip key={f} path={f} onRemove={() => setFiles((all) => all.filter((x) => x !== f))} />
+                        ))}
+                    </div>
+                )}
+                <div className="flex items-end gap-2 py-1.5 pr-2 pl-1">
+                    <TextAreaBase
+                        aria-label="Message"
+                        placeholder={busy ? "Reply to Relay, or answer its question…" : empty ? "Ask Relay to do something on this PC…" : "Reply to Relay…"}
+                        rows={empty ? 2 : 1}
+                        value={input}
+                        onChange={(e) => setInput(e.target.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === "Enter" && !e.shiftKey) {
+                                e.preventDefault();
+                                send();
+                            }
+                        }}
+                        className="max-h-60 min-h-10 flex-1 resize-none rounded-none bg-transparent px-2.5 py-2 text-[15px] leading-6 shadow-none ring-0 focus:ring-0"
+                    />
+                    {busy && !sendable ? (
+                        <button
+                            aria-label="Stop"
+                            title="Stop"
+                            onClick={stop}
+                            className="mb-1 flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-primary-solid text-white transition duration-100 outline-focus-ring hover:opacity-85 focus-visible:outline-2 dark:bg-neutral-100 dark:text-neutral-900"
+                        >
+                            <StopSquare className="size-3.5" />
+                        </button>
+                    ) : (
+                        <button
+                            aria-label="Send"
+                            title="Send"
+                            onClick={send}
+                            disabled={!sendable}
+                            className={cx(
+                                "mb-1 flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg transition duration-100 outline-focus-ring focus-visible:outline-2 disabled:cursor-default",
+                                sendable ? "bg-brand-solid text-white hover:bg-brand-solid_hover" : "text-fg-quaternary",
+                            )}
+                        >
+                            <ArrowUp className="size-4" />
+                        </button>
+                    )}
                 </div>
-            )}
-            <div className="flex items-center gap-1">
+            </div>
+            <div className="mt-1.5 flex items-center gap-1 px-1">
                 <button
                     aria-label="Attach files"
                     title="Attach files"
                     onClick={attach}
-                    className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-fg-tertiary ring-1 ring-secondary transition duration-150 outline-focus-ring hover:bg-secondary hover:text-fg-secondary focus-visible:outline-2"
+                    className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-fg-tertiary transition duration-100 outline-focus-ring hover:bg-secondary hover:text-fg-secondary focus-visible:outline-2"
                 >
                     <Plus className="size-4" />
                 </button>
+                <span className="ml-1 truncate text-xs text-quaternary">{APPROVAL_NOTE[approvalMode] ?? APPROVAL_NOTE.risky}</span>
                 <span className="ml-auto" />
                 <ModelPicker settings={claudeSettings} onChange={onClaudeSettings} />
-                {busy && !input.trim() ? (
-                    <button
-                        aria-label="Stop"
-                        title="Stop"
-                        onClick={stop}
-                        className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-primary-solid text-white transition duration-150 outline-focus-ring animate-in fade-in zoom-in-75 hover:opacity-85 focus-visible:outline-2 focus-visible:outline-offset-2 dark:bg-neutral-100 dark:text-neutral-900"
-                    >
-                        <StopSquare className="size-4" />
-                    </button>
-                ) : (
-                    <button
-                        aria-label="Send"
-                        title="Send"
-                        onClick={send}
-                        disabled={!input.trim()}
-                        className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-brand-solid text-white transition duration-150 outline-focus-ring animate-in fade-in zoom-in-75 hover:bg-brand-solid_hover focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-brand-solid"
-                    >
-                        <ArrowUp className="size-[18px]" />
-                    </button>
-                )}
             </div>
         </div>
     );
 
-    const composerNote = <p className="mt-2 text-center text-xs text-quaternary">{APPROVAL_NOTE[approvalMode] ?? APPROVAL_NOTE.risky}</p>;
-
     return (
         <div className="flex h-full min-h-0 flex-col">
-            <div className="flex h-12 shrink-0 items-center gap-3 px-4 sm:px-6">
-                <span className="truncate text-sm font-medium text-tertiary">{empty ? "" : titleOf(items)}</span>
+            <div className="flex h-11 shrink-0 items-center gap-2 px-4">
+                {!empty &&
+                    (saved ? (
+                        <ChatMenu
+                            title={saved.title}
+                            pinned={saved.pinned}
+                            onPin={onPin}
+                            onRename={onRename}
+                            onDelete={onDelete}
+                            className="flex h-7 max-w-[60%] cursor-pointer items-center gap-1 rounded-md px-2 text-sm text-secondary outline-hidden hover:bg-secondary hover:text-primary data-[focus-visible]:ring-2 data-[focus-visible]:ring-brand"
+                        >
+                            <span className="truncate">{saved.title}</span>
+                            <ChevronDown className="size-3.5 shrink-0 text-fg-quaternary" />
+                        </ChatMenu>
+                    ) : (
+                        <span className="truncate px-2 text-sm text-secondary">{titleOf(items)}</span>
+                    ))}
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6 sm:px-6">
-                <div className={cx("mx-auto flex w-full max-w-3xl flex-col gap-5", empty && "min-h-full justify-center pb-16")}>
+                <div className={cx("mx-auto flex w-full max-w-[720px] flex-col gap-4", empty && "min-h-full justify-center pb-24")}>
                     {loadError && <Notice tone="error">{loadError}</Notice>}
                     {!ready && (
                         <p className="text-center text-xs text-tertiary">
@@ -544,21 +576,17 @@ export const ChatScreen = ({
                     {items.length === 0 && (
                         <div className="flex flex-col items-center text-center animate-in fade-in slide-in-from-bottom-3 duration-700">
                             <div className="flex items-center gap-3">
-                                <Stars02 className="size-7 shrink-0 text-fg-brand-primary" />
-                                <h2 className="font-serif text-display-sm font-normal tracking-tight text-primary sm:text-display-md">{greeting()}</h2>
+                                <RelayMark className="size-8" />
+                                <h2 className="font-serif text-[2.1rem] leading-tight font-normal tracking-tight text-primary">{greeting()}</h2>
                             </div>
-                            <p className="mt-3 max-w-lg text-md text-tertiary">Ask for a task on this PC, and Relay works it through on screen.</p>
-                            <div className="mt-8 w-full text-left">
-                                {composer}
-                                {composerNote}
-                            </div>
-                            <div className="mt-4 flex max-w-2xl flex-wrap justify-center gap-2">
+                            <div className="mt-7 w-full text-left">{composer}</div>
+                            <div className="mt-5 flex max-w-2xl flex-wrap justify-center gap-2">
                                 {SUGGESTIONS.map((t, n) => (
                                     <button
                                         key={t}
                                         onClick={() => setInput(t)}
                                         style={{ animationDelay: `${150 + n * 60}ms` }}
-                                        className="cursor-pointer rounded-xl bg-primary px-3 py-1.5 text-sm text-secondary ring-1 ring-secondary transition duration-150 ring-inset animate-in fade-in slide-in-from-bottom-1 fill-mode-both hover:bg-secondary hover:text-primary"
+                                        className="cursor-pointer rounded-lg px-3 py-1.5 text-sm text-tertiary ring-1 ring-secondary transition duration-100 ring-inset animate-in fade-in fill-mode-both hover:bg-secondary hover:text-primary"
                                     >
                                         {t}
                                     </button>
@@ -571,7 +599,7 @@ export const ChatScreen = ({
                             return (
                                 <div
                                     key={i}
-                                    className="ml-auto max-w-[85%] rounded-2xl bg-tertiary px-4 py-2.5 text-md break-words whitespace-pre-wrap text-primary animate-in fade-in slide-in-from-bottom-2 duration-300 dark:bg-neutral-950"
+                                    className="ml-auto max-w-[80%] rounded-xl bg-tertiary px-3.5 py-2 text-[15px] leading-6 break-words whitespace-pre-wrap text-primary animate-in fade-in duration-200 dark:bg-neutral-950/70"
                                 >
                                     {it.text}
                                     {it.files && (
@@ -586,7 +614,7 @@ export const ChatScreen = ({
                         if (it.kind === "assistant" && isAuthError(it.text) && items[i + 1]?.kind === "done") return null;
                         if (it.kind === "assistant")
                             return (
-                                <div key={i} className="font-serif text-[16.5px] leading-[1.7] break-words text-primary animate-in fade-in slide-in-from-bottom-1 duration-500">
+                                <div key={i} className="text-[15px] leading-7 break-words text-primary animate-in fade-in duration-300">
                                     <Markdown text={it.text} />
                                 </div>
                             );
@@ -610,7 +638,7 @@ export const ChatScreen = ({
                         if (it.kind === "plan") return <PlanCard key={i} item={it} />;
                         if (it.kind === "question")
                             return (
-                                <div key={i} className="rounded-xl bg-brand-primary px-4 py-3 text-sm text-primary ring-1 ring-brand animate-in fade-in slide-in-from-bottom-1 duration-300">
+                                <div key={i} className="rounded-xl px-4 py-3 text-sm text-primary ring-1 ring-brand animate-in fade-in duration-200">
                                     <p className="font-medium">{it.text}</p>
                                     <p className="mt-1 text-xs text-tertiary">
                                         {busy && i === items.length - 1 ? "Reply below; Relay waits for your answer" : "Asked while working"}
@@ -668,10 +696,7 @@ export const ChatScreen = ({
             </div>
             {!empty && (
                 <div className="px-4 pt-1 pb-4 sm:px-6">
-                    <div className="mx-auto max-w-3xl animate-in fade-in slide-in-from-bottom-2 duration-300">
-                        {composer}
-                        {composerNote}
-                    </div>
+                    <div className="mx-auto max-w-[720px]">{composer}</div>
                 </div>
             )}
         </div>
