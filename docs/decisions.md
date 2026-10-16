@@ -1273,3 +1273,58 @@ the local AI itself.
 
 - The Playwright Extension's token is pasted into Settings > Browser once.
 - Relay never reads the token from the browser's storage.
+
+## D-084 The local operator works in tiers: instant moves, batched plans, vision on demand
+*2026-10-16 · accepted · owner ("build it", redesign §5 step 2) · amends D-067, D-072*
+
+The owner expects UI actions in milliseconds, not a model call and a
+screenshot per click. The operator (`agent/local.py`) now works in tiers:
+
+- **Tier 0, instant, no model.** One-move tasks run straight away:
+  - "go to dice.com" runs `open_url`;
+  - "switch to Outlook" runs `focus_window`;
+  - "open Notepad" focuses an open Notepad window, or else launches it.
+
+  Anything with more to it ("open Notepad and write hello") goes to the
+  model. So does an instant move that fails. The operator tries tier 0 before
+  checking for a downloaded model, so these tasks work on a fresh install
+  while the model downloads.
+- **Tier 1, text first.** Each step reads the focused window's UI Automation
+  element list.
+  - When the list is rich (8 or more lines), the model gets text only, with no
+    screenshot. It acts by element id.
+  - A position click without a screenshot is refused, and the model is told to
+    look.
+  - The first step, the step after a failure, and any `{"action": "look"}`
+    reply send the screenshot.
+- **Batches.** One reply may plan up to 6 actions (`"actions": [...]`).
+  - They run in order and stop at the first one that fails.
+  - `done` and `fail` count only on their own, after the model has seen the
+    result.
+  - An element id that isn't in the list rejects the whole reply before
+    anything runs.
+- **Timing.** Every step emits a `timing` event with perceive, think and act
+  milliseconds, whether a screenshot was sent, and the number of actions. A
+  slow step can be seen, not guessed at.
+
+Claude stays the planner (D-081). Tier 3, where the operator asks Claude
+mid-task, and a skills recorder come in later slices.
+
+## D-085 The operator's model stays warm across chat turns
+*2026-10-16 · accepted · owner ("milliseconds, not waiting a minute") · amends D-042*
+
+- Claude Code starts a new relay-screen for every chat turn. A model owned by
+  that process loaded again on every `ui_task`, adding seconds to tens of
+  seconds per turn.
+- The operator's llama-server now starts outside the relay-screen process's
+  job (`popen_detached`), so it outlives the turn.
+- Its port, pid and last-use time go in `%LOCALAPPDATA%\Relay\servers\<model>.json`
+  (under RELAY_HOME). A later relay-screen adopts the running server instead of
+  loading again.
+- It stays loaded at least 15 minutes after the last task. The idle setting can
+  only raise that.
+- Any relay-screen that finds a shared server idle stops it, whether or not it
+  started it. A record whose port doesn't answer is dropped.
+- Other local-model uses (bench, CLI) keep the per-process D-042 lifetime.
+- The app should stop the server when Relay quits. That is the app thread's
+  part.

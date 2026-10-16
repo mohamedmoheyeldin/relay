@@ -540,3 +540,76 @@ def test_json_progress_counts_files(capsys: pytest.CaptureFixture[str]) -> None:
     lines = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     assert [line["file"] for line in lines] == [0, 0, 1]
     assert lines[1] == {"done": 10, "total": 10, "file": 0}
+
+
+# --- D-084: one warm server shared by relay-screen processes -----------------
+
+
+class PidProcess(FakeProcess):
+    pid = 4242
+
+
+def shared_harness(tmp_path: Path, killed: list[int], name: str = "a") -> Harness:
+    (tmp_path / name).mkdir()
+    h = Harness(tmp_path / name)
+    s = h.supervisor
+    s.shared, s.wall, s.kill = tmp_path / "servers", h.clock, killed.append
+
+    def launch(command: list[str], log: Path) -> FakeProcess:
+        h.launched.append(command)
+        h.ready_at = h.clock.now + h.ready_after
+        process = PidProcess()
+        h.processes.append(process)
+        return process
+
+    s.launch = launch
+    return h
+
+
+def test_a_later_process_adopts_the_running_server(tmp_path: Path) -> None:
+    killed: list[int] = []
+    first = shared_harness(tmp_path, killed)
+    first.supervisor.ensure("m")
+    record = json.loads((tmp_path / "servers" / "m.json").read_text())
+    assert record["port"] == 5555 and record["pid"] == 4242
+
+    later = shared_harness(tmp_path, killed, "b")
+    later.ready_at = 0  # the first process's server answers on its port
+    endpoint = later.supervisor.ensure("m")
+    assert endpoint.cold_start is None and later.launched == []
+    assert later.events[-1]["event"] == "adopt"
+
+
+def test_a_shared_server_unloads_only_when_nobody_used_it(tmp_path: Path) -> None:
+    killed: list[int] = []
+    h = shared_harness(tmp_path, killed)
+    h.supervisor.ensure("m")
+    h.clock.now += 60
+    # Another process used it 10 s ago.
+    path = tmp_path / "servers" / "m.json"
+    record = json.loads(path.read_text())
+    path.write_text(json.dumps({**record, "used": h.clock.now - 10}))
+    assert h.supervisor.reap() == []
+    h.clock.now += 50
+    assert h.supervisor.reap() == ["m"]
+    assert not path.exists()
+
+
+def test_a_server_left_behind_is_stopped_once_idle(tmp_path: Path) -> None:
+    killed: list[int] = []
+    h = shared_harness(tmp_path, killed)
+    (tmp_path / "servers").mkdir()
+    path = tmp_path / "servers" / "m.json"
+    path.write_text(json.dumps({"model": "m", "port": 5555, "pid": 77, "used": h.clock.now}))
+    assert h.supervisor.reap() == []
+    h.clock.now += 60
+    assert h.supervisor.reap() == ["m"]
+    assert killed == [77] and not path.exists()
+
+
+def test_a_dead_record_is_ignored(tmp_path: Path) -> None:
+    h = shared_harness(tmp_path, [])
+    (tmp_path / "servers").mkdir()
+    (tmp_path / "servers" / "m.json").write_text('{"port": 5555, "pid": 9}')
+    assert h.supervisor.ensure("m").cold_start is not None  # nothing answered: load
+    assert len(h.launched) == 1

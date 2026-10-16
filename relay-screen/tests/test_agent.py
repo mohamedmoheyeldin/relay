@@ -129,7 +129,7 @@ def test_runs_actions_until_done() -> None:
         ("left_click", {"coordinate": [1000, 500]}),
         ("type", {"text": "hello"}),
     ]
-    assert [e["event"] for e in events] == ["step", "step", "done"]
+    assert [e["event"] for e in events if e["event"] != "timing"] == ["step", "step", "done"]
     assert events[0]["thought"] == "focus the editor"
     # Each step sends a fresh screenshot and the history so far.
     image = model.seen[2][1]["content"][1]["image_url"]["url"]
@@ -208,10 +208,9 @@ def test_uses_the_element_list_when_ui_automation_can_read_the_window() -> None:
     )
     outcome, events = run(hands, model)
     assert outcome.status == "done"
-    assert hands.acts() == [
-        ("uia_set_value", {"element": "e5", "value": "hello"}),
-        ("uia_invoke", {"element": "e9"}),
-    ]
+    # e9 isn't in the list, so that reply is sent back instead of run.
+    assert hands.acts() == [("uia_set_value", {"element": "e5", "value": "hello"})]
+    assert any(e["event"] == "bad_reply" and "e9" in e["error"] for e in events)
     assert '[e5] Document "Text editor"' in model.prompt(0)
     assert events[0]["action"] == 'set_value e5 = "hello"'
     with pytest.raises(ReplyError, match="element id"):
@@ -273,9 +272,9 @@ def test_operator_needs_a_downloaded_model(tmp_path: Any, monkeypatch: pytest.Mo
     operator.setup.spawn = started.append  # no real downloads in tests
     try:
         with pytest.raises(RuntimeUnavailable, match="downloading the local model runtime and"):
-            operator.run("open notepad", FakeHands(), 5)
+            operator.run("write hello in notepad", FakeHands(), 5)
         with pytest.raises(RuntimeUnavailable, match="ready once the download finishes"):
-            operator.run("open notepad", FakeHands(), 5)
+            operator.run("write hello in notepad", FakeHands(), 5)
         assert len(started) == 1  # a second task doesn't start a second download
     finally:
         operator.supervisor.stop_all()
@@ -368,7 +367,7 @@ def test_focuses_the_program_the_task_names_before_the_first_step() -> None:
 
 def test_no_focus_when_no_open_program_is_named() -> None:
     hands = FakeHands({"list_windows": WINDOWS})
-    LocalAgent(hands, Script({"action": "done", "summary": "ok"})).run("open Calculator")
+    LocalAgent(hands, Script({"action": "done", "summary": "ok"})).run("add 2 and 3 in Calculator")
     assert hands.acts() == []
 
 
@@ -416,3 +415,125 @@ def test_open_url_action_maps_to_the_member() -> None:
     )
     with pytest.raises(ReplyError, match="open_url needs"):
         to_member({"action": "go_to"}, frame, "rel1000")
+
+
+# --- D-084: instant moves, batches and text-only steps ----------------------
+
+RICH_TREE = (
+    'Elements (ids ...):\n[e1] Window "Dice"\n'
+    + "\n".join(f'  [e{i}] Button "b{i}" {{invoke}}' for i in range(2, 12))
+    + '\n  [e20] Edit "Search jobs" {value}'
+)
+
+
+@pytest.mark.parametrize(
+    ("task", "plan"),
+    [
+        ("go to dice.com", [("open_url", {"url": "dice.com"})]),
+        (
+            "Please open https://www.dice.com/jobs.",
+            [("open_url", {"url": "https://www.dice.com/jobs"})],
+        ),
+        ("switch to Outlook", [("focus_window", {"window": "Outlook"})]),
+        (
+            "open Notepad",
+            [("focus_window", {"window": "Notepad"}), ("launch_app", {"name": "Notepad"})],
+        ),
+        ("open Notepad and write hello", None),
+        ("go to dice.com and search for python jobs", None),
+        ("write hello", None),
+        ("In Brave, apply to the Monster job", None),
+    ],
+)
+def test_instant_plan_covers_one_move_tasks_only(task: str, plan: Any) -> None:
+    from relay_screen.agent.local import instant_plan
+
+    assert instant_plan(task) == plan
+
+
+def test_instant_tasks_need_no_model() -> None:
+    hands = FakeHands({"focus_window": ActionError("no open window matches 'Notepad'")})
+    model = Script()
+    events: list[dict[str, Any]] = []
+    outcome = LocalAgent(hands, model, on_event=events.append).run("open Notepad")
+    assert outcome.status == "done" and model.seen == []
+    assert hands.acts() == [
+        ("focus_window", {"window": "Notepad"}),
+        ("launch_app", {"name": "Notepad"}),
+    ]
+    assert events[-1]["event"] == "done" and "instant_ms" in events[-1]
+
+
+def test_an_instant_move_that_fails_goes_to_the_model() -> None:
+    hands = FakeHands({"open_url": ActionError("no browser")})
+    model = Script({"action": "fail", "reason": "no browser"})
+    outcome = LocalAgent(hands, model).run("go to dice.com")
+    assert outcome.status == "failed" and len(model.seen) == 1
+
+
+def test_operator_runs_instant_tasks_before_any_download(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from relay_screen.agent.operator import LocalOperator
+
+    monkeypatch.setenv("RELAY_HOME", str(tmp_path))
+    monkeypatch.delenv("APPDATA", raising=False)
+    operator = LocalOperator(connect=lambda url: Script())
+    started: list[Any] = []
+    operator.setup.spawn = started.append
+    try:
+        model_id, outcome = operator.run("go to dice.com", FakeHands(), 5)
+        assert (model_id, outcome.status, started) == ("instant", "done", [])
+    finally:
+        operator.supervisor.stop_all()
+
+
+def test_one_reply_can_run_several_actions() -> None:
+    hands = FakeHands({"uia_tree": RICH_TREE})
+    model = Script(
+        {
+            "thought": "search",
+            "actions": [
+                {"action": "set_value", "element": "e20", "value": "python"},
+                {"action": "key", "keys": "Return"},
+                {"action": "done", "summary": "too early"},
+            ],
+        },
+        {"action": "done", "summary": "Searched."},
+    )
+    outcome, events = run(hands, model)
+    assert outcome.message == "Searched." and len(model.seen) == 2
+    assert hands.acts() == [
+        ("uia_set_value", {"element": "e20", "value": "python"}),
+        ("key", {"text": "Return"}),
+    ]
+    timing = [e for e in events if e["event"] == "timing"]
+    assert timing[0]["actions"] == 2 and timing[0]["screenshot_sent"] is True
+
+
+def test_a_batch_stops_at_the_first_failure_and_looks() -> None:
+    hands = FakeHands({"uia_tree": RICH_TREE, "uia_invoke": ActionError("gone")})
+    model = Script(
+        {"actions": [{"action": "invoke", "element": "e3"}, {"action": "type", "text": "x"}]},
+        {"action": "done", "summary": "ok"},
+    )
+    run(hands, model)
+    assert hands.acts() == [("uia_invoke", {"element": "e3"})]
+    assert len(model.seen[1][1]["content"]) == 2  # it sees the screen after the failure
+
+
+def test_rich_element_lists_skip_the_screenshot() -> None:
+    hands = FakeHands({"uia_tree": RICH_TREE})
+    model = Script(
+        {"action": "invoke", "element": "e3"},
+        {"action": "click", "x": 5, "y": 5},
+        {"action": "look"},
+        {"action": "done", "summary": "ok"},
+    )
+    outcome, events = run(hands, model)
+    assert outcome.status == "done"
+    shots = [len(m[1]["content"]) == 2 for m in model.seen]
+    assert shots == [True, False, False, True]  # first step, then text only until look
+    assert "No screenshot this time" in model.prompt(1)
+    assert any(e["event"] == "bad_reply" and "look" in e["error"] for e in events)
+    assert hands.acts() == [("uia_invoke", {"element": "e3"})]

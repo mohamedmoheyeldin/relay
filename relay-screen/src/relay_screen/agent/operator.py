@@ -1,9 +1,10 @@
-"""The local operator as a service Claude can hand whole UI tasks to (D-069).
+"""The local operator as a service Claude can hand whole UI tasks to (D-069, D-084).
 
-relay-screen's `ui_task` tool keeps one of these for the life of the MCP server: the
-model loads on the first task and unloads after the idle time, like every local model
-(D-042). Without a downloaded model it starts the download (D-079) and raises
-RuntimeUnavailable saying so.
+relay-screen's `ui_task` tool keeps one of these for the life of the MCP server.
+One-move tasks ("go to dice.com", "open Notepad") run at once with no model. For the
+rest the model loads on the first task and stays loaded across chat turns and
+relay-screen processes for at least WARM_SECONDS (D-084). Without a downloaded model
+it starts the download (D-079) and raises RuntimeUnavailable saying so.
 """
 
 from __future__ import annotations
@@ -12,13 +13,19 @@ import threading
 from collections.abc import Callable
 from typing import Any, Protocol
 
-from relay_screen.agent.local import Event, Hands, LocalAgent, Model, Outcome
+from relay_screen.agent.local import Event, Hands, LocalAgent, Model, Outcome, run_instant
 from relay_screen.runtime import catalog, gpu
 from relay_screen.runtime.paths import RelayPaths, local_ai_settings, settings_file
 from relay_screen.runtime.store import Store
-from relay_screen.runtime.supervisor import RuntimeUnavailable, Supervisor, jsonl_recorder
+from relay_screen.runtime.supervisor import (
+    RuntimeUnavailable,
+    Supervisor,
+    jsonl_recorder,
+    popen_detached,
+)
 
 SETUP_MODEL = "qwen3-vl-8b-instruct"  # the planner the operator is tuned for (D-072)
+WARM_SECONDS = 900.0  # the operator's model stays loaded at least this long (D-084)
 
 
 class Operator(Protocol):
@@ -97,7 +104,11 @@ class LocalOperator:
         self.record = jsonl_recorder(self.paths.log)
         self.store = Store(self.paths)
         self.supervisor = Supervisor(
-            self.store, idle=idle_seconds(self.settings), record=self.record
+            self.store,
+            idle=max(idle_seconds(self.settings), WARM_SECONDS),
+            record=self.record,
+            shared=self.paths.home / "servers",
+            launch=popen_detached,
         )
         self.supervisor.start_reaper()
         self.connect = connect or llama_model
@@ -109,6 +120,11 @@ class LocalOperator:
     ) -> tuple[str, Outcome]:
         from relay_screen.agent.cli import pick_model
 
+        with self._lock:  # one-move tasks need no model, so no download either (D-084)
+            done = run_instant(task, hands, on_event or (lambda event: None))
+        if done is not None:
+            self.record({"event": "ui_task", "model": "instant", "status": done.status})
+            return "instant", done
         if self.setup.missing():
             failed = self.setup.error
             status = self.setup.start()
@@ -128,6 +144,7 @@ class LocalOperator:
                     coords=spec.coords if spec else "rel1000",
                     max_steps=max_steps,
                     on_event=on_event,
+                    instant=False,
                 )
                 outcome = agent.run(task)
             self.record({"event": "ui_task", "model": model_id, "status": outcome.status})

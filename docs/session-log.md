@@ -2,6 +2,12 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
+## 2026-10-16 · Fast local operator, slice 1 (D-084, D-085)
+- Owner: stop adding documents and make the app work, with millisecond actions driven by the local AI. Built the first slice of the redesign (`/mnt/project-files/relay/redesign/ui-automation-redesign.md` §5 step 2) in relay-screen.
+- One-move tasks (open a site, open or switch to a program) run instantly with no model, even before the model has downloaded. Other tasks get text-only steps when UI Automation covers the window, batches of up to 6 actions per reply, and a `timing` event per step.
+- The operator's llama-server now outlives each chat turn's relay-screen and is adopted by the next one, staying warm at least 15 minutes.
+- 15 new tests. Nothing ran on the PC. Next: the app routes plain screen tasks straight to the operator and shows its steps live, and ships an installer. After that comes the model benchmark, then Tier 3 (operator asks Claude).
+
 ## 2026-10-15 · 0.1.9: the Playwright Extension installs itself
 - Owner on 0.1.7: Relay should install the extension it needs without stopping the work. They chose on the decision card to let the installer set a browser policy (accepting "Managed by your organization").
 - The elevated NSIS post-install hook adds the extension to `ExtensionInstallForcelist` for Brave (all channels, Brave Origin included, read `BraveSoftware\Brave`; checked in Brave Origin's chrome.dll), Chrome and Edge when installed. It uses the first free numbered slot, and a marker in `HKLM\Software\Relay` makes uninstall remove only Relay's entry, keeping the list gap-free.
