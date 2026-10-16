@@ -142,21 +142,6 @@ export interface BrowserInfo {
     chromium: boolean;
 }
 
-export interface BrowserState {
-    enabled: boolean;
-    browsers: BrowserInfo[];
-    browser: BrowserInfo | null;
-    node: boolean;
-    profile_dir: string;
-    /** Drives the browser the owner already has open, through the Playwright Extension. */
-    use_own: boolean;
-    extension: boolean;
-    token: boolean;
-    extension_url: string;
-    problem: string | null;
-    registered: boolean;
-}
-
 export interface CatalogServer {
     id: string;
     name: string;
@@ -271,10 +256,7 @@ export const api = {
     chatNew: () => invoke<void>("chat_new"),
 
     browsers: () => invoke<BrowserInfo[]>("browsers"),
-    browserState: () => invoke<BrowserState>("browser_state"),
-    browserOpen: (url?: string) => invoke<void>("browser_open", { url: url ?? null }),
     approvalAnswer: (id: number, decision: string) => invoke<boolean>("approval_answer", { id, decision }),
-    browserSetToken: (token: string) => invoke<void>("browser_set_token", { token }),
     playbooks: () => invoke<Playbook[]>("playbooks_list"),
     playbookDelete: (name: string) => invoke<void>("playbook_delete", { name }),
     doctor: () => invoke<{ checks: Check[]; report: string }>("doctor_run"),

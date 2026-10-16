@@ -2,38 +2,16 @@
 ; Relay installs for all users into Program Files. Relay 0.1.0 installed per user
 ; (C:\relay by default), so that copy is uninstalled first: there is only ever one Relay.
 
-; The browser lane drives the owner's open browser through the Playwright Extension.
-; The owner asked (2026-10-15) for Relay to add it with no clicks, accepting that the
-; browser then shows "Managed by your organization". The installer runs elevated, so
-; it sets the ExtensionInstallForcelist policy for each installed Chromium browser,
-; and browsers apply it while running. List policies are read as values "1", "2", ...
-; with no gaps, so Relay's entry takes the first free slot and uninstall moves the
-; last entry into its slot. A marker under HKLM\Software\Relay records where Relay
-; added it, so an entry the owner set themselves is never removed.
+; Relay 0.1.9 asked installed Chromium browsers to add the Playwright Extension through
+; the ExtensionInstallForcelist policy. The local operator now drives browsers through
+; UI Automation with no extension (D-089), so installing or updating takes that entry
+; out again, as does uninstalling. Only the entry Relay added is removed (a marker
+; under HKLM\Software\Relay records where), and the numbered list stays without gaps
+; by moving the last entry into the freed slot.
 !define RELAY_EXT_ID "mmlmfjhmonkocbjadbfplnigmagldckm"
-!define RELAY_EXT_ENTRY "mmlmfjhmonkocbjadbfplnigmagldckm;https://clients2.google.com/service/update2/crx"
 
 ; $R9 = policy key under HKLM, $R8 = marker name.
-Function RelayAddExtPolicy
-  SetRegView 64
-  StrCpy $R1 1
-  relay_add_loop:
-    ClearErrors
-    ReadRegStr $R2 HKLM "$R9\ExtensionInstallForcelist" "$R1"
-    IfErrors relay_add_new
-    StrCpy $R3 $R2 32
-    StrCmp $R3 "${RELAY_EXT_ID}" relay_add_done
-    IntOp $R1 $R1 + 1
-    Goto relay_add_loop
-  relay_add_new:
-    WriteRegStr HKLM "$R9\ExtensionInstallForcelist" "$R1" "${RELAY_EXT_ENTRY}"
-    WriteRegDWORD HKLM "Software\Relay" "$R8" 1
-    DetailPrint "Added the Playwright Extension policy ($R8)"
-  relay_add_done:
-  SetRegView lastused
-FunctionEnd
-
-Function un.RelayRemoveExtPolicy
+!macro RELAY_REMOVE_EXT_POLICY_BODY
   SetRegView 64
   ClearErrors
   ReadRegDWORD $R0 HKLM "Software\Relay" "$R8"
@@ -63,41 +41,29 @@ Function un.RelayRemoveExtPolicy
   DeleteRegKey /ifempty HKLM "$R9"
   relay_rm_marker:
   DeleteRegValue HKLM "Software\Relay" "$R8"
+  DeleteRegKey /ifempty HKLM "Software\Relay"
   relay_rm_done:
   SetRegView lastused
-FunctionEnd
-
-!macro RELAY_EXT_POLICIES_ADD
-  ; Every Brave channel, Brave Origin included, reads BraveSoftware\Brave.
-  IfFileExists "$PROGRAMFILES64\BraveSoftware\*.*" 0 relay_ext_chrome
-  StrCpy $R9 "SOFTWARE\Policies\BraveSoftware\Brave"
-  StrCpy $R8 "ExtPolicyBrave"
-  Call RelayAddExtPolicy
-  relay_ext_chrome:
-  IfFileExists "$PROGRAMFILES64\Google\Chrome\Application\chrome.exe" relay_ext_chrome_add
-  IfFileExists "$PROGRAMFILES32\Google\Chrome\Application\chrome.exe" relay_ext_chrome_add relay_ext_edge
-  relay_ext_chrome_add:
-  StrCpy $R9 "SOFTWARE\Policies\Google\Chrome"
-  StrCpy $R8 "ExtPolicyChrome"
-  Call RelayAddExtPolicy
-  relay_ext_edge:
-  IfFileExists "$PROGRAMFILES32\Microsoft\Edge\Application\msedge.exe" 0 relay_ext_done
-  StrCpy $R9 "SOFTWARE\Policies\Microsoft\Edge"
-  StrCpy $R8 "ExtPolicyEdge"
-  Call RelayAddExtPolicy
-  relay_ext_done:
 !macroend
 
-!macro RELAY_EXT_POLICIES_REMOVE
+Function RelayRemoveExtPolicy
+  !insertmacro RELAY_REMOVE_EXT_POLICY_BODY
+FunctionEnd
+
+Function un.RelayRemoveExtPolicy
+  !insertmacro RELAY_REMOVE_EXT_POLICY_BODY
+FunctionEnd
+
+!macro RELAY_EXT_POLICIES_REMOVE UN
   StrCpy $R9 "SOFTWARE\Policies\BraveSoftware\Brave"
   StrCpy $R8 "ExtPolicyBrave"
-  Call un.RelayRemoveExtPolicy
+  Call ${UN}RelayRemoveExtPolicy
   StrCpy $R9 "SOFTWARE\Policies\Google\Chrome"
   StrCpy $R8 "ExtPolicyChrome"
-  Call un.RelayRemoveExtPolicy
+  Call ${UN}RelayRemoveExtPolicy
   StrCpy $R9 "SOFTWARE\Policies\Microsoft\Edge"
   StrCpy $R8 "ExtPolicyEdge"
-  Call un.RelayRemoveExtPolicy
+  Call ${UN}RelayRemoveExtPolicy
 !macroend
 
 !macro NSIS_HOOK_PREINSTALL
@@ -124,7 +90,7 @@ FunctionEnd
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
-  !insertmacro RELAY_EXT_POLICIES_ADD
+  !insertmacro RELAY_EXT_POLICIES_REMOVE ""
 !macroend
 
 ; The app registers relay-screen and relay-browser with Claude Code (D-047), so the
@@ -135,7 +101,7 @@ FunctionEnd
   Pop $0
   nsExec::Exec '"$SYSDIR\cmd.exe" /c claude mcp remove --scope user relay-browser'
   Pop $0
-  !insertmacro RELAY_EXT_POLICIES_REMOVE
+  !insertmacro RELAY_EXT_POLICIES_REMOVE "un."
 !macroend
 
 ; Python writes __pycache__ files next to the bundled relay-screen as it runs; the

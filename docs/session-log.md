@@ -2,6 +2,16 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
+## 2026-10-16 · App side: browser lane removed, Holo3.1-9B by default
+- Brave is driven through UI Automation now (D-089), so the Playwright browser lane is gone: no relay-browser MCP entry, no extension token step, no Browser page in Settings or setup. On start Relay removes the old relay-browser entry, its paused entry and the stored token.
+- The installer no longer adds the extension by policy. Install and uninstall both remove the ExtensionInstallForcelist entry earlier versions added, keeping the list gap-free.
+- Setup's suggested download is Holo3.1-9B Q5_K_M alone (about 7.4 GB). Holo2-8B and Holo2-4B remain the fallbacks for smaller GPUs.
+- The "local AI can't run yet" message says the model is still downloading, not that the owner must download one.
+## 2026-10-16 · Dependabot alerts, issue cleanup, work on dev
+- `postcss-selector-parser` (via `@tailwindcss/typography` 0.5.20, the latest, which pins 6.0.10) is forced to 7.1.6 with a pnpm override in `relay-ui/package.json`. The built CSS is byte-identical.
+- `glib` 0.18.5 in `Cargo.lock` comes only from Tauri's Linux GTK stack (`cargo tree -i glib --target x86_64-pc-windows-msvc` is empty), so Windows builds never compile it. No upgrade exists until Tauri moves to gtk-rs 0.20+; the alert needs dismissing as "vulnerable code is not actually used" (a cloud session gets 403 on the Dependabot API).
+- Owner rule: commit straight to `dev` for almost everything (no feature branches), run the checks, then merge `dev` into `main` and recreate `dev` from `main`.
+
 ## 2026-10-16 · Operator side complete for the first full build (D-089, D-090)
 - Working straight on `dev` now (owner rule, 00:49).
 - Browsers are read through UI Automation from the page's Document, with the address bar and usable controls only, so no extension is needed (D-089). UIA listings come from one CacheRequest per read.
@@ -22,7 +32,7 @@ Short entries so later sessions can pick up where earlier ones stopped. Newest f
   - plain-words steps.
 - Holo3.1-9B is the operator model (D-087).
 - The owner's-words approval (D-088 item 4) is recorded but not built: the safety classifier stopped the change to the approval gate until the owner confirms it directly.
-- The two old remote branches whose names carry the old reference name could not be deleted from the session (blocked as destructive). Files and dev/main history are clean.
+- Files, dev/main history and every remote branch are clean of the old reference name (the old branches were deleted at 00:45).
 
 ## 2026-10-16 · App side of the full release: popup, operator service, no-click setup
 - Owner: no more installers piece by piece; one complete, working app with no permission prompts and nothing to set up, plus a small popup to talk to Relay while it works. The plan thread builds the always-on local operator; the app side lives here. Version is 0.1.10, not shipped yet.

@@ -2,6 +2,21 @@
   "_comment": "Local model catalog for Settings > Local AI (D-046). Sizes are estimates for the VRAM fit check only; the files, their source repo and SHA-256 come from relay-screen's runtime at download time (D-052).",
   "models": [
     {
+      "id": "holo-3.1-9b",
+      "name": "Holo3.1-9B",
+      "role": "both",
+      "summary": "Relay's operator model: finds things on screen and plans the steps, kept loaded on the GPU (D-087).",
+      "license": "Apache-2.0",
+      "default_quant": "Q5_K_M",
+      "quants": [
+        {
+          "quant": "Q5_K_M",
+          "size": 6500000000
+        }
+      ],
+      "mmproj_size": 900000000
+    },
+    {
       "id": "ui-venus-1.5-8b",
       "name": "UI-Venus-1.5-8B",
       "role": "grounding",

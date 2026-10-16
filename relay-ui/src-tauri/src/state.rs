@@ -99,47 +99,34 @@ pub async fn ensure_relay_screen(app: &AppHandle) -> anyhow::Result<bool> {
     Ok(true)
 }
 
-/// Register, update or remove relay-browser to match Settings > Browser.
-/// Left alone while the owner has it paused in Connections.
-pub async fn ensure_relay_browser(app: &AppHandle) -> anyhow::Result<bool> {
-    let settings = app.state::<AppState>().settings();
-    if claude::find().is_none()
+/// Take out what the old browser lane left behind (D-089): relay-browser in Claude
+/// Code's config, its paused entry and the extension's token.
+pub async fn retire_relay_browser(app: &AppHandle) -> anyhow::Result<()> {
+    let st = app.state::<AppState>();
+    let settings = st.settings();
+    let paused = settings
+        .connections
+        .paused
+        .iter()
+        .any(|p| p.name == mcp::RELAY_BROWSER);
+    if paused
         || settings
             .connections
-            .paused
-            .iter()
-            .any(|p| p.name == mcp::RELAY_BROWSER)
+            .secret_names
+            .contains_key(mcp::RELAY_BROWSER)
     {
-        return Ok(false);
+        browser::forget_token();
+        st.update(|s| {
+            s.connections
+                .paused
+                .retain(|p| p.name != mcp::RELAY_BROWSER);
+            s.connections.secret_names.remove(mcp::RELAY_BROWSER);
+        })?;
     }
-    let lane = browser::state(&settings);
-    let have = mcp::user_config(mcp::RELAY_BROWSER).ok();
-    let want = match (&lane.browser, browser::npx()) {
-        (Some(b), Some(npx)) if lane.enabled => {
-            let spec = browser::spec(&npx, std::path::Path::new(&b.path), &settings);
-            // The extension's token reaches Playwright through Relay's launcher, from
-            // Credential Manager, and never sits in Claude Code's config.
-            let secrets = settings.browser.use_own
-                && settings
-                    .connections
-                    .secret_names
-                    .get(mcp::RELAY_BROWSER)
-                    .is_some_and(|names| !names.is_empty());
-            let launcher = launcher_path();
-            Some(spec.config_json(secrets.then_some(launcher.as_path())))
-        }
-        _ => None,
-    };
-    if have == want {
-        return Ok(want.is_some());
-    }
-    if have.is_some() {
+    if claude::find().is_some() && mcp::user_config(mcp::RELAY_BROWSER).is_ok() {
         mcp::remove(mcp::RELAY_BROWSER, &[], true).await?;
     }
-    if let Some(want) = &want {
-        mcp::add_json(mcp::RELAY_BROWSER, want).await?;
-    }
-    Ok(want.is_some())
+    Ok(())
 }
 
 pub fn on_start(app: AppHandle) {
@@ -150,8 +137,8 @@ pub fn on_start(app: AppHandle) {
         if let Err(err) = ensure_relay_screen(&app).await {
             eprintln!("relay: could not register relay-screen: {err:#}");
         }
-        if let Err(err) = ensure_relay_browser(&app).await {
-            eprintln!("relay: could not register relay-browser: {err:#}");
+        if let Err(err) = retire_relay_browser(&app).await {
+            eprintln!("relay: could not remove relay-browser: {err:#}");
         }
         // Warm the local model and the screen state before the first message.
         if s.setup.completed {

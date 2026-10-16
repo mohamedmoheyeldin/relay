@@ -143,17 +143,14 @@ pub fn recommend(gpu: Option<&Gpu>) -> Recommendation {
             .unwrap_or(u64::MAX / 4)
     };
     let budget = budget_bytes(gpu);
-    let pair = need("ui-venus-1.5-8b", "Q4_K_M") + need("qwen3-vl-8b-instruct", "Q4_K_M");
     let gb = |b: u64| b as f64 / GB;
-    if pair <= budget {
+    let main = need("holo-3.1-9b", "Q5_K_M");
+    if main <= budget {
         return Recommendation {
-            picks: vec![
-                pick("ui-venus-1.5-8b", "Q4_K_M", "grounding"),
-                pick("qwen3-vl-8b-instruct", "Q4_K_M", "describe"),
-            ],
+            picks: vec![pick("holo-3.1-9b", "Q5_K_M", "both")],
             reason: format!(
-                "Both models stay loaded together in about {:.1} GB of your {}'s {:.1} GB, so finding and checking never wait for a model swap.",
-                gb(pair),
+                "Holo3.1-9B finds things on screen and plans the steps. It stays loaded in about {:.1} GB of your {}'s {:.1} GB, so tasks never wait for a model to load.",
+                gb(main),
                 gpu.name,
                 gpu.vram_total_mb as f64 / 1024.0
             ),
@@ -165,8 +162,8 @@ pub fn recommend(gpu: Option<&Gpu>) -> Recommendation {
             return Recommendation {
                 picks: vec![pick(id, "Q4_K_M", "both")],
                 reason: format!(
-                    "The two-model pair needs about {:.1} GB, more than fits here, so {label} does both jobs in about {:.1} GB.",
-                    gb(pair),
+                    "Holo3.1-9B needs about {:.1} GB, more than fits here, so {label} does the work in about {:.1} GB.",
+                    gb(main),
                     gb(n)
                 ),
             };
@@ -212,7 +209,7 @@ mod tests {
     #[test]
     fn catalog_is_complete() {
         let models = models();
-        assert_eq!(models.len(), 4);
+        assert_eq!(models.len(), 5);
         for m in &models {
             assert!(
                 m.quant(&m.default_quant).is_some(),
@@ -226,15 +223,19 @@ mod tests {
     }
 
     #[test]
-    fn rtx_5080_gets_the_resident_pair() {
+    fn rtx_5080_gets_holo_3_1() {
         let rec = recommend(Some(&gpu(16_303)));
         let ids: Vec<_> = rec.picks.iter().map(|p| p.model_id.as_str()).collect();
-        assert_eq!(ids, ["ui-venus-1.5-8b", "qwen3-vl-8b-instruct"]);
+        assert_eq!(ids, ["holo-3.1-9b"]);
     }
 
     #[test]
     fn smaller_gpus_fall_back() {
-        assert_eq!(recommend(Some(&gpu(10_240))).picks[0].model_id, "holo2-8b");
+        assert_eq!(
+            recommend(Some(&gpu(10_240))).picks[0].model_id,
+            "holo-3.1-9b"
+        );
+        assert_eq!(recommend(Some(&gpu(9_216))).picks[0].model_id, "holo2-8b");
         assert_eq!(recommend(Some(&gpu(6_144))).picks[0].model_id, "holo2-4b");
         assert!(recommend(Some(&gpu(2_048))).picks.is_empty());
         assert!(recommend(None).picks.is_empty());
