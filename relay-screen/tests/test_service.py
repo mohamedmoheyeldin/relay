@@ -302,3 +302,15 @@ def test_only_the_owners_own_task_grants_approval(tmp_path: Path) -> None:
         service.stopping.set()
         sock.close()
     assert granted == ["send the draft", None, None, None]
+
+
+def test_claude_signed_out_routes_everything_to_the_local_ai() -> None:
+    assert route("write a cover letter for this job")[0] == "claude"
+    assert route("write a cover letter for this job", claude_ready=False)[0] == "operator"
+    events = Events()
+    service = OperatorService(FakeRunner(), None, events)
+    service.handle({"op": "route", "id": "r1", "text": "why is the sky blue?", "claude": False})
+    assert events.items[0]["to"] == "operator"
+    service.claude_ok = False  # an ask_claude call failed earlier
+    service.handle({"op": "route", "id": "r2", "text": "why is the sky blue?"})
+    assert events.items[1]["to"] == "operator"

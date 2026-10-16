@@ -1474,3 +1474,65 @@ The owner chose the full rebuild with every recommendation:
 - `runtime try` sends `enable_thinking: false` like the operator does, and
   strips `<think>` blocks. A thinking model otherwise spent the 16-token budget
   thinking and answered nothing.
+
+## D-093 Fixes from the first runs on the owner's PC
+*2026-10-16 · accepted · owner's 0.1.10 runs (Dice, Cairo flights, Stop, signed out) · amends D-084, D-086, D-089*
+
+- **Step 1 without the model.** A task that names a web address opens it as a
+  visible step 1. A "find X" or "search for X" task that names no address and
+  nothing on the PC (files, mail, settings, an open program) opens a web search
+  for X first.
+- **Every monitor.** focus_window, open_url and launch_app make the window's
+  display the active one and say so. Nothing asks the model to select a display.
+- **Only real actions.** llama-server gets a JSON schema whose action names
+  are the ones Relay runs, so the model can't invent one. Names like
+  select_display or screenshot are read as "look" if they still arrive.
+- **Looser window and app names.** A program word ("Brave Origin"), every word
+  of the title, a site address ("https://www.dice.com/") or a label copied from
+  a listing ("Brave Origin · browser") all find the window or app.
+  Invisible marks in titles are ignored. A miss lists the open windows.
+- **Address bars.** invoke on an element with no press action clicks its
+  center instead.
+- **Stop is instant.** A model or Claude call is dropped the moment Stop is
+  pressed. Waits check every 50 ms.
+- **The owner's own input.** Before real input (clicks, typing, keys), the
+  task's program goes in front again if the owner switched away. UIA invoke
+  and set_value stay the first choice, since they need no focus.
+- **Claude signed out.** An ask_claude failure tells the model to decide for
+  itself instead of ending the task. `route` sends everything to the local AI
+  when the app passes `"claude": false`, or after an ask failed.
+
+## D-094 Plan first, ask the owner first, never type over their files
+*2026-10-16 · accepted · owner ("it should ask me where I want to save the note … doing things without thinking") · amends D-084*
+
+- Before the first step, the local model writes a short plan: the goal, the app,
+  up to 6 steps and a done-check. The service sends it as a `plan` event and as
+  a note. The plan goes into every later prompt.
+- When the task leaves out something only the owner can decide (where to save,
+  which account, which file, whether to send), the plan carries one question.
+  The service sends it as a `question` event and a note, then waits up to
+  5 minutes for the owner's answer through `say`. Without an answer, the plan's
+  default is used and announced.
+- A writing task in an editor (Notepad, Word, VS Code …) presses Ctrl+N once,
+  when the editor first comes in front, so typing lands in a new tab or
+  document.
+- The same text (20 characters or more) is never typed twice in one task. The
+  model is told to look at what is already there.
+- The prompt also says to save through the Save dialog's File name box with
+  the full path, and to finish only when the done-check holds.
+- The plan comes from the local model, so it works with Claude signed out.
+  Claude is still asked for writing or judgment through ask_claude.
+
+## D-095 Pages open in a new tab of the browser that is already open
+*2026-10-16 · accepted · owner ("open a new browser instead just open a new tab") · amends D-079*
+
+- `open_url` first looks for an open, non-minimized browser window on any
+  monitor. It prefers the owner's browser and takes the topmost window.
+- When it finds one, it brings it in front. If the address bar already shows
+  that site, the page loads in that tab; otherwise Ctrl+T opens a new tab.
+  Then Ctrl+L, the address goes into the bar (UIA set_value, typing as the
+  fallback), and Enter.
+- The browser is started with the address only when no browser window is open,
+  or when Windows won't bring the open one in front.
+- The plan prompt tells the model to use what is already open: switch to open
+  programs, and open pages in a new tab.

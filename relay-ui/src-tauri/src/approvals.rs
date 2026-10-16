@@ -186,7 +186,6 @@ async fn ask(app: &AppHandle, request: &mut Request) -> String {
         .remove(&request.id);
     let _ = app.emit("approval-done", request.id);
     focus::restore(previous);
-    crate::stage::after_approval(app);
     decision
 }
 

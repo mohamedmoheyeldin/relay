@@ -54,12 +54,20 @@ pub fn parse_line(line: &str) -> Vec<ChatEvent> {
         Some("loading") => vec![ChatEvent::LocalNote {
             text: format!("Loading the local model {}…", s("model")),
         }],
+        // The operator service's own start-up line has no model; it isn't news.
+        Some("ready") if s("model").is_empty() => vec![],
         Some("ready") => vec![ChatEvent::LocalNote {
-            text: format!("{} is ready ({} s).", s("model"), s("seconds")),
+            text: match v.get("seconds").and_then(Value::as_f64) {
+                Some(secs) => format!("{} is ready ({secs:.1} s).", s("model")),
+                None => format!("{} is ready.", s("model")),
+            },
         }],
         Some("step") => vec![ChatEvent::LocalStep {
             step: v.get("step").and_then(Value::as_u64).unwrap_or(0),
-            thought: s("thought"),
+            // `say` is the step in plain words; older versions only had `thought`.
+            thought: Some(s("say"))
+                .filter(|t| !t.is_empty())
+                .unwrap_or_else(|| s("thought")),
             action: s("action"),
             result: s("result"),
         }],
@@ -213,5 +221,6 @@ mod tests {
         assert!(parse_line("not json").is_empty());
         let ready = parse_line(r#"{"event":"ready","model":"qwen3-vl-8b-instruct","seconds":4.2}"#);
         assert!(matches!(&ready[0], ChatEvent::LocalNote { text } if text.contains("4.2")));
+        assert!(parse_line(r#"{"event":"ready"}"#).is_empty());
     }
 }

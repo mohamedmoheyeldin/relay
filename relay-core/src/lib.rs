@@ -7,6 +7,7 @@
 pub mod browser;
 pub mod catalog;
 pub mod chat;
+pub mod chats;
 pub mod claude;
 pub mod doctor;
 pub mod download;

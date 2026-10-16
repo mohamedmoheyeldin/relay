@@ -11,8 +11,10 @@ from __future__ import annotations
 import json
 import re
 import time
+import urllib.parse
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
+from pathlib import PureWindowsPath
 from typing import Any, Literal
 
 from PIL import Image, ImageChops, ImageDraw
@@ -108,6 +110,7 @@ _ALLOWED_PARAMS: dict[str, frozenset[str]] = {
     "open_url": frozenset({"url"}),
 }
 
+TAB_SETTLE = 0.3  # s for a new tab to take the address bar
 PREVIEW_EDGE = 720  # px, long edge of the screenshot shown in the approval prompt
 MAX_URL = 2000
 
@@ -588,10 +591,17 @@ class Computer:
         return ActionResult(text + self._display_note(window))
 
     def _do_open_url(self, url: str) -> ActionResult:
-        """Open a web page on screen in the owner's own browser (D-079)."""
+        """Open a web page on screen in the owner's own browser (D-079).
+
+        A browser that is already open gets a new tab, or the same tab when it already
+        shows that site; the browser is started only when none is open (D-095).
+        """
         address = _web_url(url)
         catalog = self._apps()
         browser = catalog.resolve("browser")
+        opened = self._open_in_open_browser(catalog, browser, address)
+        if opened is not None:
+            return opened
         try:
             window, in_front = app_launch.launch(catalog.backend, browser, [address], self.sleep)
         except OSError as exc:
@@ -606,12 +616,81 @@ class Computer:
         text += " in front" if in_front else " (behind other windows; focus_window it)"
         return ActionResult(text + self._display_note(window))
 
+    def _open_in_open_browser(
+        self, catalog: AppCatalog, browser: app_launch.App, address: str
+    ) -> ActionResult | None:
+        backend = catalog.backend
+        open_now = [
+            w
+            for w in backend.windows()
+            if not app_launch.is_relay(w)
+            and not app_launch.minimized(w)
+            and (app_launch.window_stem(w) or "") in app_launch.BROWSERS
+        ]
+        if not open_now:
+            return None
+        same = [w for w in open_now if app_launch.window_stem(w) == browser.stem]
+        target = (same or open_now)[0]  # the owner's browser, topmost window
+        if backend.foreground() != target.handle and not backend.bring_to_front(target.handle):
+            return None  # Windows kept it behind; starting the browser still works
+        self.sleep(app_launch.WINDOW_SETTLE)
+        keys = self._input()
+        shown = self._address_bar(target.handle)
+        if shown is None or _site(shown[1]) != _site(address):
+            keys.key("ctrl+t", 1)  # a new tab, never a new window
+            self.sleep(TAB_SETTLE)
+            shown = self._address_bar(target.handle)
+            how = "in a new tab"
+        else:
+            how = "in the tab that already showed that site"
+        keys.key("ctrl+l", 1)  # the address bar has focus for Enter either way
+        set_by_uia = False
+        if shown is not None:
+            try:
+                self._uia().set_value(shown[0], address)
+                set_by_uia = True
+            except ActionError:
+                set_by_uia = False
+        if not set_by_uia:
+            keys.type_text(address)
+        keys.key("Return", 1)
+        window = next((w for w in backend.windows() if w.handle == target.handle), target)
+        name = PureWindowsPath(target.exe).stem.capitalize() if target.exe else "the browser"
+        text = f"Opened {address} {how} of {name} · window "
+        text += json.dumps(window.title, ensure_ascii=False) + " in front"
+        return ActionResult(text + self._display_note(window))
+
+    def _address_bar(self, handle: int) -> tuple[str, str] | None:
+        """The browser window's address bar: its element id and the address it shows."""
+        if self.uia is None:
+            return None
+        window = next((w for w in self._apps().backend.windows() if w.handle == handle), None)
+        if window is None:
+            return None
+        try:
+            found = self._uia().find(
+                self._geometry(),
+                app_launch.ADDRESS_BAR,
+                "Edit",
+                window.title,
+                self.state.displays(),
+            )
+        except ActionError:
+            return None
+        match = re.search(r"^\[(e\d+)\] Edit[^\n]*?value='([^']*)'", found, re.MULTILINE)
+        if match is None:
+            match = re.search(r"^\[(e\d+)\] Edit", found, re.MULTILINE)
+            return (match.group(1), "") if match else None
+        return match.group(1), match.group(2)
+
     def _display_note(self, window: app_launch.Window) -> str:
         cx = window.rect.left + window.rect.width // 2
         cy = window.rect.top + window.rect.height // 2
         display = display_at(self.state.displays(), cx, cy)
         if display is not None and display.id != self.state.active().id:
-            return f" on display {display.id}, not the active one (select_display {display.id})"
+            # Follow the window: screenshots and coordinates now use its display (D-093).
+            self.state.select(display.id)
+            return f" on display {display.id}, now the active display"
         return ""
 
     def _do_list_windows(self, query: str | None = None) -> ActionResult:
@@ -639,6 +718,17 @@ class Computer:
                 "Take a screenshot; click its title bar if it is visible."
             )
         return ActionResult(f"{title} is in front" + self._display_note(target))
+
+
+def _site(address: str) -> str:
+    """'dice.com' for 'https://www.dice.com/jobs' or 'dice.com/jobs'; '' for no address."""
+    text = address.strip()
+    if not text:
+        return ""
+    if "://" not in text:
+        text = "https://" + text
+    host = urllib.parse.urlparse(text).hostname or ""
+    return host.removeprefix("www.")
 
 
 def _web_url(value: Any) -> str:

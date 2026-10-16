@@ -13,7 +13,9 @@ import contextlib
 import io
 import json
 import re
+import threading
 import time
+import urllib.parse
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
@@ -21,6 +23,7 @@ from typing import Any, Literal, Protocol
 from PIL import Image
 
 from relay_screen.actions import ActionResult
+from relay_screen.apps import ADDRESS_BAR, BROWSERS
 from relay_screen.errors import ActionError
 from relay_screen.runtime.catalog import Coords
 from relay_screen.safety.approval import ApprovalDeniedError, PromptUnavailableError
@@ -41,10 +44,14 @@ MAX_APPS_CHARS = 2500
 MAX_WINDOWS_CHARS = 1500
 MAX_BATCH = 6  # actions the model may plan in one reply (D-084)
 RICH_ELEMENTS = 8  # with this many element lines, skip the screenshot unless asked
+CANCEL_POLL = 0.05  # s between stop checks while the model, Claude or a wait runs
+# Members that send real input to whatever is in front; the target goes in front again
+# first, in case the owner clicked elsewhere meanwhile (D-093).
+INPUT_MEMBERS = frozenset(
+    {"left_click", "double_click", "right_click", "type", "key", "scroll", "click_text"}
+)
 MAX_PAGE_CHARS = 8000  # a web page's controls, ~2.5k tokens
 PAGE_DEPTH = 40
-BROWSERS = frozenset({"brave", "chrome", "msedge", "firefox", "opera", "vivaldi", "arc"})
-ADDRESS_BAR = "Address and search bar"  # Chromium's name for it
 
 REL1000 = (
     "X and Y are positions on the screenshot from 0 to 1000: 0,0 is the top left corner "
@@ -118,9 +125,88 @@ the owner before such steps either way.
 - When the owner adds a note while you work, follow it from then on.
 - Never click taskbar buttons to switch programs (that minimizes them); use \
 focus_window. Never act on Relay's own window; it is marked in the windows list.
+- Never type into a document, note or tab that already has the owner's text unless \
+the task says to change it: open a new one first (ctrl+n, or the + tab button) and \
+check it is empty.
+- Type each piece of text once. Read the element list or look before typing again.
+- To save a file where the owner said, set_value the full path into the File name box \
+of the Save dialog, then invoke its Save button.
+- Follow your plan, and reply done only when its done-check holds.
 """
 
+PLAN_PROMPT = """You are Relay's local AI on a Windows PC. Before doing a task on the \
+screen, make a short plan. Reply with exactly one JSON object and nothing else:
+{"thought": "<one short sentence>", "action": "plan", "goal": "<what the owner wants>", \
+"app": "<the program or website to use>", "steps": ["<step>", ...], \
+"done_when": "<what is on the screen when it is finished>", \
+"question": "<one short question for the owner, or empty>", \
+"default": "<what you will do if they don't answer>"}
+
+Keep steps to at most 6 short lines. Ask a question only when the task leaves out \
+something only the owner can decide and that matters: where to save a file, which \
+account, which file or person, whether to send. Never ask about small details you can \
+choose well yourself (wording, a file name, which search engine). Writing new text means \
+a new document or tab, never typing over one that is open. Use what is already open: \
+a program in the windows list is switched to, not started again, and open_url opens \
+pages in a new tab of the browser that is open.
+"""
+QUESTION_WAIT = 300  # s Relay waits for the owner's answer to the plan's question
+
 Status = Literal["done", "failed", "stopped"]
+
+# The actions SYSTEM_PROMPT offers. llama-server turns REPLY_SCHEMA into a grammar, so
+# the model can't answer with a tool it has merely read about, like select_display (D-093).
+ACTION_NAMES = (
+    "plan",
+    "click",
+    "double_click",
+    "right_click",
+    "type",
+    "key",
+    "scroll",
+    "launch_app",
+    "open_url",
+    "focus_window",
+    "wait",
+    "invoke",
+    "set_value",
+    "click_text",
+    "look",
+    "ask_claude",
+    "done",
+    "fail",
+)
+LOOK_ALIASES = frozenset({"select_display", "screenshot", "list_windows", "list_displays"})
+_ACTION = {
+    "type": "object",
+    "properties": {"action": {"enum": list(ACTION_NAMES)}},
+    "required": ["action"],
+    "additionalProperties": True,
+}
+REPLY_SCHEMA: dict[str, Any] = {
+    "anyOf": [
+        {
+            "type": "object",
+            "properties": {"thought": {"type": "string"}, "action": {"enum": list(ACTION_NAMES)}},
+            "required": ["thought", "action"],
+            "additionalProperties": True,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "thought": {"type": "string"},
+                "actions": {
+                    "type": "array",
+                    "items": _ACTION,
+                    "minItems": 1,
+                    "maxItems": MAX_BATCH,
+                },
+            },
+            "required": ["thought", "actions"],
+            "additionalProperties": False,
+        },
+    ]
+}
 
 
 def system_prompt(coords: Coords) -> str:
@@ -154,6 +240,10 @@ class Outcome:
     status: Status
     message: str
     steps: list[Step] = field(default_factory=list)
+
+
+class Cancelled(Exception):
+    """The owner pressed Stop while Relay waited on the model, Claude or a pause."""
 
 
 class ReplyError(ValueError):
@@ -412,6 +502,59 @@ def instant_plan(task: str) -> list[tuple[str, dict[str, Any]]] | None:
     return None
 
 
+EDITORS = frozenset({"notepad", "notepad++", "wordpad", "winword", "code", "sublime_text"})
+NEW_TEXT = re.compile(
+    r"\b(write|type|jot|draft|compose|create|make|start)\b.*\b(note|list|text|letter|"
+    r"document|doc|file|memo|draft|story|poem|email|message|paragraph)\b",
+    re.IGNORECASE,
+)
+EDIT_TEXT = re.compile(
+    r"\b(edit|change|fix|update|append|add to|replace|in the open|this|that|current)\b",
+    re.IGNORECASE,
+)
+REPEAT_MIN = 20  # characters; short text ("Enter", a name) may well be typed twice
+
+
+def _typed_key(params: Mapping[str, Any]) -> str:
+    return " ".join(str(params.get("text", params.get("value", ""))).split()).casefold()
+
+
+def _center(elements: str, element_id: str) -> list[int] | None:
+    found = re.search(rf"^\[{re.escape(element_id)}\] .*?center \((\d+), (\d+)\)", elements, re.M)
+    return [int(found.group(1)), int(found.group(2))] if found else None
+
+
+WEB_FIND = re.compile(
+    _LEAD + r"(?:find|search(?: the web)? for|search|look up|look for|compare|book|"
+    r"check (?:the )?prices? (?:of|for)|get me)\s+(?:me\s+)?(?:an?\s+|the\s+|some\s+)?(.{3,200})$",
+    re.IGNORECASE,
+)
+ON_THE_PC = re.compile(
+    r"\b(file|files|folder|document|pdf|photo|picture|email|e-mail|mail|inbox|message|"
+    r"on my (?:pc|computer|desktop|laptop)|in (?:my )?downloads|setting|settings)\b",
+    re.IGNORECASE,
+)
+SEARCH_URL = "https://www.google.com/search?q="
+
+
+def web_search_url(task: str, windows: str = "") -> str | None:
+    """A web search for "find a cheap flight to Cairo next month"-style tasks (D-093).
+
+    Only when the task names no web address, nothing on the PC (files, mail, settings)
+    and no open program: then the first move is plainly a search, so it needs no model.
+    """
+    text = task.strip().rstrip(".!")
+    found = WEB_FIND.match(text)
+    if found is None or _task_url(text) or ON_THE_PC.search(text):
+        return None
+    words = set(re.findall(r"[a-z0-9]+", text.casefold()))
+    for line in windows.splitlines():
+        parts = line.split(" · ")
+        if len(parts) > 1 and parts[1].casefold().removesuffix(".exe") in words - {"find"}:
+            return None  # "find the invoice in Outlook": work in that program
+    return SEARCH_URL + urllib.parse.quote_plus(found.group(1))
+
+
 def _element_label(elements: str, element_id: str) -> str:
     """'"Search jobs"' for e20 when the listing has `[e20] Edit "Search jobs"`."""
     found = re.search(rf"\[{re.escape(element_id)}\] (\w+)(?: \"([^\"]*)\")?", elements)
@@ -525,6 +668,11 @@ class LocalAgent:
         self.cancelled = cancelled or (lambda: False)
         self.ask = ask
         self.notes: list[str] = []  # what the owner added while the task ran
+        self.target = ""  # the program the task works in (its exe stem), once known
+        self.plan = ""  # the plan made before the first step (D-094)
+        self.typed: dict[str, int] = {}  # text typed so far -> the step that typed it
+        self.new_doc = False  # a writing task: editors get a new tab first
+        self.fresh: set[str] = set()  # editors that already got their new tab
         self.elements = ""
         self.hands = hands
         self.model = model
@@ -542,8 +690,27 @@ class LocalAgent:
         note = ""
         look = True  # the first decision sees the screen
         apps = self._apps()
-        self._focus_target(task)
         n = 0
+        self.new_doc = bool(NEW_TEXT.search(task)) and not EDIT_TEXT.search(task)
+        try:
+            self.plan = self._make_plan(task, apps)
+        except Cancelled:
+            return self._finish("stopped", "Stopped by the owner.", steps)
+        url = _task_url(task)
+        if url:  # "go to https://www.dice.com/ and ...": open it as step 1, no model (D-093)
+            n = 1
+            action = {"action": "open_url", "url": url}
+            steps.append(self._act(n, "", action, "open_url", {"url": url}))
+            if steps[-1].error and steps[-1].result.startswith("STOP:"):
+                return self._finish("stopped", steps[-1].result.removeprefix("STOP: "), steps)
+        elif (search := web_search_url(task, self._windows())) is not None:
+            n = 1  # "find a cheap flight to Cairo": search the web first, no model (D-093)
+            action = {"action": "open_url", "url": search}
+            steps.append(self._act(n, "", action, "open_url", {"url": search}))
+            if steps[-1].error and steps[-1].result.startswith("STOP:"):
+                return self._finish("stopped", steps[-1].result.removeprefix("STOP: "), steps)
+        else:
+            self._focus_target(task)
         while n < self.max_steps:
             if self.cancelled():
                 return self._finish("stopped", "Stopped by the owner.", steps)
@@ -560,7 +727,11 @@ class LocalAgent:
             screen_text = self._screen_text() if _few(elements) else ""
             context = Context(elements, screen_text, apps, windows)
             perceived = time.perf_counter()
-            reply = self.model(self._messages(task, steps, frame, note, context))
+            messages = self._messages(task, steps, frame, note, context)
+            try:
+                reply = self._unless_stopped(lambda m=messages: self.model(m))
+            except Cancelled:
+                return self._finish("stopped", "Stopped by the owner.", steps)
             decided = time.perf_counter()
             note, look = "", False
             try:
@@ -625,6 +796,8 @@ class LocalAgent:
         actions = parsed["actions"] if parsed["action"] == "batch" else [parsed]
         planned: list[tuple[dict[str, Any], str, dict]] = []
         for i, action in enumerate(actions):
+            if action["action"] in LOOK_ALIASES or action["action"] == "plan":
+                action = {**action, "action": "look"}  # the display follows the window
             if action["action"] in ("done", "fail", "look"):
                 if i == 0:
                     planned.append((action, "", {}))
@@ -730,11 +903,6 @@ class LocalAgent:
         program is named in the task ("in Brave, ..."), it goes in front first;
         otherwise the model sees the windows list and can focus_window itself.
         """
-        url = _task_url(task)
-        if url:  # "go to https://www.dice.com/ and ...": open it before the first look
-            with contextlib.suppress(ActionError, ApprovalDeniedError, PromptUnavailableError):
-                self.hands.run("open_url", {"url": url})
-            return
         words = set(re.findall(r"[a-z0-9]+", task.casefold()))
         for line in self._windows().splitlines():
             parts = line.split(" · ")
@@ -747,6 +915,7 @@ class LocalAgent:
                         ActionError, ApprovalDeniedError, PromptUnavailableError
                     ):
                         self.hands.run("focus_window", {"window": stem})
+                self._remember_front()
                 return
 
     def _messages(
@@ -759,6 +928,8 @@ class LocalAgent:
     ) -> list[dict[str, Any]]:
         context = context or Context()
         lines = [f"Task: {task}"]
+        if self.plan:
+            lines.append(self.plan)
         if context.apps:
             lines.append(f"Installed apps: {context.apps}")
         if context.windows:
@@ -799,11 +970,26 @@ class LocalAgent:
         try:
             if member == "ask_claude":
                 result = self._ask_claude(str(params["question"]))
-            elif member == "click_text":
-                result = self._click_text(str(params["text"]))
+            elif member == "wait":
+                result = self._pause(float(params.get("duration", 1)))
             else:
-                result = self.hands.run(member, params)
+                if member in INPUT_MEMBERS:
+                    self._bring_back()
+                if member in ("type", "uia_set_value"):
+                    self._not_twice(n, str(params.get("text", params.get("value", ""))))
+                if member == "click_text":
+                    result = self._click_text(str(params["text"]))
+                elif member == "uia_invoke":
+                    result = self._invoke(str(params["element"]))
+                else:
+                    result = self.hands.run(member, params)
             text, error = result.text or "done", result.is_error
+            if not error and member in ("focus_window", "open_url", "launch_app"):
+                self._remember_front()
+            if not error and member in ("type", "uia_set_value"):
+                self.typed.setdefault(_typed_key(params), n)
+        except Cancelled:
+            text, error = "STOP: Stopped by the owner.", True
         except (KillSwitchError, ApprovalDeniedError, PromptUnavailableError) as exc:
             text, error = f"STOP: {exc}", True
         except ActionError as exc:
@@ -822,13 +1008,174 @@ class LocalAgent:
         return step
 
     def _ask_claude(self, question: str) -> ActionResult:
+        """Claude's answer, or an error the model can work around: the local AI keeps going
+        when Claude is signed out or not installed (D-067, D-093)."""
         if self.ask is None:
             raise ActionError("Claude can't be asked from here; decide from the screen")
+        ask = self.ask
         self.emit({"event": "note", "text": "Asking Claude: " + question[:200]})
-        answer = self.ask(question).strip()
+        try:
+            answer = self._unless_stopped(lambda: ask(question)).strip()
+        except Cancelled:
+            raise
+        except Exception as exc:
+            self.emit({"event": "note", "text": "Claude isn't available, so the local AI decides."})
+            raise ActionError(
+                f"Claude isn't available ({str(exc)[:120]}); decide yourself from the screen"
+            ) from exc
         if not answer:
-            raise ActionError("Claude gave no answer")
+            raise ActionError("Claude gave no answer; decide yourself from the screen")
         return ActionResult(answer[:MAX_TEXT])
+
+    def _make_plan(self, task: str, apps: str) -> str:
+        """Plan before acting, show it, and ask the owner first when only they can decide
+        (D-094). Returns the plan as lines for the later prompts; "" when there is none."""
+        windows = self._windows()
+        lines = [f"Task: {task}"]
+        if apps:
+            lines.append(f"Installed apps: {apps}")
+        if windows:
+            lines += ["Open windows (topmost first):", windows]
+        messages = [
+            {"role": "system", "content": PLAN_PROMPT},
+            {"role": "user", "content": [{"type": "text", "text": "\n".join(lines)}]},
+        ]
+        try:
+            reply = self._unless_stopped(lambda: self.model(messages))
+            plan = json.loads(reply[reply.find("{") : reply.rfind("}") + 1])
+        except Cancelled:
+            raise
+        except Exception:
+            return ""  # a task can still run without a plan
+        if not isinstance(plan, dict):
+            return ""
+        steps = [str(x) for x in plan.get("steps") or [] if str(x).strip()][:6]
+        goal, app = str(plan.get("goal") or ""), str(plan.get("app") or "")
+        done_when = str(plan.get("done_when") or "")
+        question = str(plan.get("question") or "").strip()
+        if not (goal or steps or question):
+            return ""
+        self.emit(
+            {"event": "plan", "goal": goal, "app": app, "steps": steps, "done_when": done_when}
+        )
+        if steps:
+            numbered = " ".join(f"{i}) {x}" for i, x in enumerate(steps, 1))
+            self.emit({"event": "note", "text": f"Plan: {numbered}"})
+        text = [f"Your plan: {goal} in {app}." if app else f"Your plan: {goal}."]
+        text += [f"{i}. {x}" for i, x in enumerate(steps, 1)]
+        if done_when:
+            text.append(f"Done when: {done_when}")
+        if question:
+            answer = self._ask_owner(question, str(plan.get("default") or "").strip())
+            text.append(f"You asked the owner: {question} {answer}")
+        return "\n".join(text)
+
+    def _ask_owner(self, question: str, default: str) -> str:
+        """Ask in the chat and wait for the owner's answer (it comes in like a note)."""
+        self.emit({"event": "question", "text": question, "default": default})
+        self.emit({"event": "note", "text": question})
+        until = time.monotonic() + QUESTION_WAIT
+        while time.monotonic() < until:
+            if self.cancelled():
+                raise Cancelled
+            fresh = self.inbox()
+            if fresh:
+                return "The owner answered: " + " ".join(fresh)
+            time.sleep(CANCEL_POLL * 4)
+        if default:
+            self.emit({"event": "note", "text": f"No answer, so Relay goes with: {default}"})
+            return f"No answer; use the default: {default}"
+        return "No answer; choose sensibly and say what you chose."
+
+    def _unless_stopped(self, work: Callable[[], str]) -> str:
+        """Run a slow call (the model, Claude) and give up on it the moment Stop is pressed.
+
+        The call itself finishes in the background; its answer is dropped.
+        """
+        box: dict[str, Any] = {}
+
+        def run() -> None:
+            try:
+                box["value"] = work()
+            except BaseException as exc:  # handed back to the caller below
+                box["error"] = exc
+
+        thread = threading.Thread(target=run, name="relay-operator-call", daemon=True)
+        thread.start()
+        while thread.is_alive():
+            if self.cancelled():
+                raise Cancelled
+            thread.join(CANCEL_POLL)
+        if "error" in box:
+            raise box["error"]
+        return box["value"]
+
+    def _pause(self, seconds: float) -> ActionResult:
+        until = time.monotonic() + min(max(seconds, 0.0), 10.0)
+        while time.monotonic() < until:
+            if self.cancelled():
+                raise Cancelled
+            time.sleep(min(CANCEL_POLL, max(until - time.monotonic(), 0)))
+        return ActionResult(f"Waited {seconds:g} s")
+
+    def _invoke(self, element: str) -> ActionResult:
+        """Press an element; one with no press action (an address bar) gets a click on its
+        center instead, so the model doesn't have to work that out (D-093)."""
+        try:
+            return self.hands.run("uia_invoke", {"element": element})
+        except ActionError as exc:
+            point = _center(self.elements, element)
+            if "click its center" not in str(exc) or point is None:
+                raise
+        self._bring_back()
+        return self.hands.run("left_click", {"coordinate": point})
+
+    def _front_line(self) -> str:
+        for line in self._windows().splitlines():
+            if "in front" in line.split(" · "):
+                return line
+        return ""
+
+    def _remember_front(self) -> None:
+        """The program the task now works in, so it can be brought back (D-093).
+
+        A writing task in an editor gets a new tab or document first, so the owner's
+        open files are never typed over (D-094).
+        """
+        parts = self._front_line().split(" · ")
+        if len(parts) > 2 and not any(p.startswith("Relay itself") for p in parts):
+            self.target = parts[1].casefold().removesuffix(".exe")
+            if self.new_doc and self.target in EDITORS and self.target not in self.fresh:
+                self.fresh.add(self.target)
+                with contextlib.suppress(ActionError):
+                    self.hands.run("key", {"text": "ctrl+n"})
+                    self.emit(
+                        {
+                            "event": "note",
+                            "text": "Opened a new tab so your open files stay as they are.",
+                        }
+                    )
+
+    def _not_twice(self, n: int, text: str) -> None:
+        """Typing the same text again is how a list ended up in Notepad twice (D-094)."""
+        first = self.typed.get(_typed_key({"text": text}))
+        if first is not None and len(text.strip()) >= REPEAT_MIN:
+            raise ActionError(
+                f"this text was already typed in step {first}; look at the screen and "
+                "go on from what is there instead of typing it again"
+            )
+
+    def _bring_back(self) -> None:
+        """Put the task's program in front again before real input, in case the owner
+        clicked or typed somewhere else in between (D-093)."""
+        if not self.target:
+            return
+        parts = self._front_line().split(" · ")
+        stem = parts[1].casefold().removesuffix(".exe") if len(parts) > 1 else ""
+        if stem == self.target and not any(p.startswith("Relay itself") for p in parts):
+            return
+        with contextlib.suppress(ActionError):
+            self.hands.run("focus_window", {"window": self.target})
 
     def _click_text(self, text: str) -> ActionResult:
         found = self.hands.run("find_text", {"text": text}).text or ""

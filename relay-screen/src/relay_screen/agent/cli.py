@@ -28,7 +28,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from relay_screen.agent.local import MAX_STEPS, LocalAgent, Model
+from relay_screen.agent.local import MAX_STEPS, REPLY_SCHEMA, LocalAgent, Model
 from relay_screen.runtime import catalog
 from relay_screen.runtime.paths import RelayPaths, local_ai_settings, settings_file
 from relay_screen.runtime.store import InstalledModel, Store
@@ -100,7 +100,7 @@ def llama_model(url: str) -> Model:
                 "temperature": 0,
                 # One JSON object, no thinking pass: Qwen3.5-based models like Holo3.1
                 # think first by default, which costs seconds per step (D-087).
-                "response_format": {"type": "json_object"},
+                "response_format": {"type": "json_object", "schema": REPLY_SCHEMA},
                 "chat_template_kwargs": {"enable_thinking": False},
                 "cache_prompt": True,
             }

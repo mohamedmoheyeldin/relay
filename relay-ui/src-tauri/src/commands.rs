@@ -12,7 +12,7 @@ use tauri_plugin_opener::OpenerExt;
 use relay_core::operator::{Operator, Route};
 use relay_core::settings::{ActiveModel, Settings};
 use relay_core::{
-    catalog, chat, claude, doctor, gpu, local_agent, local_ai, mcp, paths, system, updates,
+    catalog, chat, chats, claude, doctor, gpu, local_agent, local_ai, mcp, paths, system, updates,
 };
 
 use crate::jobs;
@@ -66,12 +66,11 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
         approval_answer,
         chat_send,
         chat_stop,
-        popup_say,
-        popup_grab,
-        popup_release,
-        popup_hide,
-        popup_open_main,
         chat_new,
+        chats_list,
+        chat_open,
+        chat_save,
+        chat_delete,
         browsers,
         playbooks_list,
         playbook_delete,
@@ -206,8 +205,12 @@ fn setup_complete(state: State<'_, AppState>) -> Res<Settings> {
 // ---------------------------------------------------------------- Claude Code (D-045)
 
 #[tauri::command]
-async fn claude_state() -> claude::ClaudeState {
-    claude::state().await
+async fn claude_state(state: State<'_, AppState>) -> Result<claude::ClaudeState, ()> {
+    let c = claude::state().await;
+    // The UI asks after every sign-in or sign-out, so chat_send sees the change at once.
+    *state.claude_signed_in.lock().expect("claude lock") =
+        Some((c.installed && c.auth.logged_in, std::time::Instant::now()));
+    Ok(c)
 }
 
 #[tauri::command]
@@ -624,7 +627,6 @@ struct ChatPayload {
 }
 
 fn emit_chat(app: &AppHandle, event: Option<chat::ChatEvent>) {
-    crate::stage::on_chat(app, event.as_ref());
     let finished = event.is_none();
     let _ = app.emit("chat", ChatPayload { event, finished });
 }
@@ -673,6 +675,28 @@ pub async fn operator(app: &AppHandle) -> Option<Arc<Operator>> {
     }
 }
 
+const CLAUDE_SIGNED_OUT: &str =
+    "Claude isn't signed in. Screen tasks still work; writing and judgment need Claude";
+
+/// Whether Claude Code can answer: installed and signed in. Checked at most once a
+/// minute, since asking runs the `claude` CLI.
+async fn claude_signed_in(app: &AppHandle) -> bool {
+    let st = app.state::<AppState>();
+    if let Some((yes, at)) = *st.claude_signed_in.lock().expect("claude lock") {
+        if at.elapsed() < std::time::Duration::from_secs(60) {
+            return yes;
+        }
+    }
+    let yes = claude::find().is_some()
+        && claude::auth_status()
+            .await
+            .map(|a| a.logged_in)
+            // Can't tell: let Claude try; a failed turn still falls back to the local AI.
+            .unwrap_or(true);
+    *st.claude_signed_in.lock().expect("claude lock") = Some((yes, std::time::Instant::now()));
+    yes
+}
+
 /// Run a message as an operator task in the chat.
 async fn operator_turn(
     app: &AppHandle,
@@ -699,16 +723,45 @@ async fn operator_turn(
 #[tauri::command]
 async fn chat_send(app: AppHandle, prompt: String) -> Res<()> {
     let st = app.state::<AppState>();
+    // A run the owner just stopped may take a moment to exit; wait for it briefly.
+    for _ in 0..50 {
+        if st.turn.lock().await.is_none() || !st.stopped.load(Ordering::SeqCst) {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    if st.turn.lock().await.is_some() {
+        return Err("Relay is still working on the last message.".into());
+    }
+    st.stopped.store(false, Ordering::SeqCst);
+    // Screen tasks go straight to the local operator; the rest to Claude. The turn
+    // isn't held while deciding, so Stop never waits on this.
+    let op = operator(&app).await;
+    let to_operator = match &op {
+        Some(op) => op.route(&prompt).await == Route::Operator,
+        None => false,
+    };
+    if st.stopped.load(Ordering::SeqCst) {
+        emit_chat(&app, None);
+        return Ok(());
+    }
     let mut turn = st.turn.lock().await;
     if turn.is_some() {
         return Err("Relay is still working on the last message.".into());
     }
-    st.stopped.store(false, Ordering::SeqCst);
-    // Screen tasks go straight to the local operator; the rest to Claude.
-    if let Some(op) = operator(&app).await {
-        if op.route(&prompt).await == Route::Operator {
-            return operator_turn(&app, &op, &prompt, turn).await;
-        }
+    if let (Some(op), true) = (op, to_operator) {
+        return operator_turn(&app, &op, &prompt, turn).await;
+    }
+    // Without Claude the local AI does everything it can; nothing waits on a sign-in.
+    if !claude_signed_in(&app).await {
+        drop(turn);
+        let done_app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            run_local(&done_app, &prompt, CLAUDE_SIGNED_OUT.into()).await;
+            *done_app.state::<AppState>().turn.lock().await = None;
+            emit_chat(&done_app, None);
+        });
+        return Ok(());
     }
     let s = st.settings();
     let opts = chat::TurnOptions {
@@ -845,61 +898,17 @@ async fn run_local(app: &AppHandle, prompt: &str, reason: String) {
 }
 
 #[tauri::command]
-async fn chat_stop(state: State<'_, AppState>) -> Res<()> {
-    state.stopped.store(true, Ordering::SeqCst);
-    if let Some(turn) = state.turn.lock().await.as_mut() {
-        turn.stop().await;
-    }
-    Ok(())
-}
-
-// ---------------------------------------------------------------- popup
-
-/// The owner typed in the floating popup. While Relay works this is a change of plan:
-/// the running turn stops and the message goes on in the same conversation.
-#[tauri::command]
-async fn popup_say(app: AppHandle, text: String) -> Res<()> {
-    let st = app.state::<AppState>();
-    // The local operator takes the message into the running task.
-    if let Some(chat::Turn::Operator { op, id }) = st.turn.lock().await.as_ref() {
-        op.say(id, &text).await.map_err(anyhow_err)?;
-        let _ = app.emit("chat-user", &text);
-        return Ok(());
-    }
-    if st.turn.lock().await.is_some() {
-        chat_stop(app.state::<AppState>()).await?;
-        // The turn's task clears `turn` once Claude or the local AI has exited.
-        for _ in 0..100 {
-            if st.turn.lock().await.is_none() {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+async fn chat_stop(app: AppHandle) -> Res<()> {
+    app.state::<AppState>()
+        .stopped
+        .store(true, Ordering::SeqCst);
+    // Returns at once; the run is told to stop in the background.
+    tauri::async_runtime::spawn(async move {
+        if let Some(turn) = app.state::<AppState>().turn.lock().await.as_mut() {
+            turn.stop().await;
         }
-    }
-    let _ = app.emit("chat-user", &text);
-    chat_send(app.clone(), text).await
-}
-
-#[tauri::command]
-fn popup_grab(app: AppHandle) {
-    crate::popup::grab(&app);
-}
-
-#[tauri::command]
-fn popup_release(app: AppHandle) {
-    crate::popup::release(&app);
-}
-
-#[tauri::command]
-fn popup_hide(app: AppHandle) {
-    crate::popup::release(&app);
-    crate::popup::hide(&app);
-}
-
-#[tauri::command]
-fn popup_open_main(app: AppHandle) {
-    crate::popup::hide(&app);
-    crate::show_main(&app);
+    });
+    Ok(())
 }
 
 /// The owner's answer on an in-app approval card.
@@ -911,6 +920,48 @@ fn approval_answer(app: AppHandle, id: u64, decision: String) -> bool {
 #[tauri::command]
 fn chat_new(state: State<'_, AppState>) {
     *state.session.lock().expect("session lock") = None;
+}
+
+#[tauri::command]
+fn chats_list() -> Vec<chats::Summary> {
+    chats::list(&chats::dir())
+}
+
+/// Open a saved chat; the next message continues its Claude session.
+#[tauri::command]
+fn chat_open(state: State<'_, AppState>, id: String) -> Res<chats::Chat> {
+    let chat = chats::load(&chats::dir(), &id).map_err(anyhow_err)?;
+    *state.session.lock().expect("session lock") = chat.session.clone();
+    Ok(chat)
+}
+
+/// Save what the chat screen shows, with the Claude session it is on now.
+#[tauri::command]
+fn chat_save(
+    state: State<'_, AppState>,
+    id: String,
+    title: String,
+    items: serde_json::Value,
+) -> Res<chats::Summary> {
+    let session = state.session.lock().expect("session lock").clone();
+    let chat = chats::Chat {
+        id,
+        title,
+        updated: 0,
+        session,
+        items,
+    };
+    let saved = chats::save(&chats::dir(), chat).map_err(anyhow_err)?;
+    Ok(chats::Summary {
+        id: saved.id,
+        title: saved.title,
+        updated: saved.updated,
+    })
+}
+
+#[tauri::command]
+fn chat_delete(id: String) -> Res<()> {
+    chats::delete(&chats::dir(), &id).map_err(anyhow_err)
 }
 
 // ---------------------------------------------------------------- browsers, playbooks

@@ -7,7 +7,7 @@ The app starts it once and talks JSON lines over stdin/stdout:
     {"op": "task", "id": "t1", "text": "go to dice.com and search python jobs"}
     {"op": "say", "id": "t1", "text": "use the remote filter too"}
     {"op": "stop", "id": "t1"}
-    {"op": "route", "id": "r1", "text": "<owner message>"}
+    {"op": "route", "id": "r1", "text": "<owner message>", "claude": false}  (claude optional)
     {"op": "state", "id": "s1"}
     {"op": "quit"}
 
@@ -81,11 +81,17 @@ SCREEN = re.compile(
 )
 
 
-def route(text: str) -> tuple[str, str]:
-    """Whether an owner message goes straight to the local AI or to Claude first."""
+def route(text: str, claude_ready: bool = True) -> tuple[str, str]:
+    """Whether an owner message goes straight to the local AI or to Claude first.
+
+    With Claude signed out or missing everything goes to the local AI, which works on
+    its own (D-067, D-093).
+    """
     stripped = text.strip()
     if not stripped:
         return "claude", "empty message"
+    if not claude_ready:
+        return "operator", "Claude isn't available, so the local AI does it"
     if instant_plan(stripped) is not None:
         return "operator", "a single move on the screen"
     if stripped.endswith("?"):
@@ -292,6 +298,7 @@ class OperatorService:
         self.running: Running | None = None
         self.last: tuple[str, Outcome] | None = None  # (task, outcome) for follow-ups
         self.stopping = threading.Event()
+        self.claude_ok = True  # false after Claude failed to answer (signed out, missing)
         self._lock = threading.Lock()
         self._busy = threading.Lock()
         self._ids = 0
@@ -317,7 +324,8 @@ class OperatorService:
                 running.stop.set()
             return None
         if op == "route":
-            to, why = route(text)
+            ready = command.get("claude") is not False and self.claude_ok
+            to, why = route(text, ready)
             out({"id": cid, "event": "route", "to": to, "why": why})
             return None
         if op == "state":
@@ -559,8 +567,17 @@ def main(argv: list[str]) -> int:
             on_event,
             inbox=inbox,
             cancelled=cancelled,
-            ask=lambda question: ask_claude(question, task),
+            ask=lambda question: ask(question, task),
         )
+
+    def ask(question: str, task: str) -> str:
+        try:
+            answer = ask_claude(question, task)
+        except Exception:
+            service.claude_ok = False  # route the next messages to the local AI
+            raise
+        service.claude_ok = True
+        return answer
 
     awareness = Awareness(hands)
     switch = services.killswitch

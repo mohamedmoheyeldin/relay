@@ -207,6 +207,10 @@ export interface Playbook {
     modified: number;
 }
 
+/** A saved conversation in the sidebar (relay-core chats.rs). */
+export type ChatSummary = { id: string; title: string; updated: number };
+export type SavedChat = ChatSummary & { session: string | null; items: unknown };
+
 export const api = {
     appInfo: () => invoke<AppInfo>("app_info"),
     getSettings: () => invoke<Settings>("get_settings"),
@@ -248,12 +252,11 @@ export const api = {
 
     chatSend: (prompt: string) => invoke<void>("chat_send", { prompt }),
     chatStop: () => invoke<void>("chat_stop"),
-    popupSay: (text: string) => invoke<void>("popup_say", { text }),
-    popupGrab: () => invoke<void>("popup_grab"),
-    popupRelease: () => invoke<void>("popup_release"),
-    popupHide: () => invoke<void>("popup_hide"),
-    popupOpenMain: () => invoke<void>("popup_open_main"),
     chatNew: () => invoke<void>("chat_new"),
+    chatsList: () => invoke<ChatSummary[]>("chats_list"),
+    chatOpen: (id: string) => invoke<SavedChat>("chat_open", { id }),
+    chatSave: (id: string, title: string, items: unknown) => invoke<ChatSummary>("chat_save", { id, title, items }),
+    chatDelete: (id: string) => invoke<void>("chat_delete", { id }),
 
     browsers: () => invoke<BrowserInfo[]>("browsers"),
     approvalAnswer: (id: number, decision: string) => invoke<boolean>("approval_answer", { id, decision }),

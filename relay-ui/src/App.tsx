@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { Dialog, Heading } from "react-aria-components";
-import { LayoutLeft, MessageChatCircle, Plus, Settings01 } from "@untitledui/icons";
+import { LayoutLeft, Plus, Settings01, Trash01 } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
 import { Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { Checkbox } from "@/components/base/checkbox/checkbox";
-import { type AppInfo, type Settings, type UpdateInfo, api } from "@/lib/api";
+import { type AppInfo, type ChatSummary, type Settings, type UpdateInfo, api } from "@/lib/api";
 import { cx } from "@/utils/cx";
 import { ApprovalTray } from "@/components/relay/approval";
-import { ChatScreen } from "./screens/chat";
+import { ChatScreen, type OpenChat } from "./screens/chat";
 import { useClaude } from "@/lib/claude";
 import { SettingsScreen } from "./screens/settings";
 import { Wizard } from "./screens/wizard";
@@ -101,6 +101,30 @@ const NavItem = ({
     </button>
 );
 
+const newId = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+
+/** A saved chat in the sidebar, like the Claude app's recents. */
+const ChatRow = ({ chat, active, onOpen, onDelete }: { chat: ChatSummary; active: boolean; onOpen: () => void; onDelete: () => void }) => (
+    <div
+        className={cx(
+            "group flex h-8 items-center rounded-lg text-sm transition duration-150",
+            active ? "bg-tertiary text-primary" : "text-secondary hover:bg-tertiary/70 hover:text-primary",
+        )}
+    >
+        <button onClick={onOpen} title={chat.title} aria-current={active ? "page" : undefined} className="h-full min-w-0 flex-1 cursor-pointer truncate px-2 text-left outline-focus-ring focus-visible:outline-2">
+            {chat.title}
+        </button>
+        <button
+            onClick={onDelete}
+            aria-label={`Delete ${chat.title}`}
+            title="Delete"
+            className="mr-1 flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-fg-quaternary opacity-0 transition group-hover:opacity-100 hover:text-fg-error-primary focus-visible:opacity-100"
+        >
+            <Trash01 className="size-3.5" />
+        </button>
+    </div>
+);
+
 export default function App() {
     const [settings, setSettings] = useState<Settings | null>(null);
     const [info, setInfo] = useState<AppInfo | null>(null);
@@ -109,8 +133,20 @@ export default function App() {
     const [closeAsk, setCloseAsk] = useState(false);
     const [update, setUpdate] = useState<UpdateInfo | null>(null);
     const [collapsed, setCollapsed] = useState(readCollapsed);
-    // Bumped by the sidebar's "New chat"; the chat screen then starts a fresh conversation.
-    const [newChat, setNewChat] = useState(0);
+    // The conversation on screen; Relay opens on a fresh one, like the Claude app.
+    const [chat, setChat] = useState<OpenChat>(() => ({ id: newId(), fresh: true }));
+    const [chats, setChats] = useState<ChatSummary[]>([]);
+    const loadChats = useCallback(() => {
+        api.chatsList()
+            .then(setChats)
+            .catch(() => {});
+    }, []);
+    useEffect(loadChats, [loadChats]);
+    const deleteChat = async (id: string) => {
+        await api.chatDelete(id).catch(() => {});
+        if (id === chat.id) setChat({ id: newId(), fresh: true });
+        loadChats();
+    };
     const toggleSidebar = () => {
         setCollapsed((c) => {
             try {
@@ -185,12 +221,30 @@ export default function App() {
                             collapsed={collapsed}
                             onClick={() => {
                                 setView("chat");
-                                setNewChat((n) => n + 1);
+                                setChat({ id: newId(), fresh: true });
                             }}
                         />
-                        <NavItem icon={MessageChatCircle} label="Chat" active={view === "chat"} collapsed={collapsed} onClick={() => setView("chat")} />
                     </div>
-                    <div className="mt-auto flex flex-col gap-0.5">
+                    {!collapsed && chats.length > 0 && (
+                        <div className="mt-5 flex min-h-0 flex-1 flex-col animate-in fade-in duration-200">
+                            <span className="px-2 pb-1.5 text-xs font-medium text-quaternary">Recents</span>
+                            <div className="-mx-1 flex min-h-0 flex-col gap-0.5 overflow-y-auto px-1">
+                                {chats.map((c) => (
+                                    <ChatRow
+                                        key={c.id}
+                                        chat={c}
+                                        active={view === "chat" && c.id === chat.id}
+                                        onOpen={() => {
+                                            setView("chat");
+                                            if (c.id !== chat.id) setChat({ id: c.id, fresh: false });
+                                        }}
+                                        onDelete={() => deleteChat(c.id)}
+                                    />
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                    <div className="mt-auto flex flex-col gap-0.5 pt-2">
                         <NavItem icon={Settings01} label="Settings" active={view === "settings"} collapsed={collapsed} onClick={() => setView("settings")} />
                     </div>
                 </nav>
@@ -227,7 +281,8 @@ export default function App() {
                     {view === "chat" && (
                         <ChatScreen
                             ready={ready}
-                            newChatRequest={newChat}
+                            chat={chat}
+                            onSaved={loadChats}
                             approvalMode={settings.safety.approval_mode}
                             onSetup={() => setView("setup")}
                             onLocalAi={() => {
