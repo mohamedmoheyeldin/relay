@@ -17,12 +17,12 @@ branch (worktree `C:\Projects\relay-rust`); never merge or push it to `main`/`de
   ```powershell
   cargo fmt --all --check
   cargo clippy --workspace --all-targets -- -D warnings
-  cargo clippy -p relay-ui --target wasm32-unknown-unknown -- -D warnings
   cargo test --workspace
   ```
-- Run in development: `cd src-tauri; cargo tauri dev` (starts `trunk serve` for the UI).
-  If trunk complains about `--no-color`, set `$env:NO_COLOR='true'`.
-- Build: `cd src-tauri; cargo tauri build` (NSIS installer under `target/release/bundle/nsis`).
+- UI checks: `cd ui; pnpm install; pnpm test; pnpm build` (`pnpm dev` runs it in a browser against a mock backend).
+- Run in development: `cd src-tauri; cargo tauri dev` (starts `pnpm dev`).
+- Build: `cd src-tauri; cargo tauri build --no-bundle` -> `target/release/relay-app.exe`. That one file is the
+  installer AND the app (see D25); copy it as `Relay Setup.exe`.
 - Tests that move the real mouse are `#[ignore]`d (`cargo test -- --ignored`); run them only with the
   owner's agreement. Everything else runs headless against `FakeDesktop` and a fake AI CLI.
 - UI automation for testing: start the app with `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222`
@@ -42,8 +42,9 @@ crates/
   relay-agent     `Agent` orchestrator (routes each task to the local model or the cloud CLI, hands over on
                   escalation), `ConfirmBridge` (approval cards), prompts; `local/`: Ollama client, local
                   tool loop (PowerShell, files, open, desktop tools), router, model choice
-  relay-ui        Leptos CSR chat window (wasm via trunk); `chat.rs` is a pure, tested reducer
-src-tauri         Tauri v2 shell (package `relay-app`): tray, window, hotkey, commands, wiring
+  relay-store     SQLite: chats, projects, search, per-chat AI context
+ui/               React 19 + TypeScript + Vite + Tailwind + Radix UI front end (pnpm); mock backend for browser dev
+src-tauri         Tauri v2 shell (package `relay-app`): tray, window, hotkey, commands, wiring, self-installer
 ```
 
 ### Data flow
@@ -133,6 +134,19 @@ The process is made per-monitor-DPI aware so every rectangle is physical pixels.
   whichever engine has no session of its own.
 - D24 The installer uses the Relay colours (terracotta sidebar and header images); NSIS dialogs keep the stock
   window chrome. Product name is "Relay Rust" so it does not collide with the old app's install.
+- D25 UI rebuilt in React (owner request 2026-10-16, "look like the ChatGPT app"). Research: the ChatGPT Windows
+  app is Electron around the React/Next.js web UI; the Mac app is native Swift. Tauri/WebView2 is the same Chromium
+  family, so web tech reproduces the look; Leptos re-rendered whole lists per token and felt slow. The original
+  "all Rust" front-end rule was lifted by the owner. Contract: `docs/ui-contract.md`. No third-party brand names or
+  assets appear in the UI (theme is called Midnight; the local engine is "Relay Local AI").
+- D26 Built-in local AI: Relay downloads the official engine zip, verifies its published SHA-256 (refuses if none),
+  unpacks to `engine/`, runs it hidden on 127.0.0.1:11435 with models in `engine/models`, and downloads a model sized
+  for the GPU (nvidia-smi). Automatic on first launch (Settings can switch it off). Stopped when Relay exits.
+- D27 The setup program is the app: outside `%LOCALAPPDATA%\Programs\Relay` the release exe shows a themed setup
+  window, copies itself, adds Start menu/desktop shortcuts, an uninstall entry (HKCU) and optional start-with-Windows;
+  `Relay.exe --uninstall` removes it and optionally the data. Replaces NSIS (its dialogs could not match the theme).
+  Single-instance applies only to normal app runs so setup can run beside an older copy; setup stops older copies.
+- D28 Chats, projects and per-chat AI sessions are stored in `relay.db` (SQLite). The UI owns the item JSON.
 - D18 Not done on purpose: chat history is not persisted across restarts (the CLI keeps its own session
   files); no auto-start; no code signing; macOS/Linux implementations of `Desktop` are future work.
 

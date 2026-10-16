@@ -525,3 +525,46 @@ pub async fn app_quit(app: AppHandle) -> CmdResult<()> {
     app.exit(0);
     Ok(())
 }
+
+/// Open a web or mail link in the default program (http, https and mailto only).
+#[tauri::command]
+pub async fn open_url(url: String) -> CmdResult<()> {
+    if !is_safe_url(&url) {
+        return Err("only http, https and mailto links can be opened".into());
+    }
+    std::process::Command::new("explorer")
+        .arg(url)
+        .spawn()
+        .map(|_| ())
+        .map_err(err)
+}
+
+fn is_safe_url(url: &str) -> bool {
+    let lower = url.trim().to_ascii_lowercase();
+    !url.contains(['\n', '\r', '"', '|', '&', '<', '>', '^'])
+        && (lower.starts_with("http://")
+            || lower.starts_with("https://")
+            || lower.starts_with("mailto:"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_safe_url;
+
+    #[test]
+    fn only_web_and_mail_links_are_opened() {
+        assert!(is_safe_url("https://example.com/a?b=c"));
+        assert!(is_safe_url("HTTP://example.com"));
+        assert!(is_safe_url("mailto:me@example.com"));
+        for bad in [
+            "file:///C:/Windows/System32/cmd.exe",
+            "javascript:alert(1)",
+            "calc.exe",
+            "https://a.com\" & calc",
+            "https://x|y",
+            "ms-settings:",
+        ] {
+            assert!(!is_safe_url(bad), "{bad}");
+        }
+    }
+}

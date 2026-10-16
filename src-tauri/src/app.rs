@@ -352,11 +352,21 @@ fn setup(app: &mut tauri::App) -> Result<()> {
 
 pub fn run() -> Result<()> {
     let shortcut = kill_shortcut();
-    tauri::Builder::default()
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+    let args: Vec<String> = std::env::args().collect();
+    let mode = crate::installer::detect_mode(
+        &args,
+        &std::env::current_exe().unwrap_or_default(),
+        &crate::installer::install_dir(),
+        cfg!(debug_assertions),
+    );
+    let mut builder = tauri::Builder::default().plugin(tauri_plugin_dialog::init());
+    // Only the running app is a singleton: setup must still open while an older copy runs.
+    if mode == crate::installer::Mode::App {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             show_main(app);
-        }))
+        }));
+    }
+    builder
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(move |app, pressed, event| {
@@ -397,6 +407,7 @@ pub fn run() -> Result<()> {
             commands::mcp_set,
             commands::pick_files,
             commands::open_link,
+            commands::open_url,
             commands::installer_info,
             commands::installer_install,
             commands::installer_launch,

@@ -162,9 +162,18 @@ fn reg_add(key: &str, name: &str, kind: &str, data: &str) -> Result<()> {
 
 /// Stop a running installed copy so its file can be replaced.
 fn stop_running_copy() {
-    let _ = hidden("taskkill")
-        .args(["/IM", INSTALLED_EXE, "/F", "/T"])
-        .output();
+    // Also earlier builds (relay-app.exe) that share the single-instance lock.
+    for image in [INSTALLED_EXE, "relay-app.exe"] {
+        // Never kill the setup program itself.
+        if std::env::current_exe()
+            .ok()
+            .and_then(|p| p.file_name().map(|n| n.eq_ignore_ascii_case(image)))
+            .unwrap_or(false)
+        {
+            continue;
+        }
+        let _ = hidden("taskkill").args(["/IM", image, "/F", "/T"]).output();
+    }
     std::thread::sleep(std::time::Duration::from_millis(600));
 }
 
