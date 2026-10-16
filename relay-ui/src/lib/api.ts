@@ -263,6 +263,11 @@ export const api = {
 
     chatSend: (prompt: string) => invoke<void>("chat_send", { prompt }),
     chatStop: () => invoke<void>("chat_stop"),
+    popupSay: (text: string) => invoke<void>("popup_say", { text }),
+    popupGrab: () => invoke<void>("popup_grab"),
+    popupRelease: () => invoke<void>("popup_release"),
+    popupHide: () => invoke<void>("popup_hide"),
+    popupOpenMain: () => invoke<void>("popup_open_main"),
     chatNew: () => invoke<void>("chat_new"),
 
     browsers: () => invoke<BrowserInfo[]>("browsers"),

@@ -83,10 +83,10 @@ def test_parse_reply_tolerates_fences_prose_and_coordinate_lists() -> None:
 
 def test_frame_maps_model_coordinates_to_screenshot_pixels() -> None:
     frame = Frame.from_png(png(3440, 1440))
-    assert frame.sent_size == (1280, 536)
+    assert frame.sent_size == (1280, 544)  # aligned to the 32 px patch grid
     assert frame.to_screen(500, 500, "rel1000") == [1720, 720]
     assert frame.to_screen(1000, 1000, "rel1000") == [3439, 1439]
-    assert frame.to_screen(640, 268, "pixels") == [1720, 720]
+    assert frame.to_screen(640, 272, "pixels") == [1720, 720]
     assert frame.data_url().startswith("data:image/jpeg;base64,")
     with pytest.raises(ReplyError):
         frame.to_screen("left", 3, "rel1000")
@@ -129,7 +129,7 @@ def test_runs_actions_until_done() -> None:
         ("left_click", {"coordinate": [1000, 500]}),
         ("type", {"text": "hello"}),
     ]
-    assert [e["event"] for e in events] == ["step", "step", "done"]
+    assert [e["event"] for e in events if e["event"] != "timing"] == ["step", "step", "done"]
     assert events[0]["thought"] == "focus the editor"
     # Each step sends a fresh screenshot and the history so far.
     image = model.seen[2][1]["content"][1]["image_url"]["url"]
@@ -208,10 +208,9 @@ def test_uses_the_element_list_when_ui_automation_can_read_the_window() -> None:
     )
     outcome, events = run(hands, model)
     assert outcome.status == "done"
-    assert hands.acts() == [
-        ("uia_set_value", {"element": "e5", "value": "hello"}),
-        ("uia_invoke", {"element": "e9"}),
-    ]
+    # e9 isn't in the list, so that reply is sent back instead of run.
+    assert hands.acts() == [("uia_set_value", {"element": "e5", "value": "hello"})]
+    assert any(e["event"] == "bad_reply" and "e9" in e["error"] for e in events)
     assert '[e5] Document "Text editor"' in model.prompt(0)
     assert events[0]["action"] == 'set_value e5 = "hello"'
     with pytest.raises(ReplyError, match="element id"):
@@ -236,7 +235,11 @@ def installed(*ids: str) -> dict[str, InstalledModel]:
 def test_pick_model_prefers_the_flag_then_settings_then_a_planner() -> None:
     have = installed("ui-venus-1.5-8b", "qwen3-vl-8b-instruct", "mine")
     assert pick_model(have, {}, "mine") == "mine"
-    assert pick_model(have, {"describe": {"model_id": "mine"}}, None) == "mine"
+    assert pick_model(have, {"agent": {"model_id": "mine"}}, None) == "mine"
+    # A describe pick is for looking; a downloaded planner comes first (D-087).
+    assert pick_model(have, {"describe": {"model_id": "mine"}}, None) == "qwen3-vl-8b-instruct"
+    assert pick_model(installed("mine", "x"), {"describe": {"model_id": "x"}}, None) == "x"
+    assert pick_model(installed("holo-3.1-9b", "qwen3-vl-8b-instruct"), {}, None) == "holo-3.1-9b"
     assert pick_model(have, {"agent": {"model_id": "gone"}}, None) == "qwen3-vl-8b-instruct"
     assert pick_model(installed("mine"), {}, None) == "mine"
     with pytest.raises(RuntimeUnavailable, match="not downloaded"):
@@ -273,9 +276,9 @@ def test_operator_needs_a_downloaded_model(tmp_path: Any, monkeypatch: pytest.Mo
     operator.setup.spawn = started.append  # no real downloads in tests
     try:
         with pytest.raises(RuntimeUnavailable, match="downloading the local model runtime and"):
-            operator.run("open notepad", FakeHands(), 5)
+            operator.run("write hello in notepad", FakeHands(), 5)
         with pytest.raises(RuntimeUnavailable, match="ready once the download finishes"):
-            operator.run("open notepad", FakeHands(), 5)
+            operator.run("write hello in notepad", FakeHands(), 5)
         assert len(started) == 1  # a second task doesn't start a second download
     finally:
         operator.supervisor.stop_all()
@@ -312,7 +315,7 @@ def test_setup_downloads_runtime_then_model_and_reports_failures() -> None:
     assert setup.error == "OSError: disk full" and not setup.running
     store.fail = False
     setup.start()
-    assert store.calls == ["runtime", "qwen3-vl-8b-instruct", "qwen3-vl-8b-instruct"]
+    assert store.calls == ["runtime", "holo-3.1-9b", "holo-3.1-9b"]
     assert setup.missing() == [] and setup.start() == "ready"
     assert [e["status"] for e in events] == ["started", "failed", "started", "done"]
 
@@ -368,7 +371,7 @@ def test_focuses_the_program_the_task_names_before_the_first_step() -> None:
 
 def test_no_focus_when_no_open_program_is_named() -> None:
     hands = FakeHands({"list_windows": WINDOWS})
-    LocalAgent(hands, Script({"action": "done", "summary": "ok"})).run("open Calculator")
+    LocalAgent(hands, Script({"action": "done", "summary": "ok"})).run("add 2 and 3 in Calculator")
     assert hands.acts() == []
 
 
@@ -416,3 +419,156 @@ def test_open_url_action_maps_to_the_member() -> None:
     )
     with pytest.raises(ReplyError, match="open_url needs"):
         to_member({"action": "go_to"}, frame, "rel1000")
+
+
+# --- D-084: instant moves, batches and text-only steps ----------------------
+
+RICH_TREE = (
+    'Elements (ids ...):\n[e1] Window "Dice"\n'
+    + "\n".join(f'  [e{i}] Button "b{i}" {{invoke}}' for i in range(2, 12))
+    + '\n  [e20] Edit "Search jobs" {value}'
+)
+
+
+@pytest.mark.parametrize(
+    ("task", "plan"),
+    [
+        ("go to dice.com", [("open_url", {"url": "dice.com"})]),
+        (
+            "Please open https://www.dice.com/jobs.",
+            [("open_url", {"url": "https://www.dice.com/jobs"})],
+        ),
+        ("switch to Outlook", [("focus_window", {"window": "Outlook"})]),
+        (
+            "open Notepad",
+            [("focus_window", {"window": "Notepad"}), ("launch_app", {"name": "Notepad"})],
+        ),
+        ("open Notepad and write hello", None),
+        ("go to dice.com and search for python jobs", None),
+        ("write hello", None),
+        ("In Brave, apply to the Monster job", None),
+    ],
+)
+def test_instant_plan_covers_one_move_tasks_only(task: str, plan: Any) -> None:
+    from relay_screen.agent.local import instant_plan
+
+    assert instant_plan(task) == plan
+
+
+def test_instant_tasks_need_no_model() -> None:
+    hands = FakeHands({"focus_window": ActionError("no open window matches 'Notepad'")})
+    model = Script()
+    events: list[dict[str, Any]] = []
+    outcome = LocalAgent(hands, model, on_event=events.append).run("open Notepad")
+    assert outcome.status == "done" and model.seen == []
+    assert hands.acts() == [
+        ("focus_window", {"window": "Notepad"}),
+        ("launch_app", {"name": "Notepad"}),
+    ]
+    assert events[-1]["event"] == "done" and "instant_ms" in events[-1]
+
+
+def test_an_instant_move_that_fails_goes_to_the_model() -> None:
+    hands = FakeHands({"open_url": ActionError("no browser")})
+    model = Script({"action": "fail", "reason": "no browser"})
+    outcome = LocalAgent(hands, model).run("go to dice.com")
+    assert outcome.status == "failed" and len(model.seen) == 1
+
+
+def test_operator_runs_instant_tasks_before_any_download(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from relay_screen.agent.operator import LocalOperator
+
+    monkeypatch.setenv("RELAY_HOME", str(tmp_path))
+    monkeypatch.delenv("APPDATA", raising=False)
+    operator = LocalOperator(connect=lambda url: Script())
+    started: list[Any] = []
+    operator.setup.spawn = started.append
+    try:
+        model_id, outcome = operator.run("go to dice.com", FakeHands(), 5)
+        assert (model_id, outcome.status, started) == ("instant", "done", [])
+    finally:
+        operator.supervisor.stop_all()
+
+
+def test_one_reply_can_run_several_actions() -> None:
+    hands = FakeHands({"uia_tree": RICH_TREE})
+    model = Script(
+        {
+            "thought": "search",
+            "actions": [
+                {"action": "set_value", "element": "e20", "value": "python"},
+                {"action": "key", "keys": "Return"},
+                {"action": "done", "summary": "too early"},
+            ],
+        },
+        {"action": "done", "summary": "Searched."},
+    )
+    outcome, events = run(hands, model)
+    assert outcome.message == "Searched." and len(model.seen) == 2
+    assert hands.acts() == [
+        ("uia_set_value", {"element": "e20", "value": "python"}),
+        ("key", {"text": "Return"}),
+    ]
+    timing = [e for e in events if e["event"] == "timing"]
+    assert timing[0]["actions"] == 2 and timing[0]["screenshot_sent"] is True
+
+
+def test_a_batch_stops_at_the_first_failure_and_looks() -> None:
+    hands = FakeHands({"uia_tree": RICH_TREE, "uia_invoke": ActionError("gone")})
+    model = Script(
+        {"actions": [{"action": "invoke", "element": "e3"}, {"action": "type", "text": "x"}]},
+        {"action": "done", "summary": "ok"},
+    )
+    run(hands, model)
+    assert hands.acts() == [("uia_invoke", {"element": "e3"})]
+    assert len(model.seen[1][1]["content"]) == 2  # it sees the screen after the failure
+
+
+def test_rich_element_lists_skip_the_screenshot() -> None:
+    hands = FakeHands({"uia_tree": RICH_TREE})
+    model = Script(
+        {"action": "invoke", "element": "e3"},
+        {"action": "click", "x": 5, "y": 5},
+        {"action": "look"},
+        {"action": "done", "summary": "ok"},
+    )
+    outcome, events = run(hands, model)
+    assert outcome.status == "done"
+    shots = [len(m[1]["content"]) == 2 for m in model.seen]
+    assert shots == [True, False, False, True]  # first step, then text only until look
+    assert "No screenshot this time" in model.prompt(1)
+    assert any(e["event"] == "bad_reply" and "look" in e["error"] for e in events)
+    assert hands.acts() == [("uia_invoke", {"element": "e3"})]
+
+
+def test_a_browser_in_front_is_read_from_its_page() -> None:
+    windows = (
+        "2 open window(s), topmost first:\n"
+        '"Jobs - Dice - Brave" · brave.exe · in front\n'
+        '"Relay" · relay.exe · Relay itself, never the target'
+    )
+    calls: list[tuple[str, dict[str, Any]]] = []
+
+    def find(params: dict[str, Any]) -> str:
+        if params.get("role") == "Document":
+            return '1 match(es), best first:\n[e40] Document "Dice" center (1720, 700) box [..]'
+        return "1 match(es), best first:\n[e41] Edit \"Address and search bar\" value='dice.com'"
+
+    def tree(params: dict[str, Any]) -> str:
+        calls.append(("uia_tree", params))
+        return 'Elements (ids ...):\n[e40] Document "Dice"\n  [e42] Edit "Search jobs" {value}'
+
+    hands = FakeHands({"list_windows": windows, "uia_find": find, "uia_tree": tree})
+    model = Script({"action": "done", "summary": "ok"})
+    LocalAgent(hands, model).run("search python jobs on this page")
+    prompt = model.prompt(0)
+    assert "[e41] Edit \"Address and search bar\" value='dice.com'" in prompt
+    assert '[e42] Edit "Search jobs"' in prompt
+    assert calls[0][1] == {"root": "e40", "depth": 40, "interactive": True}
+
+
+def test_a_thinking_block_before_the_json_is_ignored() -> None:
+    reply = '<think>The button {maybe} is here</think>{"action": "key", "keys": "Return"}'
+    assert parse_reply(reply) == {"action": "key", "keys": "Return"}

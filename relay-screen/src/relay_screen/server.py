@@ -229,9 +229,11 @@ def _batch_result(names: list[str], results: list[ActionResult]) -> CallToolResu
     return CallToolResult(content=content, isError=any(r.is_error for r in results))
 
 
-def _ui_task_result(model_id: str, outcome: Outcome) -> CallToolResult:
+def _ui_task_result(
+    model_id: str, outcome: Outcome, step_lines: list[str] | None = None
+) -> CallToolResult:
     lines = [f"Local operator ({model_id}): {outcome.status}. {outcome.message}"]
-    lines += [step.line() for step in outcome.steps]
+    lines += step_lines if step_lines is not None else [step.line() for step in outcome.steps]
     if outcome.status != "done":
         lines.append(
             "Look at the screen (screenshot), then hand ui_task the part that is left as a "
@@ -444,16 +446,27 @@ def build_server(services: Services | None = None) -> FastMCP:
 
     @mcp.tool()
     async def uia_tree(
-        window: str | None = None, depth: int = 6, filter: str | None = None
+        window: str | None = None,
+        depth: int = 6,
+        filter: str | None = None,
+        root: str | None = None,
+        interactive: bool = False,
     ) -> CallToolResult:
         """List the accessibility tree of the foreground window (or the open window whose
         title contains `window`), with bounds in screenshot pixels.
 
         Each element has an id like e12 for uia_invoke / uia_set_value. `filter` keeps
-        only elements whose name, role or automation id contains it. Prefer this and
-        uia_find over screenshots when an app exposes its controls.
+        only elements whose name, role or automation id contains it. `root` lists from an
+        element id instead of the window (for example a web page's Document), and
+        `interactive` keeps only controls that can be acted on. Prefer this and uia_find
+        over screenshots when an app exposes its controls.
         """
-        return await run("uia_tree", {"window": window, "depth": depth, "filter": filter})
+        params = {"window": window, "depth": depth, "filter": filter}
+        if root:
+            params.update(root=root)
+        if interactive:
+            params.update(interactive=True)
+        return await run("uia_tree", params)
 
     @mcp.tool()
     async def uia_find(
@@ -557,15 +570,26 @@ def build_server(services: Services | None = None) -> FastMCP:
         and says so.
         """
         from relay_screen.agent.operator import LocalOperator
+        from relay_screen.agent.service import hand_off
+        from relay_screen.runtime.paths import RelayPaths
         from relay_screen.runtime.supervisor import RuntimeUnavailable
 
+        steps = max_steps or MAX_STEPS
+        try:  # the app's operator service, when Relay is open (D-086)
+            handed = await anyio.to_thread.run_sync(
+                lambda: hand_off(RelayPaths.default().home, task, steps)
+            )
+        except RuntimeUnavailable as exc:
+            return _error(f"The local operator is unavailable: {exc}")
+        if handed is not None:
+            model_id, outcome, lines = handed
+            return _ui_task_result(model_id, outcome, lines)
         s = svc()
         try:
             if s.operator is None:
                 s.operator = LocalOperator()
             operator = s.operator
             computer = s.computer()
-            steps = max_steps or MAX_STEPS
             model_id, outcome = await anyio.to_thread.run_sync(
                 lambda: operator.run(task, computer, steps)
             )
@@ -693,6 +717,10 @@ def main() -> None:
         from relay_screen.agent import cli as agent_cli
 
         sys.exit(agent_cli.main(sys.argv[2:]))
+    if len(sys.argv) > 1 and sys.argv[1] == "operator":
+        from relay_screen.agent import service
+
+        sys.exit(service.main(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "agent-bench":
         from relay_screen.agent import cli as agent_cli
 

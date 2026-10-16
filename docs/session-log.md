@@ -2,6 +2,40 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
+## 2026-10-16 · Operator side complete for the first full build (D-089, D-090)
+- Working straight on `dev` now (owner rule, 00:49).
+- Browsers are read through UI Automation from the page's Document, with the address bar and usable controls only, so no extension is needed (D-089). UIA listings come from one CacheRequest per read.
+- The app list comes from the Shell's AppsFolder over COM. PowerShell is only a fallback (D-090).
+- A new task from the app re-arms the kill switch.
+- Model requests ask for one JSON object with thinking off.
+- The owner's-words approval waits on the owner's answer on a card in this thread.
+- The Rust move of the operator (D-088 item 1) comes after the owner has the first full build. The JSON-lines interface stays the same.
+
+## 2026-10-16 · Operator service and Holo3.1-9B (D-086..D-088)
+- Owner: one complete app, not pieces; at most 2-3 local AIs for the screen; no permissions or setup; Claude only for heavy thinking. They then chose "Full rebuild" on the redesign card (D-088).
+- Plan for the complete version: [complete-plan.md](complete-plan.md). Split agreed with the app thread through the coordinator: it builds the pill overlay, the zero-setup app and the one installer; this thread builds the operator, the models and the event interface.
+- Built `relay-screen operator` (D-086) with:
+  - task/say/stop/route/state/quit over JSON lines;
+  - `ui_task` hand-off over localhost;
+  - foreground and browser awareness;
+  - ask-Claude through the CLI;
+  - plain-words steps.
+- Holo3.1-9B is the operator model (D-087).
+- The owner's-words approval (D-088 item 4) is recorded but not built: the safety classifier stopped the change to the approval gate until the owner confirms it directly.
+- The two old remote branches whose names carry the old reference name could not be deleted from the session (blocked as destructive). Files and dev/main history are clean.
+
+## 2026-10-16 · App side of the full release: popup, operator service, no-click setup
+- Owner: no more installers piece by piece; one complete, working app with no permission prompts and nothing to set up, plus a small popup to talk to Relay while it works. The plan thread builds the always-on local operator; the app side lives here. Version is 0.1.10, not shipped yet.
+- Floating popup (`popup.rs`, `screens/popup.tsx`): appears when Relay steps aside for screen work and opens anytime with Ctrl+Shift+Space. It shows the live step, a Stop button, and a box to redirect Relay. It doesn't take focus until its box is clicked, and it is excluded from screen capture (`WDA_EXCLUDEFROMCAPTURE`), so the operator never sees it.
+- Operator service client (`relay-core/src/operator.rs`): one warm `relay_screen.server operator` process over JSON lines. Chat messages are routed first: screen tasks go to the operator and the rest to Claude. Popup follow-ups go into the running task with `say`, Claude's forwarded `ui_task` steps show in chat, and the app quits the service with Relay. Without the service, chat works as before.
+- The wizard opens the chat by itself once Claude is connected.
+
+## 2026-10-16 · Fast local operator, slice 1 (D-084, D-085)
+- Owner: stop adding documents and make the app work, with millisecond actions driven by the local AI. Built the first slice of the redesign (`/mnt/project-files/relay/redesign/ui-automation-redesign.md` §5 step 2) in relay-screen.
+- One-move tasks (open a site, open or switch to a program) run instantly with no model, even before the model has downloaded. Other tasks get text-only steps when UI Automation covers the window, batches of up to 6 actions per reply, and a `timing` event per step.
+- The operator's llama-server now outlives each chat turn's relay-screen and is adopted by the next one, staying warm at least 15 minutes.
+- 15 new tests. Nothing ran on the PC. Next: the app routes plain screen tasks straight to the operator and shows its steps live, and ships an installer. After that comes the model benchmark, then Tier 3 (operator asks Claude).
+
 ## 2026-10-15 · 0.1.9: the Playwright Extension installs itself
 - Owner on 0.1.7: Relay should install the extension it needs without stopping the work. They chose on the decision card to let the installer set a browser policy (accepting "Managed by your organization").
 - The elevated NSIS post-install hook adds the extension to `ExtensionInstallForcelist` for Brave (all channels, Brave Origin included, read `BraveSoftware\Brave`; checked in Brave Origin's chrome.dll), Chrome and Edge when installed. It uses the first free numbered slot, and a marker in `HKLM\Software\Relay` makes uninstall remove only Relay's entry, keeping the list gap-free.

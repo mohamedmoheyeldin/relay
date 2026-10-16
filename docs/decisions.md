@@ -1273,3 +1273,173 @@ the local AI itself.
 
 - The Playwright Extension's token is pasted into Settings > Browser once.
 - Relay never reads the token from the browser's storage.
+
+## D-084 The local operator works in tiers: instant moves, batched plans, vision on demand
+*2026-10-16 · accepted · owner ("build it", redesign §5 step 2) · amends D-067, D-072*
+
+The owner expects UI actions in milliseconds, not a model call and a
+screenshot per click. The operator (`agent/local.py`) now works in tiers:
+
+- **Tier 0, instant, no model.** One-move tasks run straight away:
+  - "go to dice.com" runs `open_url`;
+  - "switch to Outlook" runs `focus_window`;
+  - "open Notepad" focuses an open Notepad window, or else launches it.
+
+  Anything with more to it ("open Notepad and write hello") goes to the
+  model. So does an instant move that fails. The operator tries tier 0 before
+  checking for a downloaded model, so these tasks work on a fresh install
+  while the model downloads.
+- **Tier 1, text first.** Each step reads the focused window's UI Automation
+  element list.
+  - When the list is rich (8 or more lines), the model gets text only, with no
+    screenshot. It acts by element id.
+  - A position click without a screenshot is refused, and the model is told to
+    look.
+  - The first step, the step after a failure, and any `{"action": "look"}`
+    reply send the screenshot.
+- **Batches.** One reply may plan up to 6 actions (`"actions": [...]`).
+  - They run in order and stop at the first one that fails.
+  - `done` and `fail` count only on their own, after the model has seen the
+    result.
+  - An element id that isn't in the list rejects the whole reply before
+    anything runs.
+- **Timing.** Every step emits a `timing` event with perceive, think and act
+  milliseconds, whether a screenshot was sent, and the number of actions. A
+  slow step can be seen, not guessed at.
+
+Claude stays the planner (D-081). Tier 3, where the operator asks Claude
+mid-task, and a skills recorder come in later slices.
+
+## D-085 The operator's model stays warm across chat turns
+*2026-10-16 · accepted · owner ("milliseconds, not waiting a minute") · amends D-042*
+
+- Claude Code starts a new relay-screen for every chat turn. A model owned by
+  that process loaded again on every `ui_task`, adding seconds to tens of
+  seconds per turn.
+- The operator's llama-server now starts outside the relay-screen process's
+  job (`popen_detached`), so it outlives the turn.
+- Its port, pid and last-use time go in `%LOCALAPPDATA%\Relay\servers\<model>.json`
+  (under RELAY_HOME). A later relay-screen adopts the running server instead of
+  loading again.
+- It stays loaded at least 15 minutes after the last task. The idle setting can
+  only raise that.
+- Any relay-screen that finds a shared server idle stops it, whether or not it
+  started it. A record whose port doesn't answer is dropped.
+- Other local-model uses (bench, CLI) keep the per-process D-042 lifetime.
+- The app should stop the server when Relay quits. That is the app thread's
+  part.
+
+## D-086 The operator runs as a service while Relay is open
+*2026-10-16 · accepted · owner ("fully working application", no pieces) · builds on D-084*
+
+- The app starts `relay-screen operator` once, hidden, and talks to it in JSON
+  lines over stdin/stdout. Commands:
+  - `task`
+  - `say`: a follow-up or correction into the running task; with no task
+    running, a new task that knows the last one
+  - `stop`
+  - `route`: send to the local AI or to Claude
+  - `state`
+  - `quit`
+- Every event carries its task id. A `step` event has a plain-words `say` line
+  for the pill and chat. The full shape is in `agent/service.py`'s docstring.
+- The service keeps the following warm:
+  - the model;
+  - the app catalog;
+  - a foreground-window watch, with the last 20 switches held in memory only
+    and never written to disk;
+  - the browser in front's address, read from its address bar through UIA.
+- It also listens on a localhost port named in `operator.json`, behind a token.
+  Claude's `ui_task` hands its task there when the service is running. That
+  gives one mouse and one operator, and the pill shows Claude's hand-offs
+  too (`"source": "claude"`). Without the service, `ui_task` runs the
+  operator in-process as before.
+- One task runs at a time. A second task while one runs is refused with a
+  message saying to stop the first or add to it.
+- The local AI can ask Claude through the owner's `claude` CLI: one
+  question, text answer, no tools, no MCP servers (D-002). It does this for
+  writing and judgment only, never for where to click.
+- This interface stays the same when the operator moves into relay-core
+  (D-088), so the pill and chat don't change.
+
+## D-087 Holo3.1-9B is the operator's model
+*2026-10-16 · accepted · plan thread, within the owner's "best local AI, 2-3 models at most" · amends D-072*
+
+- Holo3.1-9B is H Company's computer-use model (June 2026, Apache-2.0, Qwen3.5
+  base). It replaces Qwen3-VL-8B as the model Setup downloads and the operator
+  prefers:
+  - Q5_K_M weights, 6.5 GB, with the f16 vision projector, 0.9 GB;
+  - about 8 GB of VRAM with a 16k context.
+- It does both jobs the operator needs: text planning over the element list
+  (D-084) and reading screenshots when UIA can't.
+- The local AI is then one model plus two OS engines, UI Automation and
+  Windows OCR, within the owner's limit of two to three.
+- Qwen3-VL-8B stays in the catalog as a fallback. A second resident model, a
+  grounding specialist, is added only if the benchmark shows misses.
+- Coordinates:
+  - Holo writes pixels of the image it is sent (`coords="pixels"`).
+  - Sent images are now multiples of 32 px, so the vision encoder doesn't
+    resize them again and the pixels map back exactly.
+  - The prompt names the image size each step.
+- Source:
+  - H Company publishes GGUF only for the 35B model. That model needs about
+    20 GB, which doesn't fit 16 GB of VRAM (D-006).
+  - The 9B therefore comes from the community conversion
+    `prithivMLmods/Holo-3.1-9B-GGUF`.
+  - This is an exception to "publisher repos only". The lock file records the
+    exact commit, and the store checks each file's published SHA-256.
+- Planner choice: an explicit Settings choice for the operator wins. The
+  describe/grounding picks no longer override a downloaded planner.
+
+## D-088 Full rebuild: the five redesign choices
+*2026-10-16 · accepted · owner (decision card "Full rebuild", 00:39) · redesign §6*
+
+The owner chose the full rebuild with every recommendation:
+
+1. **Tiered, UIA-first operator, moved into relay-core (Rust).** The Python
+   operator and service (D-084..D-087) are the first stage. relay-core takes
+   over behind the same JSON-lines interface (D-086) and the same MCP tool
+   names (D-009).
+2. **The model stays loaded while Relay runs.** The operator service holds it
+   and frees the VRAM on `quit`. Without the service, the D-085 floor of
+   15 minutes applies.
+3. **The browser extension, its policy install and the token step are
+   removed.** Browsers are driven through UI Automation. The app thread
+   removes the lane and the policy, and cleans up on update.
+4. **The owner's own words count as approval.** When the task itself says
+   send, submit, apply or pay, a matching step runs without a card. A card
+   appears only for irreversible steps the owner didn't ask for.
+   Implementation pending.
+5. **Quick wins first, but no separate release.** The owner gets one
+   complete build.
+
+## D-089 Browsers through UI Automation, read in one cached call
+*2026-10-16 · accepted · owner (redesign §6 item 3, no extension) · builds on D-017, D-088*
+
+- **Web pages.** When a browser is in front, the operator reads the page, not
+  the window chrome:
+  - It finds the web `Document` element and lists it with
+    `uia_tree(root=<id>, interactive=True)`. That keeps only what can be used:
+    fields, buttons, links, checkboxes, list and menu items.
+  - It adds the address bar ("Address and search bar") with its value.
+  - The page gets up to 8000 characters of the prompt.
+- Chromium builds this tree because Relay sets the screen-reader flag (D-017).
+  So Brave, Chrome and Edge need no extension, token or policy.
+- **Cached reads.** `uia_tree` and `uia_find` read each root's whole subtree in
+  one UIA CacheRequest:
+  - name, role, automation id, enabled, bounds and value;
+  - the "pattern available" flags.
+
+  Before, they made a cross-process call for each property of each element.
+  Acting on an element goes to the live element. An app that refuses the
+  cache is read the old way.
+- `uia_tree` gains `root` and `interactive` parameters. It is a Relay tool,
+  not a computer-toolset member, so D-009 is unaffected.
+
+## D-090 The app list comes from the Shell, not PowerShell
+*2026-10-16 · accepted · owner ("why PowerShell") · amends D-030*
+
+- The installed-apps catalog is read from the Shell's `shell:AppsFolder` over
+  COM (`Shell.Application`). That is the folder `Get-StartApps` reads, so the
+  names and AppIDs are the same.
+- PowerShell runs only when COM fails or finds nothing.

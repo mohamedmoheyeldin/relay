@@ -1,78 +1,195 @@
+<div align="center">
+
+<img src="relay-ui/src-tauri/icons/128x128.png" alt="Relay" width="96" height="96">
+
 # Relay
 
 **Local hands, cloud brain.**
 
-Relay is a local-first AI desktop operator for Windows: a "second user" on your
-PC that reads the screen and drives the keyboard and mouse to finish tasks for
-you. Perception and execution run on your own GPU. Judgment (planning, writing,
-recovering when stuck) comes from Claude through your own Claude Code
-subscription login.
+A local-first AI desktop operator for Windows. Relay works your PC the way you
+do, in any program or website, with a fast local AI doing the clicking and
+Claude doing the thinking.
 
-It runs entirely on your own PC, with full access to its hardware and
-software, built for one person. It is not a product and is not meant to be shared
-or run on anyone else's subscription.
+![Platform](https://img.shields.io/badge/platform-Windows%2011-0078D4)
+![Status](https://img.shields.io/badge/status-active%20rebuild-orange)
+![Version](https://img.shields.io/badge/app-0.1.10-informational)
+![License](https://img.shields.io/badge/license-MIT-green)
 
-> Status: **M1 in progress** (relay-screen MCP server). See [docs/roadmap.md](docs/roadmap.md).
+[How it works](#how-it-works) ·
+[Status](#status) ·
+[Getting started](#getting-started) ·
+[Docs](docs/README.md) ·
+[Decisions](docs/decisions.md)
+
+</div>
+
+---
+
+## What Relay is
+
+Relay is a second pair of hands for one Windows PC. You tell it what you want
+in plain words ("open dice.com and search FDE jobs", "attach the PDF from
+Downloads to a reply") and it does the work on your screen while you watch.
+
+It runs on the PC itself, with full access to the hardware and software, and
+needs no extra device:
+
+- **An always-on local operator owns UI and OS automation.** It reads programs
+  directly through Windows UI Automation and acts in milliseconds, using a
+  local model on your own GPU only when it has to look at the screen.
+- **Claude handles only the heavy reasoning.** Planning a long task, writing
+  the text that goes into a form, choosing between ambiguous results. Claude is
+  reached through the official Claude Code CLI on your own subscription.
+- **No permission prompts and no setup.** One installer sets everything up.
+  Relay asks only before a step that can't be undone (send, pay, delete,
+  submit), with a card in the chat.
+- **A small floating popup** lets you hand Relay a task from anywhere and see
+  each step as it happens.
+
+Relay is built for one person on their own machine. It is not a hosted
+service and is not meant to run on anyone else's subscription.
 
 ## How it works
 
 ```
-you ── chat ──▶ relay-ui ──▶ relay-core ──▶ claude -p (your subscription)
-                                │                 │  MCP connectors: Gmail, Calendar, Drive, GitHub ...
-                                │                 ▼
-                                └──────────▶ relay-screen (MCP server)
-                                              screenshot · UIA · OCR · local VLM
-                                              click · type · keys · playbooks
-                                              kill switch · approvals · audit log
-                                                  │
-                                       llama-server on your GPU (VRAM only, unloads when idle)
+ you ── chat / floating popup ──▶ Relay app (Tauri + React)
+                                     │
+                                     ▼
+                     relay-core (Rust)  ── router ───────────────┐
+                                     │                           │ heavy reasoning
+              screen and OS tasks    ▼                           ▼
+        ┌──────────────────────────────────────────┐   Claude Code (official CLI,
+        │ Local operator                           │   your subscription login)
+        │  Tier 0  instant moves, no model  1-100ms│     + MCP connectors
+        │  Tier 1  text planner over the UIA map,  │       (Gmail, Calendar, Drive …)
+        │          several actions per call        │
+        │  Tier 2  GUI vision model, only when the │
+        │          element map can't find the      │
+        │          target                          │
+        │  Tier 3  ask Claude when it needs        │
+        │          judgment                        │
+        │                                          │
+        │  Perception: UI Automation, OCR, capture │
+        │  Hands: UIA patterns first, SendInput    │
+        │  Safety: kill switch, audit log          │
+        └───────────────────┬──────────────────────┘
+                            ▼
+              local model on your GPU (llama.cpp, kept warm in VRAM)
 ```
 
-- **Services via MCP, pixels last.** Anything with an API goes through Claude Code connectors.
-- **Cheapest target first:** API → Windows UI Automation → OCR → local vision model → Claude with a screenshot.
-- **Playbooks, not training.** Every successful screen task is saved as a markdown playbook; the next run follows it without a cloud call.
-- **You stay in charge.** You do every login, approve irreversible actions, and moving the mouse to the top-left corner stops Relay instantly.
+- **Read the app, not the pixels.** Windows UI Automation gives exact names,
+  roles, positions and actions for most programs, including Chromium browsers.
+  Screenshots and the vision model are the fallback, not the default.
+- **Cheapest reliable path first:** connector or API, then UI Automation, then
+  OCR, then the local vision model, then Claude with a screenshot.
+- **Batches, not one click per round trip.** One model call plans several
+  actions; each is checked before it runs and the batch stops at the first
+  surprise.
+- **Your browser, your logins.** Relay works in the browser and accounts you
+  are already signed in to. You always do your own logins.
+- **Stop at any time.** Moving the mouse into the top-left corner, or pressing
+  Ctrl+Alt+Pause, stops Relay instantly. Every action is written to a local
+  audit log.
 
-Full design: [docs/architecture.md](docs/architecture.md). Why things are the way they are: [docs/decisions.md](docs/decisions.md).
+The full design is in [docs/architecture.md](docs/architecture.md) and every
+non-obvious choice is recorded in [docs/decisions.md](docs/decisions.md).
 
-## Repository layout
+## Status
 
-| Path | What |
+Relay is being rebuilt around the local operator. The table is honest about
+what runs today and what is still being built.
+
+| Area | State |
 |---|---|
-| `relay-screen/` | MCP server: computer-use toolset, UI Automation, OCR, local VLM, safety (M1) |
-| `relay-core/` | Orchestrator and router: service / screen / judgment lanes (M2) |
-| `relay-ui/` | Tauri tray app and chat window (M3) |
-| `playbooks/` | Your saved playbooks (gitignored except `examples/`) |
-| `config/` | Example config (`profile.example.yaml`) |
-| `tests/e2e/` | End-to-end demos and the local test form site |
-| `scripts/` | Dev and demo scripts |
-| `docs/` | Architecture, decisions log, roadmap, plans, research, session log |
+| **relay-screen** MCP server: the computer-use toolset with batch, multi-monitor screenshots and zoom, UI Automation, Windows OCR, app and window discovery, `open_url`, kill switch, audit log | ✅ Built and checked on a real PC |
+| **Local operator** (`ui_task`): instant Tier 0 moves, text-first Tier 1 over the element list, batches of up to 6 actions, per-step timing (D-084) | ✅ Built |
+| Operator runs as a background service while Relay is open, model kept warm in VRAM, follow-ups and Stop while a task runs (D-085, D-086) | ✅ Built |
+| **Holo3.1-9B** as the operator's model, for both text planning and screenshots (D-087) | ✅ Built, benchmark pending |
+| Browsers driven through UI Automation with one cached read per page, no extension needed (D-089) | ✅ Built |
+| App catalog read natively from the Shell, no PowerShell (D-090) | ✅ Built |
+| **Floating popup**: live step, Stop and a box to redirect Relay, opened with Ctrl+Shift+Space | ✅ Built |
+| **Desktop app** 0.1.10: chat with streamed replies, Claude sign-in inside the app, local model picker and download, MCP hub, Settings, in-chat approval cards for irreversible steps | ✅ Built |
+| Claude limited to planning and reasoning, with no shell, scripts or direct clicks in chat (D-081) | ✅ Built |
+| **Windows installer** (`Relay-Setup.exe`) that installs Claude Code, the runtime and the model | 🔨 Final build waits for the rebuild |
+| Removing the old browser-extension lane and its policy install | 🔨 In progress |
+| Your own words count as approval ("send", "submit", "pay") (D-088) | 🔨 In progress |
+| Operator moved into relay-core (Rust) with always-on live perception | 🔨 In progress |
+| Skills recorded from successful runs and replayed at Tier 0 | 📋 Planned |
+| Signed auto-updates | 📋 Planned |
 
-## Quick start (developers, M1)
+The target is 95% task success on the operator benchmark
+(`relay-screen agent-bench`, D-068), with typical tasks taking seconds.
+See [docs/roadmap.md](docs/roadmap.md) for milestones.
 
-Requires Windows 11, an NVIDIA GPU, [Claude Code](https://code.claude.com/docs) logged in, and [uv](https://docs.astral.sh/uv/).
+## Getting started
+
+### Requirements
+
+- Windows 11
+- An NVIDIA GPU (developed on an RTX 5080 with 16 GB of VRAM)
+- A Claude subscription; Relay's setup installs and signs in to Claude Code
+  for you
+
+### Install
+
+A one-click installer ships once the rebuild is complete. Until then, run
+Relay from source.
+
+### Run from source (developers)
+
+You need [uv](https://docs.astral.sh/uv/) for Python 3.12, plus Rust and
+[pnpm](https://pnpm.io/) for the app.
 
 ```powershell
-cd C:\Projects
 git clone https://github.com/mohamedmoheyeldin/relay
 cd relay
 git switch dev
 uv sync
-uv run pytest
-claude          # approve the "relay-screen" project MCP server, then try: "take a screenshot"
+uv run python scripts/check.py      # ruff, format, pyright, pytest (+ Rust and app checks when installed)
+
+cd relay-ui
+pnpm install
+pnpm tauri dev                      # start the desktop app
 ```
 
-Details: [docs/setup.md](docs/setup.md).
+To use relay-screen from Claude Code directly, run `claude` in the repository
+and approve the `relay-screen` project MCP server. More detail in
+[docs/setup.md](docs/setup.md).
 
-## Branches
+## Repository layout
 
-`main` holds stable releases. All work lands on `dev` through feature-branch PRs and is promoted to `main` at milestone ends.
+| Path | What it holds |
+|---|---|
+| [`relay-screen/`](relay-screen/) | Python MCP server: computer-use tools, UI Automation, OCR, safety, and the local operator |
+| [`relay-core/`](relay-core/) | Rust library: Claude Code driver, MCP hub, model catalog, downloads and runtime, settings |
+| [`relay-ui/`](relay-ui/) | Desktop app: Tauri 2 + React + TypeScript |
+| [`relay-setup/`](relay-setup/) | The small setup app that wraps the installer |
+| [`playbooks/`](playbooks/) | Saved task playbooks (only `examples/` is committed) |
+| [`config/`](config/) | Example configuration |
+| [`scripts/`](scripts/) | Local checks, desktop checks and the installer build |
+| [`tests/e2e/`](tests/e2e/) | End-to-end demos and a local test form site |
+| [`docs/`](docs/) | Architecture, decisions, roadmap, research and session log |
 
-## Ground rules
+## Development
 
-- Claude is reached only through the official `claude` CLI with your own login. Relay never calls the Anthropic API and never touches your OAuth token.
-- No credentials in the repo. Personal data (playbooks, `profile.yaml`, run logs, screenshots, `.env`) is gitignored.
+- Work happens on feature branches, merged into `dev` by pull request, then
+  promoted from `dev` to `main` for stable versions.
+- There are no GitHub Actions. `uv run python scripts/check.py` must pass
+  before every push and merge (D-050).
+- Windows-only code imports lazily so lint and tests run on any OS. Tests that
+  need a real desktop are marked `@pytest.mark.desktop` and run only on request.
+- New design decisions get a new entry in [docs/decisions.md](docs/decisions.md);
+  old entries are never rewritten.
+
+## Privacy and ground rules
+
+- Claude is reached only through the official `claude` CLI with your own
+  login. Relay never calls the Anthropic API and never reads or stores your
+  OAuth token.
+- Screen work, perception and the local model stay on your PC.
+- No credentials in the repository. Personal data (playbooks, `profile.yaml`,
+  run logs, screenshots, `.env`) is gitignored.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+[MIT](LICENSE) © 2026 Mohamed Moheyeldin

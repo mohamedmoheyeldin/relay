@@ -26,8 +26,18 @@ class ModelSpec:
 
 
 CATALOG: tuple[ModelSpec, ...] = (
-    # GGUF sources for the GUI models are picked with the M1-11 benchmark; only
-    # publisher-owned repos go here, so a lookalike repo can't serve weights.
+    # GGUF sources: the publisher's own repo, or, where the publisher ships no GGUF,
+    # one named community conversion of its Apache-2.0 weights (D-087). The lock file
+    # records the exact commit each download came from.
+    ModelSpec(
+        "holo-3.1-9b",
+        "Holo3.1-9B",
+        "both",
+        "prithivMLmods/Holo-3.1-9B-GGUF",
+        quant="Q5_K_M",
+        context=16384,
+        coords="pixels",
+    ),
     ModelSpec("ui-venus-1.5-8b", "UI-Venus-1.5-8B", "locate", None),
     ModelSpec("holo2-8b", "Holo2-8B", "both", None),
     ModelSpec("holo2-4b", "Holo2-4B", "both", None),

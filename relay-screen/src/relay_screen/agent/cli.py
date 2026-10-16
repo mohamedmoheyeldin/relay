@@ -41,8 +41,14 @@ from relay_screen.runtime.supervisor import (
 
 # Models that can plan as well as point, best first (D-067). Grounding-only models
 # (role "locate") can still be picked by hand with --model.
-PLANNER_ORDER = ("qwen3-vl-8b-instruct", "holo2-8b", "holo2-4b", "ui-venus-1.5-8b")
-REPLY_TOKENS = 400
+PLANNER_ORDER = (
+    "holo-3.1-9b",  # D-087: the operator's model
+    "qwen3-vl-8b-instruct",
+    "holo2-8b",
+    "holo2-4b",
+    "ui-venus-1.5-8b",
+)
+REPLY_TOKENS = 700  # a batch of 6 actions with its thought fits (D-084)
 REPLY_TIMEOUT = 180.0
 
 
@@ -54,19 +60,27 @@ def pick_model(
         if wanted not in installed:
             raise RuntimeUnavailable(f"Model {wanted} is not downloaded")
         return wanted
-    for key in ("agent", "describe", "grounding"):
+
+    def chosen(key: str) -> str | None:
         choice = settings.get(key)
         model_id = choice.get("model_id") if isinstance(choice, dict) else None
-        if isinstance(model_id, str) and model_id in installed:
-            return model_id
+        return model_id if isinstance(model_id, str) and model_id in installed else None
+
+    # An explicit operator choice wins; the describe/grounding picks are for looking,
+    # so a downloaded planner comes before them (D-087).
+    if found := chosen("agent"):
+        return found
     for model_id in PLANNER_ORDER:
         if model_id in installed:
             return model_id
+    for key in ("describe", "grounding"):
+        if found := chosen(key):
+            return found
     if installed:
         return sorted(installed)[0]
     raise RuntimeUnavailable(
         "No local model is downloaded. Download one in Settings > Local AI "
-        "(relay-screen models download qwen3-vl-8b-instruct)."
+        "(relay-screen models download holo-3.1-9b)."
     )
 
 
@@ -80,7 +94,16 @@ def llama_model(url: str) -> Model:
 
     def ask(messages: list[dict[str, Any]]) -> str:
         body = json.dumps(
-            {"messages": messages, "max_tokens": REPLY_TOKENS, "temperature": 0}
+            {
+                "messages": messages,
+                "max_tokens": REPLY_TOKENS,
+                "temperature": 0,
+                # One JSON object, no thinking pass: Qwen3.5-based models like Holo3.1
+                # think first by default, which costs seconds per step (D-087).
+                "response_format": {"type": "json_object"},
+                "chat_template_kwargs": {"enable_thinking": False},
+                "cache_prompt": True,
+            }
         ).encode()
         request = urllib.request.Request(
             f"{url}/v1/chat/completions", body, {"Content-Type": "application/json"}
