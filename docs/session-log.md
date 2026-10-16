@@ -2,6 +2,10 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
+## 2026-10-16 · Fixes from the 0.1.10 test (D-092)
+- `state` now reports the topmost Brave window and its address even when another program, such as a PowerShell window, is in front. It also never answers with an empty foreground before the first poll.
+- `relay-screen runtime try holo-3.1-9b` turns thinking off and strips think blocks, so the check returns text.
+
 ## 2026-10-16 · App side: browser lane removed, Holo3.1-9B by default
 - Brave is driven through UI Automation now (D-089), so the Playwright browser lane is gone: no relay-browser MCP entry, no extension token step, no Browser page in Settings or setup. On start Relay removes the old relay-browser entry, its paused entry and the stored token.
 - The installer no longer adds the extension by policy. Install and uninstall both remove the ExtensionInstallForcelist entry earlier versions added, keeping the list gap-free.

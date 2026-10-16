@@ -126,7 +126,13 @@ class Running:
 
 
 class Awareness:
-    """What the owner is doing, from the window list: kept in memory only (D-086)."""
+    """What the owner is doing, from the window list: kept in memory only (D-086).
+
+    The window in front can be one the list leaves out (a console host, a tool
+    window) or Relay itself; then the topmost other window stands in for it. The
+    browser is the topmost browser window wherever it is in the stack, so its
+    address is known while another program is in front (D-092).
+    """
 
     def __init__(self, hands: Hands, clock: Callable[[], float] = time.time) -> None:
         self.hands = hands
@@ -134,6 +140,7 @@ class Awareness:
         self.recent: deque[dict[str, Any]] = deque(maxlen=RECENT)
         self.windows: list[str] = []
         self.foreground = ""
+        self.polled: float | None = None
         self._lock = threading.Lock()
 
     def poll(self) -> None:
@@ -142,36 +149,50 @@ class Awareness:
         except Exception:
             return
         lines = [line for line in listing.splitlines()[1:] if " · " in line]
-        front = next(
-            (line for line in lines if "in front" in line and "Relay itself" not in line), ""
-        )
+        others = [line for line in lines if "Relay itself" not in line]
+        front = next((line for line in others if "in front" in line.split(" · ")), "")
+        relay_in_front = any("in front" in line.split(" · ") for line in lines)
+        if not front and others and not (relay_in_front and self.foreground):
+            front = others[0]  # the real front window is not listed, or it is Relay
         with self._lock:
             self.windows = lines
-            if front and front != self.foreground:
-                self.foreground = front
+            self.polled = self.clock()
+            if front and _title(front) != _title(self.foreground):
                 self.recent.append({"at": round(self.clock()), "window": _title(front)})
+            if front:
+                self.foreground = front
+
+    def browser(self) -> str:
+        """The topmost open browser window's line, in front or not."""
+        with self._lock:
+            lines = list(self.windows)
+        return next((line for line in lines if _exe(line) in BROWSERS), "")
 
     def browser_url(self) -> str | None:
-        """The address in the browser in front, read from its address bar through UIA."""
-        front = self.foreground
-        parts = front.split(" · ")
-        exe = parts[1].casefold().removesuffix(".exe") if len(parts) > 1 else ""
-        if exe not in BROWSERS:
+        """The address in the topmost browser window, read from its address bar through UIA."""
+        line = self.browser()
+        if not line:
             return None
+        params = {"query": ADDRESS_BAR, "window": _title(line)}
         try:
-            found = self.hands.run("uia_find", {"query": ADDRESS_BAR}).text or ""
+            found = self.hands.run("uia_find", params).text or ""
         except Exception:
             return None
         match = re.search(r"value='([^']*)'", found) or re.search(r'value="([^"]*)"', found)
         return match.group(1) if match else None
 
     def snapshot(self) -> dict[str, Any]:
+        if self.polled is None or self.clock() - self.polled >= POLL_SECONDS:
+            self.poll()  # asked before the first poll, or the poller fell behind
+        url = self.browser_url()
+        browser = self.browser()
         with self._lock:
             return {
                 "foreground": _title(self.foreground),
                 "windows": [_title(w) for w in self.windows[:15]],
                 "recent": list(self.recent),
-                "browser_url": self.browser_url(),
+                "browser": _title(browser) if browser else None,
+                "browser_url": url,
             }
 
     def start(self, stopping: threading.Event) -> None:
@@ -182,8 +203,18 @@ class Awareness:
         threading.Thread(target=loop, name="relay-awareness", daemon=True).start()
 
 
+def _exe(line: str) -> str:
+    parts = line.split(" · ")
+    return parts[1].casefold().removesuffix(".exe") if len(parts) > 1 else ""
+
+
 def _title(line: str) -> str:
-    return line.split(" · ", 1)[0].strip().strip('"')
+    head = line.split(" · ", 1)[0].strip()
+    try:
+        title = json.loads(head)
+    except ValueError:
+        return head.strip('"')
+    return title if isinstance(title, str) else head
 
 
 def claude_exe() -> str | None:

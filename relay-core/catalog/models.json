@@ -11,10 +11,10 @@
       "quants": [
         {
           "quant": "Q5_K_M",
-          "size": 6500000000
+          "size": 6467970528
         }
       ],
-      "mmproj_size": 900000000
+      "mmproj_size": 921705568
     },
     {
       "id": "ui-venus-1.5-8b",
