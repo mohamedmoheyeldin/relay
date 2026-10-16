@@ -109,7 +109,8 @@ pub struct RunHandle {
 }
 
 impl RunHandle {
-    pub(crate) fn new(events: mpsc::Receiver<AiEvent>, cancel: CancellationToken) -> Self {
+    /// Build a handle around an event channel and a cancellation token (used by providers).
+    pub fn new(events: mpsc::Receiver<AiEvent>, cancel: CancellationToken) -> Self {
         Self { events, cancel }
     }
 

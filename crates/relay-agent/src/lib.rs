@@ -1,14 +1,9 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+//! Relay's orchestrator: runs one task at a time through an AI provider, wiring in the desktop
+//! tools, confirmations and the stop switch, and reporting progress as chat events.
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+pub mod agent;
+pub mod bridge;
+pub mod prompt;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub use agent::{Agent, AgentConfig, SubmitError};
+pub use bridge::{ConfirmBridge, EventSink};

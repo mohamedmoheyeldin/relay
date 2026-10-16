@@ -6,6 +6,20 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+async-trait = "0.1"
+relay-ai = { path = "../relay-ai" }
+relay-mcp = { path = "../relay-mcp" }
+relay-protocol = { path = "../relay-protocol" }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "sync", "time", "fs"] }
+tokio-util = "0.7"
+tracing = "0.1"
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+relay-os = { path = "../relay-os", features = ["testing"] }
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
 
 [lints]
 workspace = true
