@@ -233,7 +233,10 @@ def _ui_task_result(model_id: str, outcome: Outcome) -> CallToolResult:
     lines = [f"Local operator ({model_id}): {outcome.status}. {outcome.message}"]
     lines += [step.line() for step in outcome.steps]
     if outcome.status != "done":
-        lines.append("Look at the screen (screenshot) before carrying on with the direct tools.")
+        lines.append(
+            "Look at the screen (screenshot), then hand ui_task the part that is left as a "
+            "narrower goal, saying what you saw."
+        )
     text = "\n".join(lines)
     return CallToolResult(
         content=[TextContent(type="text", text=text)], isError=outcome.status != "done"
@@ -245,10 +248,11 @@ def build_server(services: Services | None = None) -> FastMCP:
     mcp = FastMCP(
         SERVER_NAME,
         instructions=(
-            "Relay's hands on this Windows PC. Coordinates are screenshot pixels of the "
-            "active display (see list_displays). Prefer UI Automation and OCR tools before "
-            "vision. Use batch to run several computer actions in one call. ui_task hands a "
-            "whole UI task to the local operator, which works on this PC on its own. To "
+            "Relay's hands on this Windows PC. ui_task hands a whole task on the screen, in "
+            "any program or website, to Relay's local AI, which does it on this PC on its "
+            "own; give it one goal at a time in plain words. Coordinates are screenshot "
+            "pixels of the active display (see list_displays). Prefer UI Automation and OCR "
+            "tools before vision. Use batch to run several computer actions in one call. To "
             "work in a program that is already open, focus_window it first (list_windows "
             "shows what is open); never click taskbar buttons or act on Relay's own window. "
             "When the owner says go to, open, search on or use a site or app, do it on "
@@ -550,7 +554,7 @@ def build_server(services: Services | None = None) -> FastMCP:
         what to write, whether it worked) for yourself. Describe one goal in plain words
         with the app's or site's name. Approvals and the kill switch apply to every
         action. If the local model is not there yet, Relay starts setting it up by itself
-        and says so; do this task with the direct tools meanwhile, without asking.
+        and says so.
         """
         from relay_screen.agent.operator import LocalOperator
         from relay_screen.runtime.supervisor import RuntimeUnavailable

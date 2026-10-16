@@ -274,7 +274,7 @@ def test_operator_needs_a_downloaded_model(tmp_path: Any, monkeypatch: pytest.Mo
     try:
         with pytest.raises(RuntimeUnavailable, match="downloading the local model runtime and"):
             operator.run("open notepad", FakeHands(), 5)
-        with pytest.raises(RuntimeUnavailable, match="direct tools"):
+        with pytest.raises(RuntimeUnavailable, match="ready once the download finishes"):
             operator.run("open notepad", FakeHands(), 5)
         assert len(started) == 1  # a second task doesn't start a second download
     finally:
