@@ -1805,3 +1805,12 @@ Round 9 (16 of 22) added:
 - **A bare launch_app** opens the program the plan named.
 - `RELAY_POINT_FALLBACK=0` turns off the listed-centre and raw-point fallbacks,
   so a run measures the model's own position clicks (with D-108's frames).
+
+Round 10 added:
+- **Dropdown options are picked by typing.** A list item inside a dropdown
+  (a ComboBox in the element list) is chosen the way a person does: Escape,
+  click the box, type the option's name, Enter. Invoke and Select both said
+  OK on the web form and left "Choose..." picked.
+- **Each step records what the model was shown**: a "seen" event with the
+  window in front and the top of the element list, for Diagnostics. The chat
+  ignores it.

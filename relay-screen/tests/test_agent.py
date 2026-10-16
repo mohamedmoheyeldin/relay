@@ -81,7 +81,12 @@ class Script:
 
 def run(hands: FakeHands, model: Script, **kw: Any):
     events: list[dict[str, Any]] = []
-    outcome = LocalAgent(hands, model, on_event=events.append, **kw).run("write hello")
+
+    def keep(event: dict[str, Any]) -> None:
+        if event["event"] != "seen":  # what the model was shown, every step
+            events.append(event)
+
+    outcome = LocalAgent(hands, model, on_event=keep, **kw).run("write hello")
     return outcome, events
 
 
@@ -253,6 +258,10 @@ def test_uses_the_element_list_when_ui_automation_can_read_the_window() -> None:
     assert any(e["event"] == "bad_reply" and "e9" in e["error"] for e in events)
     assert '[e5] Document "Text editor"' in model.prompt(0)
     assert events[0]["action"] == 'set_value e5 = "hello"'
+    seen = LocalAgent(hands, Script(done()), on_event=events.append)
+    events.clear()
+    seen.run("write hello")
+    assert events[0]["event"] == "seen" and "[e5]" in events[0]["elements"]
     with pytest.raises(ReplyError, match="element id"):
         to_member({"action": "invoke", "element": "Save"}, Frame.from_png(png()), "rel1000")
 
@@ -1124,3 +1133,28 @@ def test_a_launch_app_with_no_name_opens_the_planned_program() -> None:
     hands = FakeHands({"launch_app": "Opened Notepad"})
     run(hands, Script({"action": "launch_app"}, done(), plan=plan))
     assert ("launch_app", {"name": "Notepad", "args": []}) in hands.acts()
+
+
+def test_a_dropdown_option_is_picked_by_typing_its_name() -> None:
+    # Round 10: invoking "Blue" under the Colour box said OK and left it unpicked (D-106).
+    page = (
+        'Elements (ids ...):\n[e1] Document "Relay form" center (500, 300)\n'
+        '  [e4] ComboBox "Colour" {expand} center (870, 145) box [850, 137, 898, 154]\n'
+        "    [e5] List center (870, 170)\n"
+        '      [e6] ListItem "Blue" {select} center (870, 180)\n'
+        '  [e7] ListItem "Loose" {select} center (10, 10)'
+    )
+    hands = FakeHands({"uia_tree": page})
+    model = Script(
+        {"action": "invoke", "element": "e6"},
+        {"action": "invoke", "element": "e7"},
+        done(),
+    )
+    run(hands, model)
+    assert hands.acts() == [
+        ("key", {"text": "Escape"}),
+        ("left_click", {"coordinate": [870, 145]}),
+        ("type", {"text": "Blue"}),
+        ("key", {"text": "Return"}),
+        ("uia_invoke", {"element": "e7"}),  # not in a dropdown: invoked as before
+    ]

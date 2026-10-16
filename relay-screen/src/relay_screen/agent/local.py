@@ -41,6 +41,7 @@ ALIGN = 32  # sent sizes are multiples of the vision patch grid, so pixel models
 # so the model sees exactly the image whose pixels it answers in.
 MIN_IMAGE_TOKENS = 1024
 MAX_BAD_REPLIES = 3
+SEEN_CHARS = 400  # of the element list, in each step's "seen" event
 FAILS_IN_A_ROW = 3  # failed steps in a row before the model is told to change approach
 STUCK_REPEATS = 3  # the same action with no visible change this many times in a row
 MAX_TEXT = 2000
@@ -727,7 +728,9 @@ def _typed_key(params: Mapping[str, Any]) -> str:
 
 
 def _center(elements: str, element_id: str) -> list[int] | None:
-    found = re.search(rf"^\[{re.escape(element_id)}\] .*?center \((\d+), (\d+)\)", elements, re.M)
+    found = re.search(
+        rf"^\s*\[{re.escape(element_id)}\] .*?center \((\d+), (\d+)\)", elements, re.M
+    )
     return [int(found.group(1)), int(found.group(2))] if found else None
 
 
@@ -781,6 +784,33 @@ def _picked(elements: str, element_id: str) -> str:
     if found is None or found.group(1) not in PICK_ROLES:
         return ""
     return f'{found.group(1)} "{found.group(2)}"'
+
+
+LISTING_LINE = re.compile(r'^(\s*)\[(e\d+)\] (\w+)(?: "([^"]*)")?')
+
+
+def _dropdown_option(elements: str, element_id: str) -> tuple[str, list[int]] | None:
+    """('Blue', centre of its ComboBox) when the element is an option inside a dropdown."""
+    lines = elements.splitlines()
+    for i, line in enumerate(lines):
+        found = LISTING_LINE.match(line)
+        if found is None or found.group(2) != element_id:
+            continue
+        if found.group(3) != "ListItem" or not found.group(4):
+            return None
+        indent = len(found.group(1))
+        for above in reversed(lines[:i]):
+            parent = LISTING_LINE.match(above)
+            if parent is None or len(parent.group(1)) >= indent:
+                continue
+            if parent.group(3) == "ComboBox":
+                centre = _center(elements, parent.group(2))
+                return (found.group(4), centre) if centre else None
+            if parent.group(3) not in ("List", "Group", "Pane"):
+                return None
+            indent = len(parent.group(1))
+        return None
+    return None
 
 
 def _element_label(elements: str, element_id: str) -> str:
@@ -966,6 +996,10 @@ class LocalAgent:
             windows = self._windows()
             elements = self._elements(windows)
             self.elements = elements
+            front = next((w for w in windows.splitlines() if "in front" in w.split(" · ")), "")
+            # What the model is shown, for Diagnostics: the window in front and the top
+            # of its element list (D-106).
+            self.emit({"event": "seen", "front": front, "elements": elements[:SEEN_CHARS]})
             show = look or not _rich(elements)
             frame = Frame.from_png(self._screenshot()) if show else None
             screen_text = self._screen_text() if _few(elements) else ""
@@ -1475,6 +1509,9 @@ class LocalAgent:
     def _invoke(self, element: str) -> ActionResult:
         """Press an element; one with no press action (an address bar) gets a click on its
         center instead, so the model doesn't have to work that out (D-093)."""
+        option = _dropdown_option(self.elements, element)
+        if option is not None:
+            return self._pick_option(*option)
         try:
             return self.hands.run("uia_invoke", {"element": element})
         except ActionError as exc:
@@ -1483,6 +1520,19 @@ class LocalAgent:
                 raise
         self._bring_back()
         return self.hands.run("left_click", {"coordinate": point})
+
+    def _pick_option(self, name: str, box: list[int]) -> ActionResult:
+        """Choose a dropdown option the way a person does: open the box, type the
+        option's name, press Enter (D-106). Invoking or selecting a web page's option
+        said OK but left "Choose..." picked, and the form went without its colour."""
+        self._wait_for_owner()
+        self._bring_back()
+        self.hands.run("key", {"text": "Escape"})  # a popup left open from before
+        self.hands.run("left_click", {"coordinate": box})
+        self.hands.run("type", {"text": name})
+        result = self.hands.run("key", {"text": "Return"})
+        self.last_input = time.monotonic()
+        return ActionResult(f"Picked {json.dumps(name, ensure_ascii=False)} · {result.text}")
 
     def _wait_for_owner(self) -> None:
         """Let the owner finish what they are doing before Relay moves the real mouse
