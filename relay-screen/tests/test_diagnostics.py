@@ -489,3 +489,10 @@ def test_library_lists_one_reserve_button_per_matching_copy() -> None:
     assert found.count(">Reserve<") == 3 and 'value="dune-paperback"' in found
     assert "Foundation" not in found
     assert "Reserved: Dune" in site_page("/reserved", {"book": "dune-paperback"})
+
+
+def test_a_test_tab_that_will_not_close_is_tried_twice_then_left() -> None:
+    hands = FakeHands({"uia_find": "No match"})
+    desktop = FakeDesktop(hands, {2: "*First line 010427 - Notepad"})
+    assert diag.close_test_docs(tools(FakeLink(), hands, desktop=desktop)) == 2
+    assert hands.calls.count(("key", {"text": "Escape"})) == 2

@@ -743,13 +743,24 @@ def close_test_docs(tools: Tools) -> int:
     scenarios worked in those leftover tabs: four of round 9's six failures (D-106).
     """
     closed = 0
+    tried: dict[str, int] = {}
     for _ in range(MAX_TEST_DOCS):
         titles = tools.desktop.titles().values()
-        doc = next((t for t in titles if t.endswith(" - Notepad") and TEST_DOC.match(t)), None)
+        doc = next(
+            (
+                t
+                for t in titles
+                if t.endswith(" - Notepad") and TEST_DOC.match(t) and tried.get(t, 0) < 2
+            ),
+            None,
+        )
         if doc is None:
             break
+        tried[doc] = tried.get(doc, 0) + 1
         try:
             tools.hands.run("focus_window", {"window": doc})
+            # A Save as dialog left by a failed save blocks the tab; Escape shuts it.
+            tools.hands.run("key", {"text": "Escape"})
             tools.hands.run("key", {"text": "ctrl+w"})
             tools.sleep(0.6)
             found = tools.hands.run("uia_find", {"query": "Don", "role": "Button"}).text or ""
