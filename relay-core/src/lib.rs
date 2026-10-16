@@ -9,6 +9,7 @@ pub mod catalog;
 pub mod chat;
 pub mod chats;
 pub mod claude;
+pub mod diagnostics;
 pub mod doctor;
 pub mod download;
 pub mod gpu;

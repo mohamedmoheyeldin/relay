@@ -12,7 +12,8 @@ use tauri_plugin_opener::OpenerExt;
 use relay_core::operator::{Operator, Route};
 use relay_core::settings::{ActiveModel, Settings};
 use relay_core::{
-    catalog, chat, chats, claude, doctor, gpu, local_agent, local_ai, mcp, paths, system, updates,
+    catalog, chat, chats, claude, diagnostics, doctor, gpu, local_agent, local_ai, mcp, paths,
+    system, updates,
 };
 
 use crate::jobs;
@@ -78,6 +79,9 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
         playbooks_list,
         playbook_delete,
         doctor_run,
+        diagnostics_run,
+        diagnostics_stop,
+        diagnostics_latest,
         update_check,
         update_install,
         setup_complete,
@@ -1065,6 +1069,35 @@ async fn doctor_run(app: AppHandle) -> DoctorResult {
         report: doctor::report(&checks),
         checks,
     }
+}
+
+/// The full test run (D-096). Its events reach the UI as `diagnostics` events; the
+/// job ends when the run does.
+#[tauri::command]
+fn diagnostics_run(app: AppHandle, only: Option<Vec<String>>) -> Res<String> {
+    let python = state::python_path(&app).ok_or("Relay's Python is missing; reinstall Relay.")?;
+    let settings = app.state::<AppState>().settings();
+    let folder = diagnostics::root();
+    let app2 = app.clone();
+    jobs::spawn(&app, "diagnostics", move |_r, cancel| async move {
+        let only = only.unwrap_or_default();
+        diagnostics::run(&python, &settings, &only, &cancel, move |event| {
+            let _ = app2.emit("diagnostics", event);
+        })
+        .await?;
+        Ok(())
+    })?;
+    Ok(folder.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+fn diagnostics_stop(app: AppHandle) {
+    jobs::cancel(&app, "diagnostics");
+}
+
+#[tauri::command]
+fn diagnostics_latest() -> Option<serde_json::Value> {
+    diagnostics::latest()
 }
 
 #[tauri::command]

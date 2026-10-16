@@ -58,6 +58,9 @@ from relay_screen.agent.local import (
 from relay_screen.runtime.supervisor import RuntimeUnavailable
 
 Write = Callable[[dict[str, Any]], None]
+# Tasks in the owner's own words: from the app, or a diagnostics run they started
+# (D-096). Their risky words count as approval (D-091) and they re-arm the kill switch.
+OWNER_SOURCES = ("app", "diagnostics")
 
 POLL_SECONDS = 1.0  # foreground watch
 RECENT = 20  # foreground changes kept in memory (never written to disk)
@@ -121,6 +124,7 @@ class Running:
     text: str
     source: str
     write: Write
+    offline: bool = False  # the local AI may not ask Claude (diagnostics, D-096)
     notes: list[str] = field(default_factory=list)
     stop: threading.Event = field(default_factory=threading.Event)
     lock: threading.Lock = field(default_factory=threading.Lock)
@@ -314,7 +318,8 @@ class OperatorService:
         cid = str(command.get("id") or self._new_id())
         text = str(command.get("text") or "").strip()
         if op == "task":
-            return self.start(cid, text, out, str(command.get("source") or "app"))
+            offline = command.get("offline") is True
+            return self.start(cid, text, out, str(command.get("source") or "app"), offline)
         if op == "say":
             return self.say(cid, text, out)
         if op == "stop":
@@ -341,19 +346,21 @@ class OperatorService:
         out({"id": cid, "event": "error", "message": f"unknown op {op!r}"})
         return None
 
-    def start(self, cid: str, text: str, write: Write, source: str) -> threading.Thread | None:
+    def start(
+        self, cid: str, text: str, write: Write, source: str, offline: bool = False
+    ) -> threading.Thread | None:
         if not text:
             write({"id": cid, "event": "failed", "message": "The task is empty.", "steps": 0})
             return None
         with self._lock:
             busy = self.running is not None
             if not busy:
-                self.running = Running(cid, text, source, write)
+                self.running = Running(cid, text, source, write, offline)
         if busy:
             message = "Relay is already doing a task. Stop it first, or add to it."
             write({"id": cid, "event": "failed", "message": message, "steps": 0})
             return None
-        if source == "app":
+        if source in OWNER_SOURCES:
             self.rearm()
         thread = threading.Thread(target=self._run, name=f"relay-task-{cid}", daemon=True)
         thread.start()
@@ -394,11 +401,11 @@ class OperatorService:
             if running.source != "app":
                 line["source"] = running.source
             out(line)
-            if out is not self.write:  # the app sees Claude's ui_task steps too
-                self.write(line)
+            if out is not self.write and running.source != "diagnostics":
+                self.write(line)  # the app sees Claude's ui_task steps too
 
         emit({"event": "accepted", "text": running.text})
-        self.grant(running.text if running.source == "app" else None)
+        self.grant(running.text if running.source in OWNER_SOURCES else None)
         try:
             with self._busy:
                 model_id, outcome = self.runner(
@@ -410,7 +417,7 @@ class OperatorService:
             emit({"event": "note", "text": str(exc)})
             line = {"id": running.id, "event": "unavailable", "message": str(exc)}
             out(line)
-            if out is not self.write:
+            if out is not self.write and running.source != "diagnostics":
                 self.write(line)
         except Exception as exc:
             message = f"The local AI failed: {exc.__class__.__name__}: {exc}"
@@ -567,8 +574,12 @@ def main(argv: list[str]) -> int:
             on_event,
             inbox=inbox,
             cancelled=cancelled,
-            ask=lambda question: ask(question, task),
+            ask=None if offline() else (lambda question: ask(question, task)),
         )
+
+    def offline() -> bool:
+        running = service.running
+        return running is not None and running.offline
 
     def ask(question: str, task: str) -> str:
         try:
