@@ -15,7 +15,7 @@ from relay_screen.runtime.download import DownloadError, download
 from relay_screen.runtime.gpu import GIB, Gpu
 from relay_screen.runtime.paths import RelayPaths, models_folder_setting
 from relay_screen.runtime.store import Store
-from relay_screen.runtime.supervisor import RuntimeUnavailable, Supervisor, log_flags, ram_flags
+from relay_screen.runtime.supervisor import RuntimeUnavailable, Supervisor, ram_flags, vision_flags
 
 
 def sha(data: bytes) -> str:
@@ -669,8 +669,5 @@ def test_server_log_appends_and_skips_pinned_memory(tmp_path: Path) -> None:
     text = log.read_text()
     assert "one 1" in text and "two 1" in text
     assert text.count("--- started") == 2
-    assert log_flags("--log-file FNAME", log) == [
-        "--log-file",
-        str(tmp_path / "logs" / "llama-x.server.log"),
-    ]
-    assert log_flags("", log) == []
+    assert vision_flags("--image-min-tokens N") == ["--image-min-tokens", "1024"]
+    assert vision_flags("") == []

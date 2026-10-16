@@ -1776,3 +1776,19 @@ Round 8 (19 of 22) added:
   missing.
 - **Text checks read every matching window**, not the first: with two Notepad
   windows open the text was in the second one.
+
+## D-108 Frames carry at least 1024 image tokens for Qwen-VL grounding
+*2026-10-16*
+
+- Every Holo3.1 load logged `Qwen-VL models require at minimum 1024 image tokens`.
+  Relay's frames (long edge 1280, e.g. 1280x544 = 680 tokens of 32 px) were below
+  it, and position clicks missed in Calculator and both forms.
+- `Frame.from_png` now grows the sent image, on the 32 px grid, until it has at
+  least 1024 cells (3440x1440 is sent as 1568x672). Relay does the resize itself, so
+  the image the model answers in is exactly `sent_size` and the pixel mapping in
+  `to_screen` holds; the prompt states that size.
+- llama-server gets `--image-min-tokens 1024` when the build lists it, so it never
+  shrinks an image below that either. D-106's listed-centre snapping stays as the
+  fallback.
+- The `--log-file` copy from D-107 stayed empty on b11630 and is dropped; the
+  appended `llama-<model>.log` has the server's output.

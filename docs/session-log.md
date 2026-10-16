@@ -269,3 +269,6 @@ Short entries so later sessions can pick up where earlier ones stopped. Newest f
 
 ## 2026-10-16 05:15 - llama-server RAM and log (D-107)
 - `GGML_CUDA_NO_PINNED=1` for llama-server; log appended with a start marker; `--log-file` to `llama-<model>.server.log`.
+
+## 2026-10-16 05:45 - Grounding image size (D-108)
+- Frames grown to >= 1024 image tokens; `--image-min-tokens 1024`; dropped the empty `--log-file`.
