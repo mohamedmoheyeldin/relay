@@ -2,6 +2,11 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
+## 2026-10-16 · Full test runs and the dev loop (D-096)
+- `relay-screen diagnostics` runs 10 real scenarios and records everything under Downloads\Relay-diagnostics; Settings > Developer runs it and shows the results.
+- Claude's loop on the PC: `scripts/build_dev_copy.py` (or `--code`), deliver to Downloads\Relay-dev\incoming, then `dev_loop.ps1 -Package <zip>` in the owner's session (Windows PowerShell tool). No admin prompt.
+- First real run (dev copy of 0.1.11, qwen3-vl-8b-instruct picked as the operator in the owner's Settings): 9/10 passed in 107 s. Calculator with Claude off failed: the model pressed the wrong digit buttons (12×56, 12×98) and repeated 6-action batches until the step limit. Holo3.1-9B is downloaded but not used, because Settings pins the agent to qwen3-vl.
+
 ## 2026-10-16 · 0.1.11 app: chat history, Claude-app layout, new mark
 - Owner feedback on 0.1.10, all fixed in the app:
   - The floating popup and its shortcut are gone.

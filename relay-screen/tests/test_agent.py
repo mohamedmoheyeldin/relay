@@ -687,6 +687,18 @@ def test_invoke_on_an_address_bar_clicks_its_center_instead() -> None:
     assert ("left_click", {"coordinate": [640, 52]}) in hands.calls
 
 
+def test_a_search_set_in_the_address_bar_is_sent_with_enter() -> None:
+    hands = FakeHands({"uia_set_value": "OK · target changed"})
+    agent = LocalAgent(hands, Script())
+    agent.elements = 'Elements\n[e7] Edit "Address and search bar" {value}\n[e8] Edit "Name"'
+    params = {"element": "e7", "value": "relay diagnostics"}
+    step = agent._act(1, "", {"action": "set_value", **params}, "uia_set_value", params)
+    assert hands.calls[-1] == ("key", {"text": "enter"}) and "Enter pressed" in step.result
+    other = {"element": "e8", "value": "Relay Test"}
+    agent._act(2, "", {"action": "set_value", **other}, "uia_set_value", other)
+    assert hands.calls[-1][0] == "uia_set_value"
+
+
 def test_real_input_brings_the_task_program_back_first() -> None:
     front = {"line": '"Cairo flights - Brave" · brave.exe · in front'}
 

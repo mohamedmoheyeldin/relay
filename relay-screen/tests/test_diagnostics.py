@@ -185,7 +185,16 @@ def test_every_display_is_shot_and_the_pointer_read_back(tmp_path: Path) -> None
     assert result.status == "passed", result.failed_checks
     assert selected == [0, 1, 1]  # each display, then back to the one that was active
     assert cursor["xy"] == (10, 10)  # the pointer goes back where it was
-    assert result.screenshots == ["display-0.jpg", "display-1.jpg"]
+    assert result.screenshots == ["display-0.png", "display-1.png"]
+
+
+def test_the_window_in_front_is_checked() -> None:
+    listing = 'Windows:\n"Downloads" · explorer.exe · in front\n"Untitled - Notepad" · notepad.exe'
+    t = tools(None, FakeHands({"list_windows": listing}))
+    assert diag.check(t, {"front_window": "downloads"}) is None
+    assert diag.check(t, {"front_window": "Notepad"}) == (
+        "\"Downloads\" is in front, not a window titled like 'Notepad'"
+    )
 
 
 def test_routing_is_checked(tmp_path: Path) -> None:
@@ -251,6 +260,7 @@ def test_the_summary_report_and_latest(tmp_path: Path) -> None:
     summary = diag.summarize(results, {"gpu": "x"}, folder, "now", 12.0)
     assert (summary["passed"], summary["failed"], summary["ok"]) == (1, 1, False)
     assert summary["problems"] == ["Beta: no window titled like 'Nope'"]
+    assert summary["overview"]["operator_tasks"] == 2
     diag.write_summary(summary, folder)
     assert diag.latest(tmp_path) == json.loads((folder / "summary.json").read_text())
     page = (folder / "report.html").read_text()

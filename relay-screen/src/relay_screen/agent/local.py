@@ -988,6 +988,11 @@ class LocalAgent:
                 self._remember_front()
             if not error and member in ("type", "uia_set_value"):
                 self.typed.setdefault(_typed_key(params), n)
+            if not error and member == "uia_set_value" and self._address_bar(params):
+                # A search or address in the browser's bar does nothing until Enter,
+                # and models kept pressing the search icon instead (D-097).
+                self.hands.run("key", {"text": "enter"})
+                text = f"{text} · Enter pressed"
         except Cancelled:
             text, error = "STOP: Stopped by the owner.", True
         except (KillSwitchError, ApprovalDeniedError, PromptUnavailableError) as exc:
@@ -1006,6 +1011,10 @@ class LocalAgent:
             }
         )
         return step
+
+    def _address_bar(self, params: Mapping[str, Any]) -> bool:
+        label = _element_label(self.elements, str(params.get("element", "")))
+        return label.strip('"') == ADDRESS_BAR
 
     def _ask_claude(self, question: str) -> ActionResult:
         """Claude's answer, or an error the model can work around: the local AI keeps going

@@ -81,7 +81,7 @@ def scenarios(stamp: str, form_url: str) -> list[Scenario]:
             "Open Notepad (instant, no model)",
             "operator",
             "open Notepad",
-            ({"window_title": "Notepad"},),
+            ({"front_window": "Notepad"},),
             max_steps=5,
         ),
         Scenario(
@@ -97,7 +97,7 @@ def scenarios(stamp: str, form_url: str) -> list[Scenario]:
             "File Explorer: show Downloads",
             "operator",
             "Open File Explorer and show the Downloads folder.",
-            ({"window_title": "Downloads"},),
+            ({"front_window": "Downloads"},),
             max_steps=10,
         ),
         Scenario(
@@ -230,6 +230,10 @@ class Recorder:
         self.shots.append(file)
         return file
 
+    def save(self, file: str, data: bytes) -> None:
+        (self.folder / file).write_bytes(data)
+        self.shots.append(file)
+
     def close(self) -> None:
         with self._lock:
             self._events.close()
@@ -305,7 +309,23 @@ def check(tools: Tools, spec: Mapping[str, Any]) -> str | None:
         if tools.form is None:
             return "no form server"
         return tools.form.check(spec["form"])
+    if "front_window" in spec:
+        return front_window(tools.hands, str(spec["front_window"]))
     return tools.desktop.check(spec)
+
+
+def front_window(hands: Hands, want: str) -> str | None:
+    """The window in front has `want` in its title: the task brought it forward, which
+    a window left open from before can't fake."""
+    try:
+        listing = hands.run("list_windows", {}).text or ""
+    except Exception as exc:
+        return f"could not list windows: {exc}"
+    front = next((x for x in listing.splitlines() if "in front" in x.split(" · ")), "")
+    if want.lower() in front.split(" · ", 1)[0].lower():
+        return None
+    title = front.split(" · ", 1)[0].strip() or "nothing"
+    return f"{title} is in front, not a window titled like {want!r}"
 
 
 def progress(s: Scenario, event: Mapping[str, Any]) -> dict[str, Any]:
@@ -438,9 +458,9 @@ def run_displays(s: Scenario, tools: Tools, rec: Recorder, emit: Event) -> Resul
                 entry["screenshot_size"] = size
                 if want and size and list(size) != list(want):
                     failed.append(f"display {did}: screenshot {size}, expected {want}")
+                rec.save(f"display-{did}.png", shot.image)
             else:
                 failed.append(f"display {did}: the screenshot came back empty")
-            rec.shot(f"display-{did}")
             if want:
                 target = [int(want[0]) // 2, int(want[1]) // 2]
                 tools.hands.run("mouse_move", {"coordinate": target})
@@ -648,6 +668,7 @@ def summarize(
     ]
     return {
         "schema": SCHEMA,
+        "overview": overview(results),
         "started": started,
         "seconds": round(seconds, 1),
         "folder": str(folder),
@@ -658,6 +679,28 @@ def summarize(
         "problems": problems,
         "environment": dict(environment),
         "results": [asdict(r) for r in results],
+    }
+
+
+def overview(results: Sequence[Result]) -> dict[str, Any]:
+    """The whole run in a few numbers: where the time went and which models did the work."""
+    operator = [r for r in results if r.kind == "operator" and r.status != "skipped"]
+    calls = sum(int(r.timings.get("model_calls") or 0) for r in operator)
+    think = sum(int(r.timings.get("think_ms_total") or 0) for r in operator)
+    perceive = sum(int(r.timings.get("perceive_ms_total") or 0) for r in operator)
+    act = sum(int(r.timings.get("act_ms_total") or 0) for r in operator)
+    slowest = max(results, key=lambda r: r.seconds, default=None)
+    claude = {r.id: r.seconds for r in results if r.kind.startswith("claude") and r.passed}
+    return {
+        "models": sorted({r.model for r in operator if r.model}),
+        "operator_tasks": len(operator),
+        "operator_passed": sum(1 for r in operator if r.passed),
+        "operator_steps": sum(r.steps for r in operator),
+        "model_calls": calls,
+        "model_ms_per_call": round(think / calls) if calls else None,
+        "time_split_ms": {"perceive": perceive, "think": think, "act": act},
+        "slowest": {"id": slowest.id, "seconds": slowest.seconds} if slowest else None,
+        "claude_seconds": claude,
     }
 
 
@@ -696,7 +739,9 @@ h2{{font-size:17px;margin:4px 0}}h2 span{{font-size:13px;padding:2px 8px;border-
 .skipped h2 span{{background:#777;color:#fff}}.meta{{color:#888}}pre{{white-space:pre-wrap}}
 .shots img{{height:120px;margin:4px;border:1px solid #8884;border-radius:6px}}
 </style></head><body><h1>Relay diagnostics</h1><p>{e(head)}</p>
-<pre>{e(json.dumps(env, indent=2))}</pre>{"".join(rows)}</body></html>"""
+<pre>{e(json.dumps(summary.get("overview", {}), indent=2))}</pre>
+<details><summary>Environment</summary><pre>{e(json.dumps(env, indent=2))}</pre></details>
+{"".join(rows)}</body></html>"""
 
 
 def write_summary(summary: Mapping[str, Any], folder: Path) -> None:
