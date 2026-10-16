@@ -2,7 +2,7 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { Header, Menu, MenuItem, MenuSection, MenuTrigger, Popover } from "react-aria-components";
+import { Button as AriaButton, Header, Menu, MenuItem, MenuSection, MenuTrigger, Popover } from "react-aria-components";
 import { ArrowUp, Check, CheckCircle, ChevronDown, ChevronRight, CpuChip01, File06, Plus, StopSquare, Tool01, XCircle, XClose } from "@untitledui/icons";
 import { TextAreaBase } from "@/components/base/textarea/textarea";
 import { Markdown } from "@/components/relay/markdown";
@@ -200,12 +200,15 @@ const ModelPicker = ({ settings, onChange }: { settings: ClaudeSettings; onChang
     const effort = EFFORTS.find((e) => e.id === settings.effort)?.label ?? settings.effort;
     return (
         <MenuTrigger>
-            <button className="flex h-8 cursor-pointer items-center gap-1 rounded-lg px-2 text-sm text-tertiary transition duration-150 outline-focus-ring hover:bg-secondary hover:text-secondary focus-visible:outline-2">
+            <AriaButton
+                aria-label="Model and effort"
+                className="flex h-8 cursor-pointer items-center gap-1 rounded-lg px-2 text-sm text-tertiary outline-hidden transition duration-150 hover:bg-secondary hover:text-secondary data-[focus-visible]:ring-2 data-[focus-visible]:ring-brand"
+            >
                 {model}
                 {settings.effort && <span className="text-quaternary">· {effort}</span>}
                 <ChevronDown className="size-3.5" />
-            </button>
-            <Popover placement="top end" className="w-60 rounded-xl bg-primary p-1 shadow-lg ring-1 ring-secondary outline-hidden animate-in fade-in zoom-in-95 duration-150">
+            </AriaButton>
+            <Popover placement="top end" className="max-h-[70vh] w-64 overflow-y-auto rounded-xl bg-primary p-1 shadow-lg ring-1 ring-secondary outline-hidden animate-in fade-in zoom-in-95 duration-150">
                 <Menu
                     className="outline-hidden"
                     onAction={(key) => {
@@ -217,10 +220,8 @@ const ModelPicker = ({ settings, onChange }: { settings: ClaudeSettings; onChang
                         <Header className="px-2.5 pt-1.5 pb-1 text-xs font-medium text-quaternary">Model</Header>
                         {MODELS.map((m) => (
                             <MenuItem key={m.id} id={`model:${m.id}`} className={pickerItem}>
-                                <span className="flex flex-1 flex-col leading-tight">
-                                    <span>{m.label}</span>
-                                    <span className="text-xs text-quaternary">{m.hint}</span>
-                                </span>
+                                <span className="flex-1">{m.label}</span>
+                                <span className="text-xs text-quaternary">{m.hint}</span>
                                 {settings.model === m.id && <Check className="size-4 text-fg-brand-primary" />}
                             </MenuItem>
                         ))}
