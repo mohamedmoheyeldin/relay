@@ -1,8 +1,7 @@
 // The chat window: one conversation with Claude, with Relay's activity shown inline.
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { ArrowUp, CheckCircle, ChevronRight, CpuChip01, Plus, Stars02, StopSquare, Tool01, XCircle } from "@untitledui/icons";
-import { Button } from "@/components/base/buttons/button";
+import { ArrowUp, CheckCircle, ChevronRight, CpuChip01, Stars02, StopSquare, Tool01, XCircle } from "@untitledui/icons";
 import { TextAreaBase } from "@/components/base/textarea/textarea";
 import { Markdown } from "@/components/relay/markdown";
 import { Notice, Spinner } from "@/components/relay/ui";
@@ -125,15 +124,16 @@ const LocalStep = ({ item }: { item: Extract<Item, { kind: "step" }> }) => {
         <ActivityRow
             icon={failed ? <XCircle className="size-4 shrink-0 text-fg-error-primary" /> : <CheckCircle className="size-4 shrink-0 text-fg-quaternary" />}
             title={`Step ${item.step}`}
-            summary={item.action}
-            mono
-            expandable={!!(item.thought || item.result)}
+            // The step in plain words; the raw action only when there are none.
+            summary={item.thought || item.action}
+            mono={!item.thought}
+            expandable={!!(item.thought ? item.action || item.result : item.result)}
             open={open}
             onToggle={() => setOpen(!open)}
         >
             {open && (
                 <div className="mt-1 mb-1 ml-4 flex flex-col gap-1 border-l border-secondary pl-4 animate-in fade-in slide-in-from-top-1 duration-200">
-                    {item.thought && <p className="text-tertiary">{item.thought}</p>}
+                    {item.thought && item.action && <p className="font-mono text-xs text-tertiary">{item.action}</p>}
                     {item.result && <p className="text-xs break-words text-quaternary">{item.result}</p>}
                 </div>
             )}
@@ -149,11 +149,30 @@ const APPROVAL_NOTE: Record<string, string> = {
     off: "Relay acts without asking.",
 };
 
+/** Which conversation the screen shows; `fresh` ones have nothing saved yet. */
+export type OpenChat = { id: string; fresh: boolean };
+
+/** A chat's title: the start of its first message. */
+const titleOf = (items: Item[]) => {
+    const first = items.find((it) => it.kind === "user");
+    const line = first?.kind === "user" ? first.text.replace(/\s+/g, " ").trim() : "";
+    return line.length > 60 ? `${line.slice(0, 59)}…` : line || "New chat";
+};
+
+/** What gets saved: screenshots are left out so chat files stay small. */
+const forSaving = (items: Item[]) =>
+    items.map((it) => {
+        if (it.kind === "tool" && it.result?.image) return { ...it, result: { ...it.result, image: null } };
+        if (it.kind === "assistant" && it.streaming) return { kind: "assistant", text: it.text };
+        return it;
+    });
+
 export const ChatScreen = ({
     ready,
     onSetup,
     onLocalAi,
-    newChatRequest = 0,
+    chat,
+    onSaved,
     approvalMode = "risky",
 }: {
     ready: boolean;
@@ -161,10 +180,12 @@ export const ChatScreen = ({
     approvalMode?: string;
     onSetup: () => void;
     onLocalAi: () => void;
-    /** Bumped by the sidebar's "New chat" button. */
-    newChatRequest?: number;
+    chat: OpenChat;
+    /** A chat was saved, so the sidebar list may have changed. */
+    onSaved: () => void;
 }) => {
     const [items, setItems] = useState<Item[]>([]);
+    const [loadError, setLoadError] = useState("");
     const [input, setInput] = useState("");
     const [busy, setBusy] = useState(false);
     const [signingIn, setSigningIn] = useState(false);
@@ -178,7 +199,8 @@ export const ChatScreen = ({
         if ((it.kind === "error" || (it.kind === "done" && !it.ok)) && isAuthError(it.text)) lastAuthFailure = i;
     });
     const signedOut = !!claude.state?.installed && !claude.state.auth.loggedIn;
-    const needsSignIn = ready && (signedOut || lastAuthFailure > signedInAt);
+    // Signed out is fine (the note at the top says so); an expired sign-in Claude just hit is worth a button.
+    const needsSignIn = ready && !signedOut && lastAuthFailure > signedInAt;
 
     useEffect(() => {
         const un = listen<{ event: ChatEvent | null; finished: boolean }>("chat", ({ payload }) => {
@@ -230,20 +252,16 @@ export const ChatScreen = ({
         };
     }, []);
 
-    // A message typed in the floating popup joins this conversation.
-    useEffect(() => {
-        const un = listen<string>("chat-user", ({ payload }) => {
-            setItems((p) => [...p, { kind: "user", text: payload }]);
-            setBusy(true);
-        });
-        return () => {
-            un.then((f) => f());
-        };
-    }, []);
-
     useEffect(() => {
         bottom.current?.scrollIntoView({ behavior: "smooth" });
     }, [items]);
+
+    // Stop is instant in the chat; the run itself is told to stop in the background.
+    const stop = () => {
+        setBusy(false);
+        setItems((p) => [...p, { kind: "note", text: "Stopping…" }]);
+        api.chatStop().catch(() => {});
+    };
 
     const send = async () => {
         const text = input.trim();
@@ -259,15 +277,56 @@ export const ChatScreen = ({
         }
     };
 
-    const newChat = async () => {
-        await api.chatNew();
-        setItems([]);
-    };
-
-    // The sidebar's "New chat" button; ignored while Relay is still working.
+    // Switching chats: a running task stops, then the chosen chat (or a fresh one) loads.
+    // `shown` is the chat whose items are on screen, so saves never go to the wrong file.
+    const shown = useRef<string | null>(null);
+    const busyRef = useRef(busy);
+    busyRef.current = busy;
     useEffect(() => {
-        if (newChatRequest > 0 && !busy) newChat();
-    }, [newChatRequest]);
+        let cancelled = false;
+        shown.current = null;
+        setLoadError("");
+        (async () => {
+            if (busyRef.current) await api.chatStop().catch(() => {});
+            setBusy(false);
+            if (chat.fresh) {
+                await api.chatNew();
+                if (cancelled) return;
+                setItems([]);
+            } else {
+                try {
+                    const saved = await api.chatOpen(chat.id);
+                    if (cancelled) return;
+                    setItems(Array.isArray(saved.items) ? (saved.items as Item[]) : []);
+                } catch (e) {
+                    if (cancelled) return;
+                    await api.chatNew();
+                    setItems([]);
+                    setLoadError(errorText(e));
+                }
+            }
+            shown.current = chat.id;
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [chat.id]);
+
+    // Save shortly after each change, and right away when the chat changes or closes.
+    useEffect(() => {
+        const id = shown.current;
+        if (!id || !items.some((it) => it.kind === "user")) return;
+        const save = () => {
+            api.chatSave(id, titleOf(items), forSaving(items))
+                .then(onSaved)
+                .catch(() => {});
+        };
+        const timer = setTimeout(save, busy ? 1500 : 300);
+        return () => {
+            clearTimeout(timer);
+            if (shown.current !== id) save();
+        };
+    }, [items, busy]);
 
     const empty = items.length === 0;
     const composer = (
@@ -292,7 +351,7 @@ export const ChatScreen = ({
                     <button
                         aria-label="Stop"
                         title="Stop"
-                        onClick={() => api.chatStop()}
+                        onClick={stop}
                         className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-primary-solid text-white transition duration-150 outline-focus-ring animate-in fade-in zoom-in-75 hover:opacity-85 focus-visible:outline-2 focus-visible:outline-offset-2 dark:bg-neutral-100 dark:text-neutral-900"
                     >
                         <StopSquare className="size-4" />
@@ -314,24 +373,20 @@ export const ChatScreen = ({
 
     return (
         <div className="flex h-full min-h-0 flex-col">
-            <div className="flex h-12 shrink-0 items-center justify-between gap-3 px-4 sm:px-6">
-                <span className="text-sm font-medium text-tertiary">{empty ? "" : "Chat"}</span>
-                {!empty && (
-                    <Button size="sm" color="tertiary" iconLeading={Plus} onClick={newChat} isDisabled={busy}>
-                        New chat
-                    </Button>
-                )}
+            <div className="flex h-12 shrink-0 items-center gap-3 px-4 sm:px-6">
+                <span className="truncate text-sm font-medium text-tertiary">{empty ? "" : titleOf(items)}</span>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6 sm:px-6">
                 <div className={cx("mx-auto flex w-full max-w-3xl flex-col gap-5", empty && "min-h-full justify-center pb-16")}>
+                    {loadError && <Notice tone="error">{loadError}</Notice>}
                     {!ready && (
-                        <Notice>
-                            Claude isn't signed in, so tasks run on the local AI alone.{" "}
-                            <button className="cursor-pointer font-semibold underline" onClick={onSetup}>
-                                Finish setup
-                            </button>{" "}
-                            to let Claude handle them.
-                        </Notice>
+                        <p className="text-center text-xs text-tertiary">
+                            Claude isn't signed in, so the local AI does screen tasks on its own. Writing and judgment need Claude:{" "}
+                            <button className="cursor-pointer font-medium underline" onClick={onSetup}>
+                                sign in
+                            </button>
+                            .
+                        </p>
                     )}
                     {items.length === 0 && (
                         <div className="flex flex-col items-center text-center animate-in fade-in slide-in-from-bottom-3 duration-700">
