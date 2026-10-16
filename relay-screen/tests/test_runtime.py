@@ -3,18 +3,19 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import sys
 import zipfile
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from relay_screen.runtime import catalog, doctor, sources
+from relay_screen.runtime import catalog, doctor, sources, supervisor
 from relay_screen.runtime.download import DownloadError, download
 from relay_screen.runtime.gpu import GIB, Gpu
 from relay_screen.runtime.paths import RelayPaths, models_folder_setting
 from relay_screen.runtime.store import Store
-from relay_screen.runtime.supervisor import RuntimeUnavailable, Supervisor, ram_flags
+from relay_screen.runtime.supervisor import RuntimeUnavailable, Supervisor, log_flags, ram_flags
 
 
 def sha(data: bytes) -> str:
@@ -621,7 +622,6 @@ def test_a_dead_record_is_ignored(tmp_path: Path) -> None:
 
 def test_chat_turns_thinking_off_and_drops_think_blocks(monkeypatch: pytest.MonkeyPatch) -> None:
     """`runtime try` on a thinking model (Holo3.1) must still get an answer."""
-    from relay_screen.runtime import supervisor
 
     sent: list[dict[str, Any]] = []
 
@@ -654,3 +654,23 @@ def test_ram_flags_follow_the_llama_build(monkeypatch: pytest.MonkeyPatch) -> No
     assert ram_flags("--load-mode MODE") == ["--load-mode", "mmap"]
     monkeypatch.setenv("RELAY_LLAMA_LOAD_MODE", "none")  # a PC run comparing modes
     assert ram_flags("--load-mode MODE\n- dio: use DirectIO") == ["--load-mode", "none"]
+
+
+def test_server_log_appends_and_skips_pinned_memory(tmp_path: Path) -> None:
+    # A second load must not empty a running server's log; pinned RAM is off (D-107).
+    log = tmp_path / "logs" / "llama-x.log"
+    for word in ("one", "two"):
+        cmd = [
+            sys.executable,
+            "-c",
+            f"import os; print('{word}', os.environ['GGML_CUDA_NO_PINNED'])",
+        ]
+        assert supervisor.popen(cmd, log).wait(timeout=30) == 0
+    text = log.read_text()
+    assert "one 1" in text and "two 1" in text
+    assert text.count("--- started") == 2
+    assert log_flags("--log-file FNAME", log) == [
+        "--log-file",
+        str(tmp_path / "logs" / "llama-x.server.log"),
+    ]
+    assert log_flags("", log) == []

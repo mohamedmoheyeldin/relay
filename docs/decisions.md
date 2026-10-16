@@ -1749,3 +1749,18 @@ Round 7 added, under the same decision:
   (or the owner answers where), Ctrl+S or Save after typing fills the dialog's
   File name box with the full path and presses Enter. Models clicked
   Downloads in the side pane until they were stuck.
+
+## D-107 llama-server: no pinned host memory, a log that is never emptied
+*2026-10-16*
+
+- Round 6 compared load modes on the PC (Holo3.1-9B Q5_K_M, 16k context): working
+  set 1,560 MB with `none` and `dio`, 6,388 MB with `mmap`; private bytes 9.1 to
+  9.8 GB in every mode, about the model's VRAM (+7.5 GB) plus 2 GB. `dio` stays.
+- Private bytes tracking VRAM points at the GPU driver committing host backing for
+  the device allocations (inferred, not measured apart). It is commit charge, not RAM
+  in use; Task Manager's Memory column shows the working set. The part Relay controls
+  is pinned host memory: llama-server now runs with `GGML_CUDA_NO_PINNED=1`, so its
+  host buffers are ordinary pageable memory.
+- The llama log was 0 bytes while the server ran. The log is now opened for append
+  with a start marker (a second load used to truncate it), and builds with
+  `--log-file` also write llama.cpp's own flushed log to `llama-<model>.server.log`.
