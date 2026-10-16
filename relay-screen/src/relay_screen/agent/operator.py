@@ -2,8 +2,8 @@
 
 relay-screen's `ui_task` tool keeps one of these for the life of the MCP server: the
 model loads on the first task and unloads after the idle time, like every local model
-(D-042). Without a downloaded model it raises RuntimeUnavailable and Claude carries on
-with the direct tools.
+(D-042). Without a downloaded model it starts the download (D-079) and raises
+RuntimeUnavailable saying so.
 """
 
 from __future__ import annotations
@@ -114,8 +114,8 @@ class LocalOperator:
             status = self.setup.start()
             note = f" (the last try failed: {failed})" if failed else ""
             raise RuntimeUnavailable(
-                f"{status}{note}. Do this task now with the direct tools; ui_task works "
-                "once the download finishes."
+                f"{status}{note}. Tell the owner the local AI will be ready once the "
+                "download finishes, then hand this task to ui_task again."
             )
         with self._lock:
             model_id = pick_model(self.store.installed().models, self.settings, None)

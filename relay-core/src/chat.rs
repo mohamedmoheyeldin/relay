@@ -14,22 +14,52 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 use crate::{claude, mcp, paths, proc};
 
-/// Added to Claude Code's system prompt for Relay chats.
+/// Added to Claude Code's system prompt for Relay chats (D-081).
 pub const SYSTEM_PROMPT: &str =
-    "You are running inside Relay, a desktop operator on the owner's Windows PC. \
-For work in desktop apps, hand whole UI tasks to Relay's local operator with relay-screen's ui_task \
-tool (one goal in plain words, with the app's name) and keep the deciding and writing for yourself. \
-If it fails or no local model is downloaded, finish with the direct relay-screen tools, preferring \
-UI Automation and OCR tools over raw clicks. For websites, prefer the relay-browser tools (the owner's browser, driven through \
-its page structure) and connectors for services. Keep replies short and say what you did.";
+    "You are running inside Relay on the owner's Windows PC. You are the planner; Relay's local \
+AI is the hands. Every task on the screen, in any program or website, goes to the local AI with \
+relay-screen's ui_task: one goal per call in plain words, naming the app or site, and split long \
+tasks into several calls. You can look (screenshot, list_windows, uia_tree, find_text) and open \
+things (open_url, launch_app, focus_window) yourself, but clicking and typing are the local AI's \
+job, and there is no shell or scripting here. If ui_task says the local AI is still being set up, \
+tell the owner it will be ready shortly. Use connectors only to read information the owner asks \
+for, never instead of doing what they asked on screen. Never ask the owner to install, enable or \
+set up anything. Keep replies short and say what was done.";
+
+/// Built-in and relay-screen tools a Relay chat never offers Claude (D-081): no shell or
+/// scripts, no file writing, no browser lane that needs an extension, and no direct
+/// clicks or keys, so screen work goes to the local AI through ui_task.
+pub const DISALLOWED_TOOLS: &[&str] = &[
+    "Bash",
+    "PowerShell",
+    "Write",
+    "Edit",
+    "MultiEdit",
+    "NotebookEdit",
+    "mcp__relay-browser",
+    "mcp__relay-screen__left_click",
+    "mcp__relay-screen__right_click",
+    "mcp__relay-screen__middle_click",
+    "mcp__relay-screen__double_click",
+    "mcp__relay-screen__triple_click",
+    "mcp__relay-screen__left_click_drag",
+    "mcp__relay-screen__left_mouse_down",
+    "mcp__relay-screen__left_mouse_up",
+    "mcp__relay-screen__mouse_move",
+    "mcp__relay-screen__scroll",
+    "mcp__relay-screen__type",
+    "mcp__relay-screen__key",
+    "mcp__relay-screen__hold_key",
+    "mcp__relay-screen__batch",
+    "mcp__relay-screen__uia_invoke",
+    "mcp__relay-screen__uia_set_value",
+];
 
 #[derive(Debug, Clone, Default)]
 pub struct TurnOptions {
     pub resume: Option<String>,
     pub model: String,
     pub effort: String,
-    /// Added to the system prompt, e.g. why the browser lane can't open pages now.
-    pub note: Option<String>,
 }
 
 /// The `claude` arguments for a turn (the prompt itself goes on stdin).
@@ -48,10 +78,9 @@ pub fn args(opts: &TurnOptions) -> Vec<String> {
     .collect();
     args.push(format!("mcp__{}__approve", mcp::RELAY_SCREEN));
     args.push("--append-system-prompt".into());
-    args.push(match &opts.note {
-        Some(note) => format!("{SYSTEM_PROMPT} {note}"),
-        None => SYSTEM_PROMPT.into(),
-    });
+    args.push(SYSTEM_PROMPT.into());
+    args.push("--disallowedTools".into());
+    args.extend(DISALLOWED_TOOLS.iter().map(|t| t.to_string()));
     if let Some(id) = &opts.resume {
         args.push("--resume".into());
         args.push(id.clone());
@@ -327,13 +356,26 @@ mod tests {
             resume: Some("abc".into()),
             model: "opus".into(),
             effort: String::new(),
-            note: Some("Lane note.".into()),
         });
         assert_eq!(a[0], "-p");
         assert!(a.contains(&"mcp__relay-screen__approve".to_string()));
         assert!(a
             .iter()
-            .any(|x| x.starts_with("You are running inside Relay") && x.ends_with("Lane note.")));
+            .any(|x| x.starts_with("You are running inside Relay")));
+        // No shell, scripts or direct clicks: screen work goes to the local AI (D-081).
+        let d = a.iter().position(|x| x == "--disallowedTools").unwrap();
+        for tool in [
+            "Bash",
+            "PowerShell",
+            "mcp__relay-browser",
+            "mcp__relay-screen__left_click",
+        ] {
+            assert!(
+                a[d + 1..].contains(&tool.to_string()),
+                "{tool} not disallowed"
+            );
+        }
+        assert!(!a.contains(&"mcp__relay-screen__ui_task".to_string()));
         let i = a.iter().position(|x| x == "--resume").unwrap();
         assert_eq!(a[i + 1], "abc");
         assert!(a.contains(&"--model".to_string()));
