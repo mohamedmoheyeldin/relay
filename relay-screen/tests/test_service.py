@@ -143,16 +143,53 @@ def test_route_and_state_answer_at_once() -> None:
     assert state["recent"] == [{"at": 1000, "window": "Jobs - Dice - Brave"}]
 
 
+def test_state_knows_the_browser_behind_a_console_window() -> None:
+    """A console in front (or a window the list leaves out) still leaves the browser known."""
+    hands = FakeHands(
+        "3 open window(s), topmost first:\n"
+        '"Windows PowerShell" · powershell.exe\n'
+        '"Python jobs - Indeed - Brave" · brave.exe\n'
+        '"notes.txt - Notepad" · notepad.exe'
+    )
+    awareness = Awareness(hands, clock=lambda: 1000.0)
+    state = awareness.snapshot()  # asked before the poller ran
+    assert state["foreground"] == "Windows PowerShell"
+    assert state["browser"] == "Python jobs - Indeed - Brave"
+    assert state["browser_url"] == "https://www.dice.com/jobs"
+    assert hands.finds == [{"query": "Address and search bar", "window": state["browser"]}]
+
+
+def test_relay_in_front_keeps_the_last_real_window() -> None:
+    hands = FakeHands()
+    awareness = Awareness(hands, clock=lambda: 1000.0)
+    awareness.poll()
+    hands.listing = (
+        "2 open window(s), topmost first:\n"
+        '"Relay" · relay.exe · Relay itself, never the target · in front\n'
+        '"notes.txt - Notepad" · notepad.exe'
+    )
+    awareness.poll()
+    assert awareness.snapshot()["foreground"] == "Jobs - Dice - Brave"
+
+
+DEFAULT_LISTING = (
+    "3 open window(s), topmost first:\n"
+    '"Relay" · relay.exe · Relay itself, never the target\n'
+    '"Jobs - Dice - Brave" · brave.exe · in front\n'
+    '"notes.txt - Notepad" · notepad.exe'
+)
+
+
 class FakeHands:
+    def __init__(self, listing: str = DEFAULT_LISTING) -> None:
+        self.listing = listing
+        self.finds: list[Any] = []
+
     def run(self, name: str, params: Any = None) -> ActionResult:
         if name == "list_windows":
-            return ActionResult(
-                "3 open window(s), topmost first:\n"
-                '"Relay" · relay.exe · Relay itself, never the target\n'
-                '"Jobs - Dice - Brave" · brave.exe · in front\n'
-                '"notes.txt - Notepad" · notepad.exe'
-            )
+            return ActionResult(self.listing)
         if name == "uia_find":
+            self.finds.append(params)
             return ActionResult(
                 '1 match(es), best first:\n[e3] Edit "Address and search bar" '
                 "value='https://www.dice.com/jobs' {value} center (400, 60)"

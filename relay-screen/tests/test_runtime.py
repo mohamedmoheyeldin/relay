@@ -613,3 +613,26 @@ def test_a_dead_record_is_ignored(tmp_path: Path) -> None:
     (tmp_path / "servers" / "m.json").write_text('{"port": 5555, "pid": 9}')
     assert h.supervisor.ensure("m").cold_start is not None  # nothing answered: load
     assert len(h.launched) == 1
+
+
+def test_chat_turns_thinking_off_and_drops_think_blocks(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`runtime try` on a thinking model (Holo3.1) must still get an answer."""
+    from relay_screen.runtime import supervisor
+
+    sent: list[dict[str, Any]] = []
+
+    class Reply(io.BytesIO):
+        def __enter__(self) -> Reply:
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+    def urlopen(request: Any, timeout: float) -> Reply:
+        sent.append(json.loads(request.data))
+        content = "<think>the owner wants OK</think>\nOK"
+        return Reply(json.dumps({"choices": [{"message": {"content": content}}]}).encode())
+
+    monkeypatch.setattr(supervisor.urllib.request, "urlopen", urlopen)
+    assert supervisor.chat("http://127.0.0.1:1", "Reply with OK.") == "OK"
+    assert sent[0]["chat_template_kwargs"] == {"enable_thinking": False}

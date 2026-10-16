@@ -1457,3 +1457,20 @@ The owner chose the full rebuild with every recommendation:
 - The grant lasts for that task only and is cleared when it ends.
 - Text not written by the owner never grants anything. That covers Claude's
   `ui_task` hand-offs and anything read from a page.
+
+## D-092 The state reader finds the browser wherever it is in the stack
+*2026-10-16 · accepted · app thread's 0.1.10 test on the owner's PC · amends D-086*
+
+- `state` used to read the browser address only when a browser was in front.
+  The PC test had a PowerShell window in front and got `browser_url: null`
+  with Brave open, and `foreground: ""`.
+- The browser is now the topmost open browser window, in front or not. Its
+  address bar is read through UIA by that window's title. `state` gains a
+  `browser` field with that window's title; the other fields keep their shape.
+- When the window in front is one the list leaves out (a console host, a tool
+  window), the topmost listed window stands in as `foreground`. When Relay
+  itself is in front, the last real window is kept.
+- A `state` request that comes before the first background poll polls first.
+- `runtime try` sends `enable_thinking: false` like the operator does, and
+  strips `<think>` blocks. A thinking model otherwise spent the 16-token budget
+  thinking and answered nothing.

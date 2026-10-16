@@ -18,6 +18,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import re
 import signal
 import socket
 import subprocess
@@ -422,13 +423,18 @@ class Supervisor:
             process.wait(timeout=10)
 
 
-def chat(url: str, prompt: str, max_tokens: int = 16, timeout: float = 120) -> str:
-    """A one-shot text chat completion against a llama-server endpoint."""
+def chat(url: str, prompt: str, max_tokens: int = 32, timeout: float = 120) -> str:
+    """A one-shot text chat completion against a llama-server endpoint.
+
+    Thinking is turned off the same way the operator does it (D-087): a thinking
+    model otherwise spends the whole budget inside <think> and answers nothing.
+    """
     body = json.dumps(
         {
             "messages": [{"role": "user", "content": prompt}],
             "max_tokens": max_tokens,
             "temperature": 0,
+            "chat_template_kwargs": {"enable_thinking": False},
         }
     ).encode()
     request = urllib.request.Request(
@@ -436,7 +442,8 @@ def chat(url: str, prompt: str, max_tokens: int = 16, timeout: float = 120) -> s
     )
     with urllib.request.urlopen(request, timeout=timeout) as response:
         data = json.load(response)
-    return data["choices"][0]["message"]["content"]
+    content = data["choices"][0]["message"].get("content") or ""
+    return re.sub(r"<think>.*?(</think>|$)", "", content, flags=re.DOTALL).strip()
 
 
 def jsonl_recorder(path: Path) -> Callable[[dict[str, Any]], None]:
