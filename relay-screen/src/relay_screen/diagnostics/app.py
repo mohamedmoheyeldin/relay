@@ -191,7 +191,8 @@ def model_picker(ctx: Ctx) -> None:
 def chat_functions(ctx: Ctx) -> None:
     """New chat, a reply, then the chat menu: pin, rename, search and delete."""
     title = f"Relay test {ctx.stamp}"
-    delete_chat(ctx, QUESTION[:40])
+    delete_chat(ctx, QUESTION[:40])  # left over from an earlier run
+    delete_chat(ctx, "Relay test ")
     if not new_chat(ctx) or not send(ctx, QUESTION):
         return
     if ctx.claude:
@@ -206,6 +207,9 @@ def chat_functions(ctx: Ctx) -> None:
         ctx.expect(ctx.wait("Pinned", seconds=3), "Pin puts the chat under Pinned")
     ctx.press(options(QUESTION[:40]), "Button")
     if ctx.press("Rename", "MenuItem"):
+        # Let the menu close and hand focus to the name box, as it does for a person.
+        ctx.wait("Chat name", "Edit", seconds=3)
+        ctx.sleep(0.8)
         try:
             ctx.ui.fill("Chat name", title)
             ctx.ui.key("{Enter}")
@@ -229,8 +233,13 @@ def chat_functions(ctx: Ctx) -> None:
     ctx.press(options(title), "Button")
     if ctx.press("Unpin", "MenuItem"):
         ctx.expect(ctx.wait("Pinned", gone=True, seconds=3), "Unpin takes it out of Pinned")
-    delete_chat(ctx, title)
-    ctx.expect(not ctx.ui.find(options(title), "Button"), "Delete removes the chat")
+    made = [t for t in (title, QUESTION[:40]) if ctx.ui.find(options(t), "Button")]
+    for t in made:
+        delete_chat(ctx, t)
+    ctx.expect(
+        bool(made) and not any(ctx.ui.find(options(t), "Button") for t in made),
+        "Delete removes the chat",
+    )
 
 
 def attach(ctx: Ctx) -> None:
