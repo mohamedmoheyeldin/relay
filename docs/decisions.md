@@ -1253,3 +1253,23 @@ Trade-off: Claude can no longer run shell commands or write files from the
 chat. File work now happens on screen through the local AI, for example in
 File Explorer. relay-screen's direct tools stay for other MCP clients and for
 the local AI itself.
+
+## D-082 The installer adds the Playwright Extension by browser policy
+*2026-10-15 · accepted · owner (decision card in the app thread) · Relay 0.1.9 (#100/#101) · amends D-074*
+
+- The installer force-installs the Playwright Extension through the
+  `ExtensionInstallForcelist` policy for:
+  - Brave (every channel reads `BraveSoftware\Brave`);
+  - Chrome;
+  - Edge.
+- The owner picked this on a decision card. They accepted the "Managed by your
+  organization" notice the browsers then show.
+- Uninstall removes only Relay's entry from the list.
+- Since D-081, chat no longer offers Claude the relay-browser tools, so this
+  matters only if that lane comes back.
+
+## D-083 The extension token stays a one-time paste
+*2026-10-15 · accepted · app thread (Relay 0.1.9) · extends D-074*
+
+- The Playwright Extension's token is pasted into Settings > Browser once.
+- Relay never reads the token from the browser's storage.

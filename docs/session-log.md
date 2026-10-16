@@ -13,6 +13,7 @@ Short entries so later sessions can pick up where earlier ones stopped. Newest f
 ## 2026-10-16 · Claude plans, the local AI does the screen work (D-081)
 - Owner: tasks showed lots of PowerShell and Python, permission prompts and extension setup; they couldn't see the local AI working. Cause: Relay gave Claude Code its shell and file tools, relay-screen's direct click/key tools and the extension-based browser lane, so Claude scripted and clicked itself. Relay chats now run with those tools disallowed; Claude plans, looks and opens things, and every screen task goes to `ui_task`. Failed ui_tasks hand back a narrower goal instead of falling back to direct clicks.
 - Nothing ran on the PC; the app thread ships it in the next installer.
+- Recorded the app thread's 0.1.9 decisions: extension by browser policy (D-082), token stays a one-time paste (D-083).
 
 ## 2026-10-15 · Screen first and self-setup (D-079)
 - Owner: Relay answered "go to dice.com and search" with a Dice connector table and asked them to install a browser extension. They want it to act on screen end to end and set itself up. Added `open_url` (owner's browser, no extension); Claude is told to do "go to" on screen and never to ask for setup; the local operator opens the page a task names before its first step; `ui_task` starts downloading the runtime and model in the background when they are missing. 9 new tests.
