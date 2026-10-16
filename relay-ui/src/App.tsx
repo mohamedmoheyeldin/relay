@@ -4,13 +4,15 @@ import { Dialog, Heading } from "react-aria-components";
 import { Button } from "@/components/base/buttons/button";
 import { Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { Checkbox } from "@/components/base/checkbox/checkbox";
-import { type AppInfo, type ChatSummary, type Settings, type UpdateInfo, api } from "@/lib/api";
+import { type AppInfo, type ChatSummary, type Project, type Settings, type UpdateInfo, api } from "@/lib/api";
 import { ApprovalTray } from "@/components/relay/approval";
 import { ChatScreen, type OpenChat, forgetChat } from "./screens/chat";
 import { DragStrip, WindowControls } from "@/components/relay/window-controls";
 import { RelayMark, Sidebar } from "@/components/relay/sidebar";
 import { useCloud } from "@/lib/cloud";
 import { SettingsScreen } from "./screens/settings";
+import { ProjectScreen, ProjectsScreen } from "./screens/projects";
+import { TasksScreen } from "./screens/tasks";
 import { Wizard } from "./screens/wizard";
 
 const CloseDialog = ({ open, onClose }: { open: boolean; onClose: () => void }) => {
@@ -59,7 +61,16 @@ const newId = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${
 export default function App() {
     const [settings, setSettings] = useState<Settings | null>(null);
     const [info, setInfo] = useState<AppInfo | null>(null);
-    const [view, setView] = useState<"chat" | "settings" | "setup">("chat");
+    const [view, setView] = useState<"chat" | "settings" | "setup" | "projects" | "project" | "tasks">("chat");
+    const [projectId, setProjectId] = useState<string | null>(null);
+    const [projects, setProjects] = useState<Project[]>([]);
+    const loadProjects = useCallback(() => {
+        api.projectsList()
+            .then(setProjects)
+            .catch(() => {});
+    }, []);
+    useEffect(loadProjects, [loadProjects]);
+    const [savedTick, setSavedTick] = useState(0);
     const [settingsPage, setSettingsPage] = useState("general");
     const [closeAsk, setCloseAsk] = useState(false);
     const [update, setUpdate] = useState<UpdateInfo | null>(null);
@@ -71,21 +82,27 @@ export default function App() {
         api.chatsList()
             .then(setChats)
             .catch(() => {});
+        setSavedTick((n) => n + 1);
     }, []);
     useEffect(loadChats, [loadChats]);
     const [renamingId, setRenamingId] = useState<string | null>(null);
     // Back and forward, like the reference chat app's arrows: every chat or Settings visit.
-    type Place = { view: "chat"; chat: OpenChat } | { view: "settings" };
+    type Place = { view: "chat"; chat: OpenChat } | { view: "settings" | "projects" | "tasks" } | { view: "project"; id: string };
     const [trail, setTrail] = useState<{ places: Place[]; at: number }>(() => ({ places: [{ view: "chat", chat }], at: 0 }));
     const show = (p: Place) => {
         setView(p.view);
         if (p.view === "chat") setChat(p.chat);
+        if (p.view === "project") setProjectId(p.id);
     };
+    const samePlace = (a: Place | undefined, b: Place) =>
+        !!a &&
+        a.view === b.view &&
+        (a.view !== "chat" || (b.view === "chat" && a.chat.id === b.chat.id && a.chat.task === b.chat.task)) &&
+        (a.view !== "project" || (b.view === "project" && a.id === b.id));
     const go = (p: Place) => {
         show(p);
         setTrail((t) => {
-            const same = t.places[t.at];
-            if (same && same.view === p.view && (p.view === "settings" || (same.view === "chat" && same.chat.id === p.chat.id))) return t;
+            if (samePlace(t.places[t.at], p)) return t;
             const places = [...t.places.slice(0, t.at + 1), p].slice(-50);
             return { places, at: places.length - 1 };
         });
@@ -95,16 +112,20 @@ export default function App() {
         const p = trail.places[at];
         if (!p) return;
         // A chat left before anything was said in it was never saved.
-        const known = p.view === "settings" || p.chat.fresh || chats.some((c) => c.id === p.chat.id);
+        const known =
+            p.view === "chat"
+                ? p.chat.fresh || chats.some((c) => c.id === p.chat.id)
+                : p.view !== "project" || projects.some((x) => x.id === p.id);
         show(known ? p : { view: "chat", chat: { id: newId(), fresh: true } });
         setTrail({ ...trail, at });
     };
-    const openChat = (id: string) => go({ view: "chat", chat: { id, fresh: false } });
-    const newChatPlace = () => go({ view: "chat", chat: { id: newId(), fresh: true } });
+    const openChat = (id: string, task?: number) => go({ view: "chat", chat: { id, fresh: false, task } });
+    const newChatPlace = (project: string | null = null) => go({ view: "chat", chat: { id: newId(), fresh: true, project } });
+    const moveChat = (id: string, project: string | null) => api.chatMove(id, project).then(loadChats).catch(() => {});
     const deleteChat = async (id: string) => {
         forgetChat(id);
         await api.chatDelete(id).catch(() => {});
-        if (id === chat.id) newChatPlace();
+        if (id === chat.id) newChatPlace(chat.project ?? null);
         loadChats();
     };
     const renameChat = async (id: string, title: string | null) => {
@@ -168,13 +189,20 @@ export default function App() {
                     collapsed={collapsed}
                     onToggle={toggleSidebar}
                     chats={chats}
+                    projects={projects}
+                    place={view === "chat" || view === "settings" || view === "tasks" ? view : view === "projects" || view === "project" ? "projects" : "other"}
+                    activeProject={view === "project" ? projectId : null}
+                    onProjects={() => go({ view: "projects" })}
+                    onTasks={() => go({ view: "tasks" })}
+                    onOpenProject={(id) => go({ view: "project", id })}
+                    onMove={moveChat}
                     activeId={view === "chat" ? chat.id : null}
                     settingsOpen={view === "settings"}
                     canBack={trail.at > 0}
                     canForward={trail.at < trail.places.length - 1}
                     onBack={() => step(-1)}
                     onForward={() => step(1)}
-                    onNew={newChatPlace}
+                    onNew={() => newChatPlace()}
                     onOpen={(id) => (id === chat.id && view === "chat" ? undefined : openChat(id))}
                     renamingId={renamingId}
                     onStartRename={(id) => {
@@ -225,6 +253,9 @@ export default function App() {
                             onRename={() => current && (collapsed ? (toggleSidebar(), setRenamingId(current.id)) : setRenamingId(current.id))}
                             onPin={() => current && pinChat(current.id, !current.pinned)}
                             onDelete={() => current && deleteChat(current.id)}
+                            projects={projects}
+                            onMove={(p) => current && moveChat(current.id, p)}
+                            onOpenProject={(id) => go({ view: "project", id })}
                             cloudSettings={settings.cloud}
                             onCloudSettings={(cloud) => save({ ...settings, cloud })}
                             approvalMode={settings.safety.approval_mode}
@@ -235,6 +266,25 @@ export default function App() {
                             }}
                         />
                     )}
+                    {view === "projects" && <ProjectsScreen projects={projects} chats={chats} onOpen={(id) => go({ view: "project", id })} onChanged={loadProjects} />}
+                    {view === "project" &&
+                        (() => {
+                            const p = projects.find((x) => x.id === projectId);
+                            return p ? (
+                                <ProjectScreen
+                                    project={p}
+                                    chats={chats}
+                                    onBack={() => go({ view: "projects" })}
+                                    onNewChat={() => newChatPlace(p.id)}
+                                    onOpenChat={(id) => openChat(id)}
+                                    onChanged={() => {
+                                        loadProjects();
+                                        loadChats();
+                                    }}
+                                />
+                            ) : null;
+                        })()}
+                    {view === "tasks" && <TasksScreen refreshKey={savedTick} onOpen={(id, index) => openChat(id, index)} />}
                     {view === "settings" && (
                         <SettingsScreen
                             settings={settings}

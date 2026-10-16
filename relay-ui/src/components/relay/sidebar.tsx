@@ -1,10 +1,25 @@
-// The left sidebar, laid out like the reference chat app: a row of icon buttons, a
-// short list (New chat, Search), pinned chats, recents, and Settings at the bottom.
-// Account details stay in Settings.
+// The left sidebar, laid out like the reference chat app: a row of icon buttons, the
+// main places (New chat, Search, Projects, Tasks), pinned chats, each project's chats,
+// recents, and Settings at the bottom. Account details stay in Settings.
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { Button as AriaButton, Menu, MenuItem, MenuTrigger, Popover } from "react-aria-components";
-import { ArrowLeft, ArrowRight, DotsHorizontal, Edit03, LayoutLeft, Pin02, Plus, SearchLg, Settings01, Trash01, XClose } from "@untitledui/icons";
-import type { ChatSummary } from "@/lib/api";
+import { Button as AriaButton, Header, Menu, MenuItem, MenuSection, MenuTrigger, Popover } from "react-aria-components";
+import {
+    ArrowLeft,
+    ArrowRight,
+    CheckDone01,
+    DotsHorizontal,
+    Edit03,
+    Folder,
+    FolderMinus,
+    LayoutLeft,
+    Pin02,
+    Plus,
+    SearchLg,
+    Settings01,
+    Trash01,
+    XClose,
+} from "@untitledui/icons";
+import type { ChatSummary, Project } from "@/lib/api";
 import { cx } from "@/utils/cx";
 
 /** Relay's mark (src/assets/relay-mark.svg): a lowercase r of two linked nodes, the
@@ -69,13 +84,16 @@ const Row = ({ icon: Icon, label, onClick, active }: { icon: typeof Plus; label:
     </button>
 );
 
-/** The menu on a chat: Pin, Rename and Delete, as in the reference chat app. Also used by the chat's title bar. */
+/** The menu on a chat: Pin, Rename, moving between projects and Delete. Also used by the chat's title bar. */
 export const ChatMenu = ({
     title,
     pinned,
     onPin,
     onRename,
     onDelete,
+    projects = [],
+    project = null,
+    onMove,
     className,
     children,
 }: {
@@ -84,9 +102,13 @@ export const ChatMenu = ({
     onPin: () => void;
     onRename: () => void;
     onDelete: () => void;
+    projects?: Project[];
+    project?: string | null;
+    onMove?: (project: string | null) => void;
     className?: string;
     children?: ReactNode;
 }) => {
+    const others = projects.filter((p) => p.id !== project);
     const item =
         "flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 text-sm text-secondary outline-hidden data-[focused]:bg-tertiary data-[focused]:text-primary";
     return (
@@ -102,6 +124,8 @@ export const ChatMenu = ({
                         if (key === "pin") onPin();
                         if (key === "rename") onRename();
                         if (key === "delete") onDelete();
+                        if (key === "unfile") onMove?.(null);
+                        if (String(key).startsWith("move:")) onMove?.(String(key).slice(5));
                     }}
                 >
                     <MenuItem id="pin" className={item}>
@@ -112,6 +136,23 @@ export const ChatMenu = ({
                         <Edit03 className="size-4 text-fg-tertiary" />
                         Rename
                     </MenuItem>
+                    {onMove && (others.length > 0 || project) && (
+                        <MenuSection className="my-1 border-y border-secondary py-1">
+                            <Header className="px-2 pt-1 pb-0.5 text-xs text-quaternary">Move to project</Header>
+                            {others.map((p) => (
+                                <MenuItem key={p.id} id={`move:${p.id}`} className={item}>
+                                    <Folder className="size-4 text-fg-tertiary" />
+                                    <span className="truncate">{p.name}</span>
+                                </MenuItem>
+                            ))}
+                            {project && (
+                                <MenuItem id="unfile" className={item}>
+                                    <FolderMinus className="size-4 text-fg-tertiary" />
+                                    Remove from project
+                                </MenuItem>
+                            )}
+                        </MenuSection>
+                    )}
                     <MenuItem id="delete" className={cx(item, "text-error-primary data-[focused]:text-error-primary")}>
                         <Trash01 className="size-4" />
                         Delete
@@ -131,6 +172,8 @@ const ChatRow = ({
     onRename,
     onPin,
     onDelete,
+    projects,
+    onMove,
 }: {
     chat: ChatSummary;
     active: boolean;
@@ -140,6 +183,8 @@ const ChatRow = ({
     onRename: (title: string | null) => void;
     onPin: () => void;
     onDelete: () => void;
+    projects: Project[];
+    onMove: (project: string | null) => void;
 }) => {
     const [name, setName] = useState(chat.title);
     const field = useRef<HTMLInputElement>(null);
@@ -192,6 +237,9 @@ const ChatRow = ({
                 onPin={onPin}
                 onRename={onStartRename}
                 onDelete={onDelete}
+                projects={projects}
+                project={chat.project}
+                onMove={onMove}
                 className={cx(
                     "mr-1 flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-fg-quaternary transition outline-hidden hover:bg-quaternary/60 hover:text-fg-secondary data-[focus-visible]:opacity-100 data-[pressed]:opacity-100 aria-expanded:opacity-100",
                     active ? "opacity-100" : "opacity-0 group-hover:opacity-100",
@@ -219,7 +267,22 @@ export const Sidebar = ({
     onPin,
     onDelete,
     onSettings,
+    projects,
+    place,
+    activeProject,
+    onProjects,
+    onTasks,
+    onOpenProject,
+    onMove,
 }: {
+    projects: Project[];
+    /** Which main page is open, so its row shows as current. */
+    place: "chat" | "projects" | "tasks" | "settings" | "other";
+    activeProject: string | null;
+    onProjects: () => void;
+    onTasks: () => void;
+    onOpenProject: (id: string) => void;
+    onMove: (id: string, project: string | null) => void;
     collapsed: boolean;
     onToggle: () => void;
     chats: ChatSummary[];
@@ -243,7 +306,9 @@ export const Sidebar = ({
     const q = query.trim().toLowerCase();
     const shown = q ? chats.filter((c) => c.title.toLowerCase().includes(q)) : chats;
     const pinned = shown.filter((c) => c.pinned);
-    const groups = groupByDay(shown.filter((c) => !c.pinned));
+    const known = new Set(projects.map((p) => p.id));
+    const filed = projects.map((p) => ({ project: p, chats: shown.filter((c) => !c.pinned && c.project === p.id) })).filter((g) => g.chats.length);
+    const groups = groupByDay(shown.filter((c) => !c.pinned && !(c.project && known.has(c.project))));
     const row = (c: ChatSummary) => (
         <ChatRow
             key={c.id}
@@ -255,6 +320,8 @@ export const Sidebar = ({
             onRename={(t) => onRename(c.id, t)}
             onPin={() => onPin(c.id, !c.pinned)}
             onDelete={() => onDelete(c.id)}
+            projects={projects}
+            onMove={(p) => onMove(c.id, p)}
         />
     );
     const heading = (label: string) => <span className="px-2 pt-6 pb-1.5 text-[13px] text-quaternary">{label}</span>;
@@ -280,6 +347,12 @@ export const Sidebar = ({
                     }}
                 >
                     <SearchLg className="size-4" />
+                </IconButton>
+                <IconButton label="Projects" onClick={onProjects}>
+                    <Folder className="size-4" />
+                </IconButton>
+                <IconButton label="Tasks" onClick={onTasks}>
+                    <CheckDone01 className="size-4" />
                 </IconButton>
                 <div className="mt-auto">
                     <IconButton label="Settings" onClick={onSettings}>
@@ -323,6 +396,8 @@ export const Sidebar = ({
                 ) : (
                     <Row icon={SearchLg} label="Search" onClick={() => setSearching(true)} />
                 )}
+                <Row icon={Folder} label="Projects" active={place === "projects"} onClick={onProjects} />
+                <Row icon={CheckDone01} label="Tasks" active={place === "tasks"} onClick={onTasks} />
             </div>
             <div className="-mx-1 mt-1 flex min-h-0 flex-1 flex-col overflow-y-auto px-1 pb-2">
                 {pinned.length > 0 && (
@@ -331,6 +406,20 @@ export const Sidebar = ({
                         <div className="flex flex-col gap-0.5">{pinned.map(row)}</div>
                     </>
                 )}
+                {filed.map((g) => (
+                    <div key={g.project.id} className="flex flex-col">
+                        <button
+                            onClick={() => onOpenProject(g.project.id)}
+                            className={cx(
+                                "flex cursor-pointer items-center gap-1.5 px-2 pt-6 pb-1.5 text-left text-[13px] hover:text-secondary",
+                                activeProject === g.project.id ? "text-secondary" : "text-quaternary",
+                            )}
+                        >
+                            <span className="truncate">{g.project.name}</span>
+                        </button>
+                        <div className="flex flex-col gap-0.5">{g.chats.map(row)}</div>
+                    </div>
+                ))}
                 {groups.map((g) => (
                     <div key={g.label} className="flex flex-col">
                         {heading(g.label)}

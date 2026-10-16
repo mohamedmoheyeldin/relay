@@ -21,6 +21,7 @@ pub mod mcp;
 pub mod operator;
 pub mod paths;
 pub mod proc;
+pub mod projects;
 pub mod secrets;
 pub mod settings;
 pub mod system;

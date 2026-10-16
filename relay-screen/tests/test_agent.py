@@ -208,6 +208,30 @@ def test_stops_when_the_same_action_keeps_changing_nothing() -> None:
     assert len(hands.acts()) == 3
 
 
+def test_clicking_the_same_spot_twice_gets_a_note_to_type_or_change_course() -> None:
+    hands = FakeHands({"left_click": "OK · target changed"})
+    click = {"action": "click", "x": 10, "y": 10}
+    done = {"action": "done", "summary": "ok"}
+    model = Script(click, click, {"action": "type", "text": "Downloads"}, done)
+    run(hands, model)
+    assert "clicked the same spot twice" in model.prompt(2)
+    assert "clicked the same spot twice" not in model.prompt(1)
+
+
+def test_typing_that_went_nowhere_goes_into_the_only_empty_box() -> None:
+    tree = (
+        "Elements:\n"
+        "[e1] Edit \"Address and search bar\" value='x' {value} center (5, 5)\n"
+        '  [e2] Edit "Search the catalogue" {value} center (50, 50)'
+    )
+    hands = FakeHands({"uia_tree": tree, "type": "OK · no visible change"})
+    model = Script({"action": "type", "text": "Dune"}, {"action": "done", "summary": "ok"})
+    _, events = run(hands, model)
+    assert ("uia_set_value", {"element": "e2", "value": "Dune"}) in hands.acts()
+    step = next(e for e in events if e["event"] == "step")
+    assert '"Search the catalogue"' in step["result"]
+
+
 def test_focusing_the_same_window_again_and_again_is_stuck() -> None:
     # Notepad in round 6: seven focus_window steps in a row, each "is in front" (D-106).
     hands = FakeHands({"focus_window": '"Untitled - Notepad" is in front'})
@@ -1262,6 +1286,6 @@ def test_an_unexpected_error_fails_one_step_not_the_task() -> None:
         pass
 
     hands = FakeHands({"key": COMError("(-2146233079, None)")})
-    outcome, events = run(hands, Script({"action": "key", "keys": "ctrl+s"}, done()))
+    outcome, events = run(hands, Script({"action": "key", "keys": "ctrl+a"}, done()))
     assert outcome.status == "done"
     assert next(e for e in events if e["event"] == "step")["result"].startswith("failed: COMError")

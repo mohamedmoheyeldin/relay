@@ -19,5 +19,5 @@ non-obvious choice is in `docs/decisions.md` (append-only, D-0xx).
 - relay-screen tool names and parameters mirror `computer_toolset_20260801` members; batch semantics and halt text must match exactly (D-009).
 - Coordinates exposed to Cloud AI are screenshot pixels of the active display; convert only in `relay_screen/scaling.py`.
 - Never commit personal data: playbooks (except examples), profile.yaml, runs/, screenshots, .env.
-- Never name the cloud AI's vendor or product anywhere: code, docs, UI, commits, PR text, git author (D-110). Say "Cloud AI" and `cloud-cli`; read the real CLI names from the `cli_names` modules. No co-author trailers or footers.
+- Never name the cloud AI's vendor or product anywhere: code, docs, UI, commits, PR text, git author (D-111). Say "Cloud AI" and `cloud-cli`; read the real CLI names from the `cli_names` modules. No co-author trailers or footers.
 - Never copy code or assets from other products; outside software may be studied for design understanding only.

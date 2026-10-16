@@ -2,10 +2,14 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
-## 2026-10-16 · The cloud AI's vendor and product names removed (D-110)
+## 2026-10-16 · The cloud AI's vendor and product names removed (D-111)
 - Owner: nothing in the project may name the cloud AI or its app. Every file, identifier, UI label, setting key, diagnostics scenario and doc now says "Cloud AI" ("the reference chat app" for the UI Relay copies; `cloud-cli` for the CLI in docs). Renamed files: relay-core `cloud.rs`, relay-ui `lib/cloud.ts`, `screens/cloud-setup.tsx`, `docs/research/cloud-integration.md`.
 - The real CLI names live only in `cli_names.rs`, `cli_names.py`, `cli-names.ts` and the uninstaller line; `CLAUDE.md` and `.claude/` keep their names because the CLI looks for them. Protocol keys changed together on both sides (`"cloud"` route flag and route target, `"source": "cloud"`, settings key `cloud`, connector kind `cloud_ai`, Tauri commands `cloud_*`, jobs `cloud-install`/`cloud-update`, scenarios `cloud-text`/`cloud-ui`, `RELAY_CLOUD_CLI`).
 - Commits and PRs from now on carry no co-author trailers or footers.
+
+## 2026-10-16 · Projects, Tasks and task threads (D-110)
+- Sidebar now has Projects and Tasks under New chat and Search, and each project's chats under its name. Project pages hold the instructions; chats move between projects from their menu.
+- Each on-screen task shows as one card in the chat and opens its own thread beside it, like the reference chat app. Mocked screenshots checked at 1720 px.
 
 ## 2026-10-16 · 0.1.13 app: reference-app colours and title row, one-click Delete
 - Compared Relay with a screenshot of the reference chat app at the same size (images in project files, relay/ui-compare). Dark palette now matches it (main #151515, sidebar #111111, rows #2b2b2b/#343434, borders #2a2a2a), sidebar is 288 px with 28 px rows, the window has no system frame and draws its own title row with back/forward and window buttons, composer has the return-key send and plain model/effort labels below.

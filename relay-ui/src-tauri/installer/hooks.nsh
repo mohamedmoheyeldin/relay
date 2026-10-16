@@ -1,7 +1,7 @@
 ; Relay NSIS hooks (Tauri bundler).
 
 ; The Cloud AI CLI's executable name, as relay-core/src/cli_names.rs has it (D-110).
-!define CLOUD_CLI "claude"
+!define CLOUD_CLI "cloud"
 ; Relay installs for all users into Program Files. Relay 0.1.0 installed per user
 ; (C:\relay by default), so that copy is uninstalled first: there is only ever one Relay.
 

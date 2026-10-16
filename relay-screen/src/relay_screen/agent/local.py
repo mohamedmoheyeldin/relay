@@ -137,6 +137,8 @@ the owner before such steps either way.
 - Calculator and other apps that take keys: type the whole entry at once, for \
 example type 25*4= in Calculator, instead of pressing its buttons one by one.
 - To go to a website, use open_url instead of typing in the address bar.
+- To show a folder in File Explorer or a file dialog, press ctrl+l, type the folder's \
+path or name (for example Downloads), then press Return.
 - When the owner adds a note while you work, follow it from then on.
 - Never click taskbar buttons to switch programs (that minimizes them); use \
 focus_window. Never act on Relay's own window; it is marked in the windows list.
@@ -855,6 +857,14 @@ def _switching(steps: list[Step]) -> bool:
     )
 
 
+def _clicked_again(steps: list[Step]) -> bool:
+    """The last two steps were the same position click."""
+    if len(steps) < 2:
+        return False
+    a, b = steps[-2].action, steps[-1].action
+    return a == b and a.get("action") in CLICK_NAMES and not steps[-1].error
+
+
 FIELD_ROLES = ("Edit", "Spinner", "ComboBox", "Document")
 TARGET_ROLES = (*FIELD_ROLES, "Button", "CheckBox", "RadioButton", "Hyperlink", "ListItem")
 NAMED_LINE = re.compile(r'^\s*\[(e\d+)\] (\w+) "([^"]{3,})"[^\n]*?center \((\d+), (\d+)\)', re.M)
@@ -891,6 +901,16 @@ def _listed_named(elements: str, text: str) -> str | None:
 def _intended_element(elements: str, thought: str) -> list[int] | None:
     found = _named(elements, thought, TARGET_ROLES)
     return found[1] if found else None
+
+
+def _only_empty_field(elements: str) -> str | None:
+    """The id of the one empty text box in the listing, if there is exactly one."""
+    found = [
+        m.group(1)
+        for m in NAMED_LINE.finditer(elements)
+        if m.group(2) in ("Edit", "Spinner") and "value=" not in m.group(0)
+    ]
+    return found[0] if len(found) == 1 else None
 
 
 def _intended_field(elements: str, thought: str) -> str | None:
@@ -1201,6 +1221,27 @@ class LocalAgent:
                     )
                     look = True
                     break
+                if (
+                    not step.error
+                    and member in ("focus_window", "launch_app", "open_url")
+                    and (action, member, params) != actions[-1]
+                ):
+                    # Another window is in front: its element ids are new, and a planned
+                    # set_value on the browser's e2123 went to Notepad's turn (D-106).
+                    note = (
+                        "A different window is in front now, so the rest of your actions "
+                        "were not run. Use the ids in its element list below."
+                    )
+                    break
+                if _clicked_again(steps):
+                    # File Explorer's address bar clicked eight times, never typed in (D-106).
+                    note = (
+                        "You clicked the same spot twice in a row. Clicking it again won't "
+                        "help: if you clicked a box to type in it, type now; otherwise use an "
+                        "element id from the list, a key, or another way."
+                    )
+                    look = True
+                    break
                 if step.error:
                     look = True  # see what went wrong before planning again
                     if len(steps) >= FAILS_IN_A_ROW and all(
@@ -1465,6 +1506,12 @@ class LocalAgent:
                         # before it: the phone number landed in Email (D-106).
                         member = "uia_set_value"
                         params = {"element": meant_id, "value": params["text"]}
+                if _opens_save(member, params, self.elements) and not SAVES.search(self.task):
+                    # The laptop note was typed, then the model went for File > Save (D-106).
+                    raise ActionError(
+                        "the task doesn't ask to save, so Relay didn't; if the task is "
+                        "finished, reply done"
+                    )
                 if member in ("click_text", "uia_invoke"):
                     self._fields_first(params)
                 if member == "click_text":
@@ -1487,6 +1534,8 @@ class LocalAgent:
             if not error and member in ("type", "uia_set_value"):
                 self.typed.setdefault(_typed_key(params), n)
             self.last_type_step = n if not error and member == "type" else 0
+            if not error and member == "type" and "no visible change" in text:
+                text = self._type_into_field(thought, str(params.get("text", "")), text)
             if not error and member == "uia_set_value" and self._address_bar(params):
                 # A search or address in the browser's bar does nothing until Enter,
                 # and models kept pressing the search icon instead (D-097).
@@ -1759,6 +1808,19 @@ class LocalAgent:
             return
         with contextlib.suppress(ActionError):
             self.hands.run("focus_window", {"window": self.target})
+
+    def _type_into_field(self, thought: str, value: str, text: str) -> str:
+        """Typing went nowhere (no box had the focus): put the text into the empty box
+        the thought names, or the page's only empty box (D-106). The library search
+        typed "Dune" four times into nothing."""
+        field = _intended_field(self.elements, thought) or _only_empty_field(self.elements)
+        if field is None:
+            return text
+        result = self.hands.run("uia_set_value", {"element": field, "value": value})
+        if result.is_error:
+            return text
+        label = _element_label(self.elements, field)
+        return f"{text}; nothing had the focus, so Relay put it into {label}"
 
     def _typing_again(self, n: int) -> bool:
         """The step before this one also typed, so the focus is still on that field."""
