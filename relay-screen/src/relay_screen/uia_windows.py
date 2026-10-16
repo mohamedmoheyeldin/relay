@@ -93,6 +93,12 @@ class WinElement:
         pattern = self._pattern("TogglePattern") if "toggle" in self.patterns() else None
         return {0: False, 1: True}.get(pattern.ToggleState) if pattern else None
 
+    def selected(self) -> bool | None:
+        """Whether a radio button is the chosen one; None when it isn't one (D-104)."""
+        if self.role != "RadioButton" or "select" not in self.patterns():
+            return None
+        return bool(self._pattern("SelectionItemPattern").IsSelected)
+
     def invoke(self) -> str:
         patterns = self.patterns()
         if "invoke" in patterns:
@@ -119,6 +125,7 @@ class WinElement:
 NAME, CONTROL_TYPE, AUTOMATION_ID, IS_ENABLED, BOUNDS = 30005, 30003, 30011, 30010, 30001
 VALUE = 30045
 TOGGLE_STATE = 30086  # UIA_ToggleToggleStatePropertyId: 0 off, 1 on, 2 mixed
+IS_SELECTED = 30079  # UIA_SelectionItemIsSelectedPropertyId
 PATTERN_AVAILABLE = {
     "invoke": 30031,
     "value": 30043,
@@ -198,6 +205,11 @@ class CachedElement:
             return None
         return {0: False, 1: True}.get(self._prop(TOGGLE_STATE))
 
+    def selected(self) -> bool | None:
+        if self.role != "RadioButton" or "select" not in self.patterns():
+            return None
+        return bool(self._prop(IS_SELECTED))
+
     def _live(self) -> WinElement:
         control = self._auto.Control.CreateControlFromElement(self._e)
         return WinElement(control, self._auto)
@@ -244,6 +256,7 @@ class WinUiaBackend:
                 BOUNDS,
                 VALUE,
                 TOGGLE_STATE,
+                IS_SELECTED,
             ):
                 request.AddProperty(prop)
             for prop in PATTERN_AVAILABLE.values():

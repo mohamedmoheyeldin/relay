@@ -375,7 +375,8 @@ def chats(ctx: Ctx) -> None:
         ctx.ui.fill("Search chats", ctx.stamp)
         ctx.expect(ctx.wait(options(title), "Button", seconds=3), "Search finds the chat")
         ctx.expect(
-            ctx.wait(options(second), "Button", gone=True, seconds=3),
+            # The sidebar row, named by its title (the open chat's own menu stays).
+            ctx.wait(second, "Button", gone=True, seconds=3),
             "Search hides chats that don't match",
         )
         ctx.shot("search")

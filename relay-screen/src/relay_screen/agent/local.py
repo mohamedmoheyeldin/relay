@@ -18,6 +18,7 @@ import time
 import urllib.parse
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Literal, Protocol
 
 from PIL import Image
@@ -137,6 +138,10 @@ of the Save dialog, then invoke its Save button.
 - Follow your plan, and reply done only when its done-check holds.
 - In a calculator, type the whole sum with type (for example 12*56=) instead of \
 pressing its buttons, then read the result.
+- Do only what the task asks: never save, close, send or delete anything it didn't \
+ask for.
+- Choose the radio option the task names; the element list marks each radio button \
+selected or not selected, so check the right one is selected before going on.
 - Tick every checkbox the task needs (an "I agree" box too); the element list marks \
 each one checked or unchecked.
 - If the same actions did not finish the task once, do something different.
@@ -390,7 +395,14 @@ def to_member(action: Mapping[str, Any], frame: Frame | None, coords: Coords) ->
             params["coordinate"] = frame.to_screen(action["x"], action["y"], coords)
         return "scroll", params
     if name in ("launch_app", "open_app", "open"):
-        app = action.get("name") or action.get("app")
+        app = next(
+            (
+                action[k]
+                for k in ("name", "app", "program", "application", "target", "title", "text")
+                if isinstance(action.get(k), str) and action[k].strip()
+            ),
+            None,
+        )
         if not isinstance(app, str) or not app:
             raise ReplyError("launch_app needs a name")
         args = action.get("args") or []
@@ -461,6 +473,43 @@ def _few(elements: str) -> bool:
     return not elements.startswith("Elements") or elements.count("\n") < FEW_ELEMENTS
 
 
+def with_paths(text: str, home: Path | None = None) -> str:
+    """'... my Downloads folder' plus its full path, for the Save dialog (D-104)."""
+    home = home or Path.home()
+    found = [n for n in KNOWN_FOLDERS if re.search(rf"\b{n}\b", text, re.IGNORECASE)]
+    if not found:
+        return text
+    paths = ", ".join(f"{n} is {home / n}" for n in found)
+    return f"{text} (Full path: {paths}. Put the full path and file name in the File name box.)"
+
+
+# Roles the model needs first when a window's list is too long to show whole (D-104):
+# the window's content, then its controls, then the navigation tree, then the rest.
+ROLE_ORDER = {
+    **dict.fromkeys(("ListItem", "DataItem", "Edit", "Document", "RadioButton"), 0),
+    **dict.fromkeys(
+        ("Button", "CheckBox", "ComboBox", "Hyperlink", "MenuItem", "TabItem", "SplitButton"), 1
+    ),
+    "TreeItem": 2,
+}
+
+
+def _prioritize(listing: str, limit: int) -> str:
+    """A long element list with content and controls first, so a folder's items aren't
+    cut off behind Explorer's navigation pane."""
+    if len(listing) <= limit:
+        return listing
+    head, _, body = listing.partition("\n")
+    lines = body.splitlines()
+
+    def rank(line: str) -> int:
+        found = re.match(r"\s*\[e\d+\] (\w+)", line)
+        return ROLE_ORDER.get(found.group(1), 3) if found else 4
+
+    ordered = sorted(lines, key=rank)
+    return _cut("\n".join([head, *(line.strip() for line in ordered)]), limit)
+
+
 def _cut(listing: str, limit: int) -> str:
     if len(listing) <= limit:
         return listing
@@ -518,9 +567,25 @@ NEW_TEXT = re.compile(
     re.IGNORECASE,
 )
 EDIT_TEXT = re.compile(
-    r"\b(edit|change|fix|update|append|add to|replace|in the open|this|that|current)\b",
+    r"\b(edit|change|fix|update|append|add to|replace)\b"
+    r"|\b(in the open|this|that|the current|the open|my)\s+(document|doc|file|note|tab|text|"
+    r"list|page|draft)\b",
     re.IGNORECASE,
 )
+# "Open Notepad and type: ...": typing into an editor is new text too (D-104).
+TYPE_IN_EDITOR = re.compile(
+    r"\b(type|write|jot|paste|put|note)\b.*\b(notepad|wordpad|word|notepad\+\+)\b"
+    r"|\b(notepad|wordpad|word|notepad\+\+)\b.*\b(type|write|jot|paste|put|note)\b",
+    re.IGNORECASE,
+)
+# A task that saves a file but doesn't say where: Relay asks the owner (D-104).
+SAVES = re.compile(r"\bsave\b", re.IGNORECASE)
+PLACE = re.compile(
+    r"[a-z]:\\|\\\\|/|\b(folder|desktop|documents|downloads|pictures|music|videos|"
+    r"onedrive|drive|in my|to my|same place|where it was)\b",
+    re.IGNORECASE,
+)
+KNOWN_FOLDERS = ("Downloads", "Documents", "Desktop", "Pictures", "Music", "Videos")
 REPEAT_MIN = 20  # characters; short text ("Enter", a name) may well be typed twice
 
 
@@ -675,6 +740,7 @@ class LocalAgent:
     ) -> None:
         self.instant = instant
         self.inbox = inbox or (lambda: [])
+        self.can_ask = inbox is not None  # someone can answer the plan's question
         self.cancelled = cancelled or (lambda: False)
         self.ask = ask
         self.notes: list[str] = []  # what the owner added while the task ran
@@ -706,7 +772,9 @@ class LocalAgent:
         look = True  # the first decision sees the screen
         apps = self._apps()
         n = 0
-        self.new_doc = bool(NEW_TEXT.search(task)) and not EDIT_TEXT.search(task)
+        self.new_doc = bool(NEW_TEXT.search(task) or TYPE_IN_EDITOR.search(task)) and not (
+            EDIT_TEXT.search(task)
+        )
         try:
             self.plan = self._make_plan(task, apps)
         except Cancelled:
@@ -880,7 +948,7 @@ class LocalAgent:
             listing = self.hands.run("uia_tree", {"depth": UIA_DEPTH}).text or ""
         except Exception:
             return ""
-        return _cut(listing, MAX_UIA_CHARS)
+        return _prioritize(listing, MAX_UIA_CHARS)
 
     def _page(self) -> str:
         try:
@@ -1107,6 +1175,10 @@ class LocalAgent:
         goal, app = str(plan.get("goal") or ""), str(plan.get("app") or "")
         done_when = str(plan.get("done_when") or "")
         question = str(plan.get("question") or "").strip()
+        default = str(plan.get("default") or "").strip()
+        if not question and self.can_ask and SAVES.search(task) and not PLACE.search(task):
+            # Only the owner knows where a file belongs, and models forget to ask (D-104).
+            question, default = "Where should I save it?", "your Documents folder"
         if not (goal or steps or question):
             return ""
         self.emit(
@@ -1121,12 +1193,14 @@ class LocalAgent:
             text.append(f"Done when: {done_when}")
             self.done_when = done_when
         if question:
-            answer = self._ask_owner(question, str(plan.get("default") or "").strip())
+            answer = with_paths(self._ask_owner(question, default))
             text.append(f"You asked the owner: {question} {answer}")
         return "\n".join(text)
 
     def _ask_owner(self, question: str, default: str) -> str:
         """Ask in the chat and wait for the owner's answer (it comes in like a note)."""
+        if not self.can_ask:
+            return f"Nobody can answer here; use the default: {default or 'choose sensibly'}"
         self.emit({"event": "question", "text": question, "default": default})
         self.emit({"event": "note", "text": question})
         until = time.monotonic() + QUESTION_WAIT

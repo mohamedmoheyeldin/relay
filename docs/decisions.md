@@ -1674,3 +1674,23 @@ knows them.
   attach; Stop; a 900 × 640 window. Everything changed is put back. Restarting
   gives the operator service a new port, so the diagnostics link re-reads
   operator.json before each task.
+
+## D-104 Operator fixes from the full test: new tab, where to save, radios, long lists
+
+From round 5 of the full test (D-103):
+- **Typing into an editor is new text.** "Open Notepad and type: …" didn't
+  count as a writing task, so the model typed over a Notepad tab that already
+  had text. `TYPE_IN_EDITOR` now counts it, and the edit words that keep the
+  open document are narrowed ("this document", not any "this").
+- **Where to save.** A task that saves but names no place gets "Where should I
+  save it?" from Relay when the model's plan didn't ask, and only when someone
+  can answer (an inbox exists). An answer naming Downloads, Documents, Desktop,
+  Pictures, Music or Videos gets its full path added for the Save dialog.
+- **Radio buttons** are listed as selected or not selected, like checkboxes
+  (D-100), and the prompt says to check the right option is selected.
+- **Long element lists** put content first (list items, edits, documents,
+  radios), then buttons, then tree items, before cutting, so a folder's items
+  aren't hidden behind Explorer's navigation pane.
+- **Only what was asked.** The prompt says never to save, close, send or delete
+  what the task didn't ask for; Notepad tasks were saving files unasked.
+- launch_app takes the app name under any of the keys models used.
