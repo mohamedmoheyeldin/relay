@@ -1628,3 +1628,49 @@ The owner chose the full rebuild with every recommendation:
 - **RAM.** llama-server runs with `--no-mmap` and `--cache-ram 0`. The weights
   stay in VRAM with no file mapping kept in RAM, and the host-memory prompt
   cache (8 GB by default in recent llama.cpp) is off.
+
+## D-101 App-function tests drive Relay's own window with no model
+
+- **What.** The full test (D-096) also uses Relay itself the way the owner
+  does: every Settings page, the model and effort picker (pick, saved to
+  settings.json, put back), a new chat with a Claude reply, the chat menu (pin,
+  rename, unpin, delete), search, attach (a file picker opens and closes) and
+  Stop during a long answer. Scenarios `app-*`, kind `app`.
+- **How.** `diagnostics/app.py` holds the scripts against a small `AppUi`
+  interface; `diagnostics/desktop.py` implements it with UI Automation on the
+  window of `relay.exe` titled "Relay": one cached tree read per look,
+  Invoke to press, focus and typed keys to fill. Names are the app's own
+  aria-labels and button text, so a renamed control fails the test on purpose.
+  No model runs, so these are fast and exact.
+- **Clean up.** Test chats are deleted, the picker goes back to what the owner
+  had, and the run ends on Settings > Developer, where a run from the app
+  starts. A signed-out chat can't be shown without signing the owner out, so
+  it stays covered by the router check (Claude off goes to the local AI).
+
+## D-102 llama-server flags follow the installed build
+
+llama.cpp build 11630 replaced `--no-mmap` with `--load-mode MODE` and exits
+on the old flag, so the local AI could not load at all after D-100. The
+supervisor now reads `llama-server --help` once per binary and passes
+`--load-mode none` or `--no-mmap`, and `--cache-ram 0`, only when that build
+knows them.
+
+## D-103 One full test, area by area, with real one-click app checks
+
+- **One run, everything.** "Full test" in Settings and `relay-screen
+  diagnostics` both run every area in this order: Relay app, Real-world
+  tasks, Claude and signed out, System (monitors, routing), with RAM and VRAM
+  sampled throughout. Results, summary.json, the report and the app's list
+  are grouped by area.
+- **Real clicks, timed.** App tests click with the real mouse at the
+  control's centre and type real keys (UIA Invoke can succeed where a click
+  doesn't, which hid the two-click Delete). Each action is one click, timed
+  until its result shows: no result in 5 s fails as "… on one click", and over
+  2.5 s fails as slow.
+- **Coverage.** Sidebar collapse, Back, Forward; every Settings page and
+  toggle (saved, still set after leaving the page, put back); the composer
+  (empty, Enter, Shift+Enter, a long message, the picker); chats (switch, pin,
+  rename, search, unpin, delete) checked again after restarting Relay;
+  attach; Stop; a 900 × 640 window. Everything changed is put back. Restarting
+  gives the operator service a new port, so the diagnostics link re-reads
+  operator.json before each task.

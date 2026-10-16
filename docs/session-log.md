@@ -2,6 +2,10 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
+## 2026-10-16 · 0.1.13 app: Claude-app colours and title row, one-click Delete
+- Compared Relay with the owner's Claude desktop screenshot at the same size (images in project files, relay/ui-compare). Dark palette now matches it (main #151515, sidebar #111111, rows #2b2b2b/#343434, borders #2a2a2a), sidebar is 288 px with 28 px rows, the window has no system frame and draws its own title row with back/forward and window buttons, composer has the return-key send and plain model/effort labels below.
+- Delete in the chat menu works on the first click: relay-core refuses a save that arrives after a delete, and opening a chat no longer re-saves it (it also kept moving old chats to Today).
+
 ## 2026-10-16 · Diagnostics findings, the owner's input, RAM (D-100)
 - Holo3.1-9B now runs even when Settings still names Qwen3-VL as the operator.
 - Before real input the operator waits for the owner to pause, then brings its window back. Each step re-reads the screen, so the task carries on.

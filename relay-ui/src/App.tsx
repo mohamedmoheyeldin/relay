@@ -6,7 +6,8 @@ import { Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { Checkbox } from "@/components/base/checkbox/checkbox";
 import { type AppInfo, type ChatSummary, type Settings, type UpdateInfo, api } from "@/lib/api";
 import { ApprovalTray } from "@/components/relay/approval";
-import { ChatScreen, type OpenChat } from "./screens/chat";
+import { ChatScreen, type OpenChat, forgetChat } from "./screens/chat";
+import { DragStrip, WindowControls } from "@/components/relay/window-controls";
 import { RelayMark, Sidebar } from "@/components/relay/sidebar";
 import { useClaude } from "@/lib/claude";
 import { SettingsScreen } from "./screens/settings";
@@ -101,6 +102,7 @@ export default function App() {
     const openChat = (id: string) => go({ view: "chat", chat: { id, fresh: false } });
     const newChatPlace = () => go({ view: "chat", chat: { id: newId(), fresh: true } });
     const deleteChat = async (id: string) => {
+        forgetChat(id);
         await api.chatDelete(id).catch(() => {});
         if (id === chat.id) newChatPlace();
         loadChats();
@@ -148,6 +150,8 @@ export default function App() {
     if (!settings || !info)
         return (
             <div className="flex h-screen flex-col items-center justify-center gap-4 bg-primary text-sm text-tertiary">
+                <DragStrip />
+                <WindowControls />
                 <RelayMark className="size-10 animate-pulse" />
                 Starting Relay…
             </div>
@@ -155,6 +159,8 @@ export default function App() {
 
     return (
         <div className="flex h-screen bg-primary">
+            <DragStrip />
+            <WindowControls />
             <CloseDialog open={closeAsk} onClose={() => setCloseAsk(false)} />
             <ApprovalTray />
             {view !== "setup" && (
@@ -183,7 +189,7 @@ export default function App() {
             )}
             <div className="flex min-w-0 flex-1 flex-col">
                 {update && view !== "setup" && (
-                    <div className="flex items-center justify-center gap-3 border-b border-secondary bg-brand-primary px-6 py-1.5 text-sm text-brand-secondary animate-in fade-in slide-in-from-top-1 duration-300">
+                    <div className="relative z-40 mr-[138px] flex items-center justify-center gap-3 border-b border-secondary bg-brand-primary px-6 py-1.5 text-sm text-brand-secondary animate-in fade-in slide-in-from-top-1 duration-300">
                         <span>Relay {update.latest} is available.</span>
                         <Button
                             size="sm"

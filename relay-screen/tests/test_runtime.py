@@ -14,7 +14,7 @@ from relay_screen.runtime.download import DownloadError, download
 from relay_screen.runtime.gpu import GIB, Gpu
 from relay_screen.runtime.paths import RelayPaths, models_folder_setting
 from relay_screen.runtime.store import Store
-from relay_screen.runtime.supervisor import RuntimeUnavailable, Supervisor
+from relay_screen.runtime.supervisor import RuntimeUnavailable, Supervisor, ram_flags
 
 
 def sha(data: bytes) -> str:
@@ -379,6 +379,7 @@ class Harness:
             idle=60,
             load_timeout=30,
             record=self.events.append,
+            help=lambda exe: "--load-mode MODE ... -cram, --cache-ram N",
         )
 
     def launch(self, command: list[str], log: Path) -> FakeProcess:
@@ -398,7 +399,8 @@ def test_ensure_starts_llama_server_on_the_gpu(tmp_path: Path) -> None:
     assert command[0].endswith("llama-server.exe")
     assert command[command.index("--n-gpu-layers") + 1] == "999"
     # RAM (D-100): no mapped copy of the weights and no host prompt cache
-    assert "--no-mmap" in command and command[command.index("--cache-ram") + 1] == "0"
+    assert command[command.index("--load-mode") + 1] == "none"
+    assert command[command.index("--cache-ram") + 1] == "0"
     assert command[command.index("--host") + 1] == "127.0.0.1"
     assert "--mmproj" in command
     assert h.events[0]["event"] == "load"
@@ -638,3 +640,12 @@ def test_chat_turns_thinking_off_and_drops_think_blocks(monkeypatch: pytest.Monk
     monkeypatch.setattr(supervisor.urllib.request, "urlopen", urlopen)
     assert supervisor.chat("http://127.0.0.1:1", "Reply with OK.") == "OK"
     assert sent[0]["chat_template_kwargs"] == {"enable_thinking": False}
+
+
+def test_ram_flags_follow_the_llama_build() -> None:
+    # Build 11630 dropped --no-mmap for --load-mode and exits on the old flag (D-102).
+    assert ram_flags("-lm, --load-mode MODE\n-cram, --cache-ram N") == [
+        "--load-mode", "none", "--cache-ram", "0",
+    ]  # fmt: skip
+    assert ram_flags("--no-mmap  do not memory-map model") == ["--no-mmap"]
+    assert ram_flags("") == []

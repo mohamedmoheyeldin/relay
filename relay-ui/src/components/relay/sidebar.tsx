@@ -48,7 +48,7 @@ const IconButton = ({ label, onClick, disabled, children }: { label: string; onC
         disabled={disabled}
         aria-label={label}
         title={label}
-        className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-fg-tertiary transition duration-100 outline-focus-ring hover:bg-tertiary/70 hover:text-fg-secondary focus-visible:outline-2 disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent"
+        className="relative z-40 flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-fg-tertiary transition duration-100 outline-focus-ring hover:bg-tertiary hover:text-fg-secondary focus-visible:outline-2 disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent"
     >
         {children}
     </button>
@@ -60,11 +60,11 @@ const Row = ({ icon: Icon, label, onClick, active }: { icon: typeof Plus; label:
         aria-current={active ? "page" : undefined}
         onClick={onClick}
         className={cx(
-            "flex h-[30px] w-full cursor-pointer items-center gap-2.5 rounded-md px-2 text-left text-sm transition duration-100 outline-focus-ring focus-visible:outline-2",
-            active ? "bg-tertiary text-primary" : "text-secondary hover:bg-tertiary/60 hover:text-primary",
+            "flex h-7 w-full cursor-pointer items-center gap-2.5 rounded-md px-2 text-left text-sm transition duration-100 outline-focus-ring focus-visible:outline-2",
+            active ? "bg-quaternary text-primary" : "text-secondary hover:bg-tertiary hover:text-primary",
         )}
     >
-        <Icon className="size-4 shrink-0 text-fg-tertiary" />
+        <Icon className="size-4 shrink-0 text-fg-secondary" />
         <span className="truncate">{label}</span>
     </button>
 );
@@ -166,14 +166,14 @@ const ChatRow = ({
                     if (e.key === "Enter") commit();
                     if (e.key === "Escape") onRename(null);
                 }}
-                className="h-[30px] w-full rounded-md bg-primary px-2 text-sm text-primary ring-1 ring-brand outline-hidden"
+                className="h-7 w-full rounded-md bg-primary px-2 text-sm text-primary ring-1 ring-brand outline-hidden"
             />
         );
     return (
         <div
             className={cx(
-                "group relative flex h-[30px] items-center rounded-md text-sm transition duration-100",
-                active ? "bg-tertiary text-primary" : "text-secondary hover:bg-tertiary/60 hover:text-primary",
+                "group relative flex h-7 items-center rounded-md text-sm transition duration-100",
+                active ? "bg-quaternary text-primary" : "text-secondary hover:bg-tertiary hover:text-primary",
             )}
         >
             <button
@@ -183,7 +183,7 @@ const ChatRow = ({
                 aria-current={active ? "page" : undefined}
                 className="flex h-full min-w-0 flex-1 cursor-pointer items-center gap-2.5 px-2 text-left outline-focus-ring focus-visible:outline-2"
             >
-                <span className={cx("size-1.5 shrink-0 rounded-full ring-1", active ? "bg-fg-brand-primary ring-transparent" : "ring-fg-quaternary")} />
+                <span className={cx("size-[7px] shrink-0 rounded-full ring-1", active ? "bg-fg-brand-primary ring-transparent" : "ring-fg-quaternary")} />
                 <span className="truncate">{chat.title}</span>
             </button>
             <ChatMenu
@@ -257,7 +257,7 @@ export const Sidebar = ({
             onDelete={() => onDelete(c.id)}
         />
     );
-    const heading = (label: string) => <span className="px-2 pt-5 pb-1 text-xs text-quaternary">{label}</span>;
+    const heading = (label: string) => <span className="px-2 pt-6 pb-1.5 text-[13px] text-quaternary">{label}</span>;
     const closeSearch = () => {
         setQuery("");
         setSearching(false);
@@ -265,7 +265,7 @@ export const Sidebar = ({
 
     if (collapsed)
         return (
-            <nav aria-label="Relay" className="flex w-12 shrink-0 flex-col items-center gap-1 bg-secondary py-2.5">
+            <nav aria-label="Relay" className="flex w-12 shrink-0 flex-col items-center gap-1 border-r border-secondary bg-secondary pt-1 pb-2.5">
                 <IconButton label="Open sidebar" onClick={onToggle}>
                     <LayoutLeft className="size-4" />
                 </IconButton>
@@ -290,8 +290,8 @@ export const Sidebar = ({
         );
 
     return (
-        <nav aria-label="Relay" className="flex w-[264px] shrink-0 flex-col bg-secondary px-2 pt-2.5 pb-2">
-            <div className="flex h-8 items-center gap-0.5 px-0.5">
+        <nav aria-label="Relay" className="flex w-[288px] shrink-0 flex-col border-r border-secondary bg-secondary px-2 pb-2">
+            <div className="flex h-9 items-center gap-1 px-0.5">
                 <IconButton label="Close sidebar" onClick={onToggle}>
                     <LayoutLeft className="size-4" />
                 </IconButton>
@@ -301,15 +301,11 @@ export const Sidebar = ({
                 <IconButton label="Forward" onClick={onForward} disabled={!canForward}>
                     <ArrowRight className="size-4" />
                 </IconButton>
-                <div className="ml-auto flex items-center gap-1.5 pr-1.5">
-                    <RelayMark className="size-[18px]" />
-                    <span className="text-sm font-semibold tracking-tight text-primary">Relay</span>
-                </div>
             </div>
-            <div className="mt-3 flex flex-col gap-px">
+            <div className="mt-2 flex flex-col gap-0.5">
                 <Row icon={Plus} label="New chat" onClick={onNew} />
                 {searching ? (
-                    <div className="flex h-[30px] items-center gap-2.5 rounded-md bg-primary px-2 ring-1 ring-secondary focus-within:ring-brand">
+                    <div className="flex h-7 items-center gap-2.5 rounded-md bg-primary px-2 ring-1 ring-secondary focus-within:ring-brand">
                         <SearchLg className="size-4 shrink-0 text-fg-tertiary" />
                         <input
                             autoFocus
@@ -332,19 +328,19 @@ export const Sidebar = ({
                 {pinned.length > 0 && (
                     <>
                         {heading("Pinned")}
-                        <div className="flex flex-col gap-px">{pinned.map(row)}</div>
+                        <div className="flex flex-col gap-0.5">{pinned.map(row)}</div>
                     </>
                 )}
                 {groups.map((g) => (
                     <div key={g.label} className="flex flex-col">
                         {heading(g.label)}
-                        <div className="flex flex-col gap-px">{g.chats.map(row)}</div>
+                        <div className="flex flex-col gap-0.5">{g.chats.map(row)}</div>
                     </div>
                 ))}
                 {q && shown.length === 0 && <p className="px-2 pt-5 text-sm text-tertiary">No chats match "{query.trim()}".</p>}
                 {!q && chats.length === 0 && <p className="px-2 pt-5 text-xs text-quaternary">Your chats will show here.</p>}
             </div>
-            <div className="border-t border-secondary pt-1.5">
+            <div className="border-t border-secondary pt-2">
                 <Row icon={Settings01} label="Settings" active={settingsOpen} onClick={onSettings} />
             </div>
         </nav>

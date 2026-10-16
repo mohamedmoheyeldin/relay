@@ -13,6 +13,7 @@ import { useJobs } from "@/lib/jobs";
 interface Row {
     id: string;
     title: string;
+    area?: string;
     result?: DiagnosticsResult;
     live?: string;
 }
@@ -37,7 +38,29 @@ const timing = (r: DiagnosticsResult) => {
     return parts.join(" · ");
 };
 
-const fromSummary = (s: DiagnosticsSummary): Row[] => s.results.map((r) => ({ id: r.id, title: r.title, result: r }));
+const fromSummary = (s: DiagnosticsSummary): Row[] => s.results.map((r) => ({ id: r.id, title: r.title, area: r.area, result: r }));
+
+/** Rows under their area (the app, real tasks, Claude, system), in run order. */
+const byArea = (rows: Row[]) => {
+    const groups: { area: string; rows: Row[] }[] = [];
+    for (const r of rows) {
+        const area = r.area ?? "Tests";
+        const last = groups[groups.length - 1];
+        if (last?.area === area) last.rows.push(r);
+        else groups.push({ area, rows: [r] });
+    }
+    return groups;
+};
+
+const tally = (rows: Row[]) => {
+    const n = (status: string) => rows.filter((r) => r.result?.status === status).length;
+    const parts = [`${n("passed")} passed`];
+    if (n("failed")) parts.push(`${n("failed")} failed`);
+    if (n("skipped")) parts.push(`${n("skipped")} skipped`);
+    const waiting = rows.length - n("passed") - n("failed") - n("skipped");
+    if (waiting) parts.push(`${waiting} to go`);
+    return parts.join(" · ");
+};
 
 export const DiagnosticsRuns = () => {
     const jobs = useJobs();
@@ -58,8 +81,8 @@ export const DiagnosticsRuns = () => {
         const sub = listen<Record<string, unknown>>("diagnostics", ({ payload: e }) => {
             const kind = e.event as string;
             if (kind === "start") {
-                const list = (e.scenarios as { id: string; title: string }[]) ?? [];
-                setRows(list.map((s) => ({ id: s.id, title: s.title })));
+                const list = (e.scenarios as { id: string; title: string; area?: string }[]) ?? [];
+                setRows(list.map((s) => ({ id: s.id, title: s.title, area: s.area })));
                 setSummary(null);
             } else if (kind === "scenario") {
                 setRows((rs) => rs.map((r) => (r.id === e.scenario ? { ...r, live: "Starting…" } : r)));
@@ -102,7 +125,7 @@ export const DiagnosticsRuns = () => {
     return (
         <Section
             title="Full test"
-            description="Runs real tasks on this PC with the local AI and Claude, and records screenshots, timings and every step in Downloads\Relay-diagnostics. It opens windows and moves the mouse while it runs; press Ctrl+Alt+Pause to stop it."
+            description="Runs everything in one go: Relay's own app, real tasks in Notepad, File Explorer, Brave and web forms, Claude and the local AI on its own, every monitor, and RAM and VRAM. It records screenshots, timings and every step in Downloads\Relay-diagnostics. It opens windows and moves the mouse while it runs; press Ctrl+Alt+Pause to stop it."
         >
             {error && <Notice tone="error">{error}</Notice>}
             {job?.state === "error" && job.error && job.error !== "Stopped." && <Notice tone="error">{job.error}</Notice>}
@@ -117,30 +140,36 @@ export const DiagnosticsRuns = () => {
                     ))}
                 </Notice>
             )}
-            {rows.length > 0 && (
-                <Card className="py-1">
-                    {rows.map((r) => (
-                        <div key={r.id} className="flex items-start justify-between gap-3 border-b border-secondary py-3 last:border-b-0">
-                            <div className="min-w-0">
-                                <p className="text-sm font-medium text-secondary">{r.title}</p>
-                                {r.result ? (
-                                    <>
-                                        <p className="text-xs text-tertiary">{timing(r.result)}</p>
-                                        {r.result.status !== "passed" && (
-                                            <p className="text-xs break-words text-error-primary">
-                                                {r.result.failed_checks.length ? r.result.failed_checks.join("; ") : r.result.message}
-                                            </p>
+            {byArea(rows).map((group) => (
+                <div key={group.area} className="flex flex-col gap-2">
+                    <div className="flex items-baseline justify-between gap-3 px-1">
+                        <p className="text-sm font-semibold text-primary">{group.area}</p>
+                        <p className="text-xs text-tertiary">{tally(group.rows)}</p>
+                    </div>
+                        <Card className="py-1">
+                            {group.rows.map((r) => (
+                                <div key={r.id} className="flex items-start justify-between gap-3 border-b border-secondary py-3 last:border-b-0">
+                                    <div className="min-w-0">
+                                        <p className="text-sm font-medium text-secondary">{r.title}</p>
+                                        {r.result ? (
+                                            <>
+                                                <p className="text-xs text-tertiary">{timing(r.result)}</p>
+                                                {r.result.status !== "passed" && (
+                                                    <p className="text-xs break-words text-error-primary">
+                                                        {r.result.failed_checks.length ? r.result.failed_checks.join("; ") : r.result.message}
+                                                    </p>
+                                                )}
+                                            </>
+                                        ) : (
+                                            r.live && running && <p className="truncate text-xs text-tertiary">{r.live}</p>
                                         )}
-                                    </>
-                                ) : (
-                                    r.live && running && <p className="truncate text-xs text-tertiary">{r.live}</p>
-                                )}
-                            </div>
-                            <div className="shrink-0">{statusBadge(r, running)}</div>
-                        </div>
-                    ))}
-                </Card>
-            )}
+                                    </div>
+                                    <div className="shrink-0">{statusBadge(r, running)}</div>
+                                </div>
+                            ))}
+                        </Card>
+                </div>
+            ))}
             <div className="flex flex-wrap gap-2">
                 {running ? (
                     <Button size="sm" color="secondary" iconLeading={StopCircle} onClick={() => api.diagnosticsStop()}>

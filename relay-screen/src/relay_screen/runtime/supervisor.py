@@ -16,6 +16,7 @@ instead of loading the model again. Whoever finds it idle past `idle` stops it.
 from __future__ import annotations
 
 import contextlib
+import functools
 import json
 import os
 import re
@@ -78,6 +79,32 @@ def popen(command: list[str], log: Path) -> Process:
         )
     finally:
         out.close()
+
+
+@functools.lru_cache(maxsize=8)
+def server_help(exe: str) -> str:
+    """`llama-server --help`, to pass only flags this build knows (D-102)."""
+    flags = CREATE_NO_WINDOW if sys.platform == "win32" else 0
+    try:
+        done = subprocess.run(
+            [exe, "--help"], capture_output=True, timeout=20, creationflags=flags, check=False
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return (done.stdout + done.stderr).decode("utf-8", "replace")
+
+
+def ram_flags(help_text: str) -> list[str]:
+    """Keep the weights out of RAM and the host prompt cache off (D-100), in the words
+    of this llama.cpp build: newer ones replaced --no-mmap with --load-mode."""
+    flags: list[str] = []
+    if "--load-mode" in help_text:
+        flags += ["--load-mode", "none"]
+    elif "--no-mmap" in help_text:
+        flags.append("--no-mmap")
+    if "--cache-ram" in help_text:
+        flags += ["--cache-ram", "0"]
+    return flags
 
 
 def popen_detached(command: list[str], log: Path) -> Process:
@@ -192,8 +219,10 @@ class Supervisor:
         shared: Path | None = None,
         wall: Callable[[], float] = time.time,
         kill: Callable[[int], None] = kill_pid,
+        help: Callable[[str], str] = server_help,
     ) -> None:
         self.store = store
+        self.help = help
         self.shared = shared
         self.wall = wall
         self.kill = kill
@@ -395,8 +424,7 @@ class Supervisor:
             "--jinja",  # the model's own chat template, so enable_thinking applies
             # RAM (D-100): the weights live in VRAM, so don't also keep the file mapped in
             # RAM, and turn off the host-memory prompt cache (several GB by default).
-            "--no-mmap",
-            "--cache-ram", "0",
+            *ram_flags(self.help(str(exe))),
         ]  # fmt: skip
         process = self.launch(command, self.store.paths.home / "logs" / f"llama-{model_id}.log")
         started = self.clock()

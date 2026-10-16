@@ -56,6 +56,14 @@ def cli_python() -> str:
     return str(console) if exe.name.lower() == "pythonw.exe" and console.is_file() else str(exe)
 
 
+def relay_window(desktop: Any) -> Any:
+    """Relay's own window for the app tests, or None where UI Automation can't load."""
+    try:
+        return desktop.RelayWindow()
+    except Exception:
+        return None
+
+
 def emitter(as_json: bool, log: list[Path]) -> Callable[[dict[str, Any]], None]:
     def emit(event: dict[str, Any]) -> None:
         line = json.dumps(event, ensure_ascii=False, default=str)
@@ -109,7 +117,8 @@ def main(argv: list[str]) -> int:
     log: list[Path] = []
     emit = emitter(args.json, log)
     form = diag.FormServer()
-    chosen = diag.scenarios(time.strftime("%H%M%S"), form.base)
+    stamp = time.strftime("%H%M%S")
+    chosen = diag.scenarios(stamp, form.base)
     known = {s.id for s in chosen}
     unknown = sorted((set(args.only or []) | set(args.skip)) - known)
     if unknown:
@@ -118,7 +127,7 @@ def main(argv: list[str]) -> int:
         return 2
     chosen = [s for s in chosen if (not args.only or s.id in args.only) and s.id not in args.skip]
     if args.no_claude:
-        chosen = [s for s in chosen if not s.kind.startswith("claude")]
+        chosen = [s for s in chosen if not s.kind.startswith("claude") and s.id != "app-stop"]
 
     started = time.strftime("%Y-%m-%d %H:%M:%S")
     folder = root / time.strftime("%Y-%m-%d_%H-%M-%S")
@@ -131,7 +140,7 @@ def main(argv: list[str]) -> int:
     from relay_screen.agent.bench import windows_desktop
     from relay_screen.agent.service import ask_claude, claude_exe
     from relay_screen.dpi import set_dpi_awareness
-    from relay_screen.runtime.paths import RelayPaths
+    from relay_screen.runtime.paths import RelayPaths, settings_file
     from relay_screen.server import default_services
 
     set_dpi_awareness()
@@ -183,13 +192,16 @@ def main(argv: list[str]) -> int:
         form=form,
         setup=setup,
         interfere=lambda: desktop.owner_interrupts(Path.home() / "Downloads"),
+        app=relay_window(desktop),
+        settings_file=settings_file(),
+        stamp=stamp,
     )
     emit(
         {
             "event": "start",
             "folder": str(folder),
             "link": link.name,
-            "scenarios": [{"id": s.id, "title": s.title} for s in chosen],
+            "scenarios": [{"id": s.id, "title": s.title, "area": diag.area_of(s)} for s in chosen],
         }
     )
     clock = time.monotonic()
