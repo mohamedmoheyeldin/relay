@@ -397,6 +397,8 @@ def test_ensure_starts_llama_server_on_the_gpu(tmp_path: Path) -> None:
     command = h.launched[0]
     assert command[0].endswith("llama-server.exe")
     assert command[command.index("--n-gpu-layers") + 1] == "999"
+    # RAM (D-100): no mapped copy of the weights and no host prompt cache
+    assert "--no-mmap" in command and command[command.index("--cache-ram") + 1] == "0"
     assert command[command.index("--host") + 1] == "127.0.0.1"
     assert "--mmproj" in command
     assert h.events[0]["event"] == "load"

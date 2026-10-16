@@ -254,6 +254,10 @@ def test_pick_model_prefers_the_flag_then_settings_then_a_planner() -> None:
     assert pick_model(installed("holo-3.1-9b", "qwen3-vl-8b-instruct"), {}, None) == "holo-3.1-9b"
     assert pick_model(have, {"agent": {"model_id": "gone"}}, None) == "qwen3-vl-8b-instruct"
     assert pick_model(installed("mine"), {}, None) == "mine"
+    # An older Setup saved Qwen3-VL ("check") as the operator; Holo3.1 plans (D-100).
+    old_pin = {"agent": {"model_id": "qwen3-vl-8b-instruct"}}
+    both = installed("holo-3.1-9b", "qwen3-vl-8b-instruct")
+    assert pick_model(both, old_pin, None) == "holo-3.1-9b"
     with pytest.raises(RuntimeUnavailable, match="not downloaded"):
         pick_model(have, {}, "gone")
     with pytest.raises(RuntimeUnavailable, match="No local model"):
@@ -826,3 +830,32 @@ def test_a_writing_task_opens_a_new_tab_before_typing() -> None:
         ("type", {"text": "Shopping List\n- Milk\n- Eggs\n- Bread"})
     ]  # typed once
     assert "already typed in step 1" in outcome.steps[1].result
+
+
+def test_the_same_batch_twice_is_sent_back_not_run() -> None:
+    """Calculator: one 6-action batch repeated until the step limit (D-100)."""
+    hands = FakeHands()
+    batch = {
+        "thought": "",
+        "actions": [{"action": "key", "keys": "1"}, {"action": "key", "keys": "2"}],
+    }
+    model = Script(batch, batch, {"thought": "", "action": "done", "summary": "ok"})
+    events: list[dict[str, Any]] = []
+    outcome = LocalAgent(hands, model, on_event=events.append, instant=False).run("add 1 and 2")
+    assert outcome.status == "done"
+    assert [a for a in hands.acts() if a[0] == "key"] == [
+        ("key", {"text": "1"}),
+        ("key", {"text": "2"}),
+    ]
+    assert "exactly the same actions" in model.prompt(2)
+
+
+def test_waits_for_the_owner_to_pause_before_real_input() -> None:
+    quiet = iter([0.1, 0.2, 0.9])  # the owner is typing, then stops
+
+    events: list[dict[str, Any]] = []
+    agent = LocalAgent(FakeHands(), Script(), on_event=events.append, idle=lambda: next(quiet))
+    agent.last_input = -1000.0  # Relay itself hasn't typed lately
+    step = agent._act(1, "", {"action": "type", "text": "hi"}, "type", {"text": "hi"})
+    assert not step.error
+    assert any("Waiting for you to pause" in e.get("text", "") for e in events)

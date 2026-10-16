@@ -107,8 +107,14 @@ export const DiagnosticsRuns = () => {
             {error && <Notice tone="error">{error}</Notice>}
             {job?.state === "error" && job.error && job.error !== "Stopped." && <Notice tone="error">{job.error}</Notice>}
             {summary && !running && (
-                <Notice tone={summary.failed ? "warning" : "success"}>
+                <Notice tone={summary.failed || summary.resources?.over_budget.length ? "warning" : "success"}>
                     {summary.passed} passed, {summary.failed} failed, {summary.skipped} skipped in {Math.round(summary.seconds)} s ({summary.started}).
+                    {summary.resources && ` Relay used up to ${(summary.resources.peak_relay_ram_mb / 1024).toFixed(1)} GB of RAM.`}
+                    {summary.resources?.over_budget.map((line) => (
+                        <span key={line} className="block">
+                            {line}
+                        </span>
+                    ))}
                 </Notice>
             )}
             {rows.length > 0 && (

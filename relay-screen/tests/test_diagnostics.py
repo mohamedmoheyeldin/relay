@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -22,9 +23,19 @@ class FakeLink:
         self.events = list(events)
         self.before = before
         self.tasks: list[tuple[str, bool]] = []
+        self.answers: list[str] = []
 
-    def run(self, task: str, on_event: diag.Event, *, offline: bool, max_steps: int) -> None:
+    def run(
+        self,
+        task: str,
+        on_event: diag.Event,
+        *,
+        offline: bool,
+        max_steps: int,
+        answer: str = diag.ANSWER,
+    ) -> None:
         self.tasks.append((task, offline))
+        self.answers.append(answer)
         if self.before:
             self.before()
         for event in self.events:
@@ -152,8 +163,8 @@ def test_the_web_form_is_checked_by_what_the_server_received() -> None:
     try:
         page = urllib.request.urlopen(form.url, timeout=5).read().decode()
         assert "<title>Relay form</title>" in page
-        assert form.check({"name": "Relay Test"}) == "the form was never submitted"
-        sent = form.url.replace("/form", "/sent?name=Relay+Test&colour=blue&agree=on")
+        assert form.check({"name": "Relay Test"}) == "the form was never submitted to /sent"
+        sent = form.base + "/sent?name=Relay+Test&colour=blue&agree=on"
         assert "Relay form sent" in urllib.request.urlopen(sent, timeout=5).read().decode()
         assert form.check({"name": "relay test", "colour": "blue", "agree": "on"}) is None
         assert "expected" in (form.check({"colour": "red"}) or "")
@@ -276,7 +287,7 @@ def test_the_cli_lists_and_reads_the_latest(tmp_path: Path, capsys: Any) -> None
 
 
 def test_the_scenarios_cover_the_owners_ask() -> None:
-    chosen = diag.scenarios("1", "http://127.0.0.1:1/form")
+    chosen = diag.scenarios("1", "http://127.0.0.1:1")
     kinds = {s.kind for s in chosen}
     assert kinds == {"operator", "displays", "route", "claude-text", "claude-ui"}
     assert any(s.offline for s in chosen) and len({s.id for s in chosen}) == len(chosen)
@@ -315,3 +326,95 @@ def test_png_size() -> None:
     shot = hands.run("screenshot")
     assert isinstance(shot, ActionResult) and diag._png_size(shot.image or b"") is not None
     assert diag._png_size(b"nope") is None
+
+
+def test_the_job_application_spans_three_pages() -> None:
+    form = diag.FormServer()
+    try:
+        first = urllib.request.urlopen(form.base + "/job", timeout=5).read().decode()
+        assert 'action="/job2"' in first
+        second = (
+            urllib.request.urlopen(
+                form.base + "/job2?full_name=Alex+Relay&email=a%40b.c&phone=1", timeout=5
+            )
+            .read()
+            .decode()
+        )
+        assert 'name="full_name" value="Alex Relay"' in second and "Backend developer" in second
+        third = (
+            urllib.request.urlopen(form.base + "/job3?full_name=Alex+Relay&role=backend", timeout=5)
+            .read()
+            .decode()
+        )
+        assert "I confirm" in third
+        assert "never submitted to /applied (it reached /job2, /job3)" in (
+            form.check({"confirm": "on"}, "/applied") or ""
+        )
+        urllib.request.urlopen(
+            form.base + "/applied?full_name=Alex+Relay&why=I+like+reliable+tools.&confirm=on",
+            timeout=5,
+        ).read()
+        want = {"full_name": "alex relay", "why": "I like reliable tools", "confirm": "on"}
+        assert form.check(want, "/applied") is None
+        prices = urllib.request.urlopen(form.base + "/prices", timeout=5).read().decode()
+        assert "Nimbus 14" in prices and "$749" in prices
+    finally:
+        form.close()
+
+
+def test_setup_interference_answers_and_files(tmp_path: Path) -> None:
+    hands = FakeHands({"uia_tree": "Elements:\n[e1] Edit 'x'"})
+    desktop = FakeDesktop(hands, {1: "Relay"})
+    did: list[str] = []
+    link = FakeLink(step(1), step(2), {"event": "done", "message": "ok", "steps": 2})
+    t = tools(
+        link,
+        hands,
+        desktop=desktop,
+        setup=lambda s: did.append("setup") or None,
+        interfere=lambda: did.append("interfere") or "moved",
+    )
+    leftover = tmp_path / "leftover.txt"
+    leftover.write_text("x")
+    s = diag.Scenario(
+        "i", "I", "operator", "t", setup="x", interfere=True, answer="Downloads",
+        cleanup_files=(str(leftover),),
+    )  # fmt: skip
+    [result] = diag.run_all([s], t, tmp_path, lambda e: None)
+    for _ in range(100):
+        if "interfere" in did:
+            break
+        time.sleep(0.01)
+    assert did == ["setup", "interfere"] and link.answers == ["Downloads"]
+    assert result.details["interfered"] and not leftover.exists()
+    skipped = diag.run_all(
+        [diag.Scenario("j", "J", "operator", "t", setup="x")],
+        tools(link, setup=lambda s: "only one monitor is connected"),
+        tmp_path,
+        lambda e: None,
+    )
+    assert skipped[0].status == "skipped" and skipped[0].message == "only one monitor is connected"
+
+
+def test_resources_are_grouped_by_role_and_checked_against_the_budget(tmp_path: Path) -> None:
+    mb = diag.MB
+    procs = [
+        {"pid": 1, "parent": 0, "name": "explorer.exe", "ram": 50 * mb, "private": 0},
+        {"pid": 10, "parent": 1, "name": "relay.exe", "ram": 300 * mb, "private": 200 * mb},
+        {"pid": 11, "parent": 10, "name": "msedgewebview2.exe", "ram": 900 * mb, "private": 0},
+        {"pid": 12, "parent": 10, "name": "python.exe", "ram": 400 * mb, "private": 0},
+        {"pid": 13, "parent": 10, "name": "llama-server.exe", "ram": 600 * mb, "private": 0},
+        {"pid": 20, "parent": 1, "name": "msedgewebview2.exe", "ram": 999 * mb, "private": 0},
+        {"pid": 30, "parent": 1, "name": "python.exe", "ram": 80 * mb, "private": 0},
+    ]
+    groups = diag.group_processes(procs, {13: 7000 * mb}, me=30)
+    assert groups["app"]["ram_mb"] == 300 and groups["app window (WebView2)"]["ram_mb"] == 900
+    assert groups["local AI service"]["processes"] == 1
+    assert groups["llama-server"]["vram_mb"] == 7000 and groups["this test"]["ram_mb"] == 80
+    assert sum(g["processes"] for g in groups.values()) == 5  # not the other webview
+    watch = diag.ResourceWatch(lambda: groups, tmp_path / "r.jsonl")
+    watch.take()
+    out = watch.end()
+    assert out["peak_relay_ram_mb"] == 1600 and out["over_budget"][0].startswith("Relay used 1600")
+    summary = diag.summarize([], {}, tmp_path, "now", 1.0, out)
+    assert summary["problems"] == out["over_budget"]

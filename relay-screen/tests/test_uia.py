@@ -26,6 +26,7 @@ class El:
     pats: frozenset[str] = frozenset()
     val: str | None = None
     log: list[str] = field(default_factory=list)
+    on: bool | None = None
 
     def children(self) -> Sequence[El]:
         return self.kids
@@ -42,6 +43,9 @@ class El:
 
     def set_value(self, value: str) -> None:
         self.val = value
+
+    def toggled(self) -> bool | None:
+        return self.on
 
 
 class Backend:
@@ -316,3 +320,17 @@ def test_a_page_lists_from_its_document_and_only_what_can_be_used(owner_displays
     listing = uia.tree(geometry(owner_displays), root=doc, depth=40, interactive=True)
     assert '"Search jobs"' in listing and '"Python Developer"' in listing
     assert "Thousands" not in listing and "Navigation" not in listing
+
+
+def test_checkboxes_show_whether_they_are_ticked(owner_displays):
+    """The web-form run skipped "I agree" and said done (D-100)."""
+    agree = El(
+        "CheckBox", "I agree", rect=Rect(10, 10, 20, 20), pats=frozenset({"toggle"}), on=False
+    )
+    news = El(
+        "CheckBox", "Newsletter", rect=Rect(10, 40, 20, 20), pats=frozenset({"toggle"}), on=True
+    )
+    form = El("Window", "Form", rect=Rect(0, 0, 400, 300), kids=[agree, news])
+    text = UiaService(Backend({"foreground": [form]})).tree(geometry(owner_displays))
+    assert 'CheckBox "I agree" unchecked {toggle}' in text
+    assert 'CheckBox "Newsletter" checked {toggle}' in text

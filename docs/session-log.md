@@ -2,6 +2,12 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
+## 2026-10-16 · Diagnostics findings, the owner's input, RAM (D-100)
+- Holo3.1-9B now runs even when Settings still names Qwen3-VL as the operator.
+- Before real input the operator waits for the owner to pause, then brings its window back. Each step re-reads the screen, so the task carries on.
+- Repeated batches are sent back. Checkboxes show checked or unchecked. Calculator sums are typed.
+- llama-server: `--no-mmap --cache-ram 0`. The RAM numbers before and after need a run on the PC (Diagnostics thread).
+
 ## 2026-10-16 · 0.1.12 app: closer to the Claude app
 - Sidebar rebuilt to the Claude app's shape: top icon row (close sidebar, back, forward), New chat and Search rows, Pinned and day-grouped chats, Settings alone at the bottom. Account and plan now live only in Settings > Account.
 - The three-dots chat menu works (react-aria trigger button); Pin, Rename (inline) and Delete. The chat title in the header opens the same menu.
