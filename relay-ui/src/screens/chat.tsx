@@ -867,7 +867,7 @@ export const ChatScreen = ({
                         <div className="flex flex-col items-center text-center animate-in fade-in slide-in-from-bottom-3 duration-700">
                             <div className="flex items-center gap-3">
                                 <RelayMark className="size-8" />
-                                <h2 className="font-serif text-[2.1rem] leading-tight font-normal tracking-tight text-primary">{greeting()}</h2>
+                                <h2 className="font-serif text-[2.1rem] leading-tight font-normal tracking-tight text-primary">{inProject ? inProject.name : greeting()}</h2>
                             </div>
                             <div className="mt-7 w-full text-left">{composer}</div>
                             <div className="mt-5 flex max-w-2xl flex-wrap justify-center gap-2">

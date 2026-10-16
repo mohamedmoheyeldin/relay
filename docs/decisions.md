@@ -1852,3 +1852,20 @@ similar ones. Their results show whether the operator handles new work.
 Operator fixes stay general: a rule may name a kind of program (a calculator
 takes a typed sum) but never a scenario's own text or numbers, so the prompt's
 Calculator example no longer uses the test's sum.
+
+## D-110 Projects, a Tasks page and a thread per task
+*2026-10-16 · accepted · owner ("settings tabs, tasks, history, projects, text, threads for each task", look and work like the reference chat app)*
+
+- **Projects.** `%LOCALAPPDATA%\Relay\projects.json` holds each project's name and
+  instructions; a chat names its project. The instructions go in front of the first
+  message Cloud AI sees in a chat (not on resumed turns), and never to the local
+  operator. Deleting a project keeps its chats, outside any project.
+- **Tasks.** Built from the saved chats, not a second store: each operator plan
+  starts a task; its steps count; `done` gives the verdict, a "Stopping" note means
+  stopped, and anything Cloud AI says after it ends it as done. Opening a task opens
+  its chat with that task's thread.
+- **Threads.** In a chat a task is one card (status, step count, latest step); its
+  thread opens beside the chat with the plan, every step, and a box that steers the
+  running task (`say`). Questions stay in the chat too, where they're answered.
+- Labels the Diagnostics app tests use are unchanged; new ones: Projects, Tasks,
+  "Task: <goal>", "Close thread", "Steer this task".
