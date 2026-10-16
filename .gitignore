@@ -14,3 +14,5 @@ logs/
 Thumbs.db
 .vscode/*
 !.vscode/extensions.json
+src-tauri/icons/android/
+src-tauri/icons/ios/

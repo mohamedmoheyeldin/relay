@@ -1,14 +1,14 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+//! Relay's chat window (Leptos, compiled to WebAssembly by Trunk).
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+pub mod chat;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
+#[cfg(target_arch = "wasm32")]
+mod app;
+#[cfg(target_arch = "wasm32")]
+mod bridge;
+
+/// Mount the UI into the page.
+#[cfg(target_arch = "wasm32")]
+pub fn start() {
+    app::start();
 }

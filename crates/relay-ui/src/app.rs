@@ -1,0 +1,318 @@
+//! The chat window.
+
+use leptos::prelude::*;
+use leptos::task::spawn_local;
+use relay_protocol::{ErrorKind, Risk, StatusInfo, UiEvent};
+use serde_json::{json, Value};
+use std::time::Duration;
+use wasm_bindgen::JsCast;
+
+use crate::bridge;
+use crate::chat::{ChatState, ConfirmState, Item, ToolState};
+
+fn report(chat: RwSignal<ChatState>, message: String) {
+    chat.update(|c| {
+        c.apply(&UiEvent::Error {
+            run_id: None,
+            kind: ErrorKind::Internal,
+            message,
+        })
+    });
+}
+
+fn call(chat: RwSignal<ChatState>, cmd: &'static str, args: Value) {
+    spawn_local(async move {
+        if let Err(e) = bridge::invoke(cmd, args).await {
+            report(chat, e);
+        }
+    });
+}
+
+async fn refresh_status(chat: RwSignal<ChatState>) {
+    match bridge::invoke("get_status", json!({})).await {
+        Ok(Some(text)) => match serde_json::from_str::<StatusInfo>(&text) {
+            Ok(status) => chat.update(|c| c.apply(&UiEvent::Status(status))),
+            Err(e) => report(chat, format!("bad status: {e}")),
+        },
+        Ok(None) => {}
+        Err(e) => report(chat, e),
+    }
+}
+
+fn send(chat: RwSignal<ChatState>, draft: RwSignal<String>) {
+    let text = draft.get_untracked().trim().to_string();
+    if text.is_empty() || chat.with_untracked(|c| c.running) {
+        return;
+    }
+    draft.set(String::new());
+    chat.update(|c| c.push_user(&text));
+    call(chat, "send_message", json!({ "text": text }));
+}
+
+fn error_hint(kind: ErrorKind) -> &'static str {
+    match kind {
+        ErrorKind::CliNotInstalled => "Claude Code is missing",
+        ErrorKind::NotLoggedIn => "Sign-in needed",
+        ErrorKind::Timeout => "Timed out",
+        ErrorKind::Cancelled => "Stopped",
+        ErrorKind::Cli => "Claude Code reported a problem",
+        ErrorKind::Internal => "Something went wrong",
+    }
+}
+
+fn render_item(item: Item, chat: RwSignal<ChatState>) -> AnyView {
+    match item {
+        Item::User(text) => {
+            view! { <div class="msg user"><div class="bubble">{text}</div></div> }.into_any()
+        }
+        Item::Assistant { text, open } => view! {
+            <div class="msg assistant">
+                <div class="bubble" class:streaming=open>{text}</div>
+            </div>
+        }
+        .into_any(),
+        Item::Tool {
+            name,
+            summary,
+            state,
+            ..
+        } => {
+            let (mark, class, detail) = match &state {
+                ToolState::Running => ("…", "tool running", String::new()),
+                ToolState::Done => ("✓", "tool ok", String::new()),
+                ToolState::Failed(why) => ("✕", "tool failed", why.clone()),
+            };
+            let shown = if summary.is_empty() {
+                name.clone()
+            } else {
+                summary
+            };
+            view! {
+                <div class=class title=detail.clone()>
+                    <span class="mark">{mark}</span>
+                    <span class="what">{shown}</span>
+                    {(!detail.is_empty()).then(|| view! { <span class="why">{detail.clone()}</span> })}
+                </div>
+            }
+            .into_any()
+        }
+        Item::Error { kind, message } => view! {
+            <div class="banner error" role="alert">
+                <strong>{error_hint(kind)}</strong>
+                <span>{message}</span>
+            </div>
+        }
+        .into_any(),
+        Item::Notice(text) => view! { <div class="notice">{text}</div> }.into_any(),
+        Item::Confirm { request, state } => {
+            let id = request.id;
+            let destructive = request.risk == Risk::Destructive;
+            let waiting = state == ConfirmState::Waiting;
+            let outcome = match state {
+                ConfirmState::Waiting => "",
+                ConfirmState::Approved => "Approved",
+                ConfirmState::Declined => "Declined",
+            };
+            view! {
+                <div class="card" class:destructive=destructive role="alertdialog" aria-label="Approval needed">
+                    <div class="card-title">
+                        {if destructive { "Approval needed: this can't be undone" } else { "Approval needed" }}
+                    </div>
+                    <div class="card-what">{request.title}</div>
+                    <div class="card-detail">{request.detail}</div>
+                    {if waiting {
+                        view! {
+                            <div class="card-actions">
+                                <button class="btn primary" on:click=move |_| call(chat, "answer_confirm", json!({"id": id, "approved": true}))>"Approve"</button>
+                                <button class="btn" on:click=move |_| call(chat, "answer_confirm", json!({"id": id, "approved": false}))>"Decline"</button>
+                            </div>
+                        }
+                        .into_any()
+                    } else {
+                        view! { <div class="card-outcome">{outcome}</div> }.into_any()
+                    }}
+                </div>
+            }
+            .into_any()
+        }
+    }
+}
+
+fn status_chip(status: Option<StatusInfo>, running: bool) -> (String, &'static str) {
+    match status {
+        None => ("Checking…".into(), "chip"),
+        Some(_) if running => ("Working".into(), "chip busy"),
+        Some(s) if s.ready => ("Ready".into(), "chip ok"),
+        Some(s) => (s.detail, "chip warn"),
+    }
+}
+
+#[component]
+fn SettingsPanel(chat: RwSignal<ChatState>, open: RwSignal<bool>) -> impl IntoView {
+    let mode = RwSignal::new("destructive".to_string());
+    let mcp_path = RwSignal::new(String::new());
+    let data_dir = RwSignal::new(String::new());
+    Effect::new(move |_| {
+        if open.get() {
+            spawn_local(async move {
+                if let Ok(Some(text)) = bridge::invoke("get_settings", json!({})).await {
+                    if let Ok(v) = serde_json::from_str::<Value>(&text) {
+                        mode.set(
+                            v["approval_mode"]
+                                .as_str()
+                                .unwrap_or("destructive")
+                                .to_string(),
+                        );
+                        mcp_path.set(v["mcp_config"].as_str().unwrap_or("").to_string());
+                        data_dir.set(v["data_dir"].as_str().unwrap_or("").to_string());
+                    }
+                }
+            });
+        }
+    });
+    view! {
+        <Show when=move || open.get()>
+            <section class="settings" aria-label="Settings">
+                <label for="approval">"Ask me before"</label>
+                <select
+                    id="approval"
+                    prop:value=move || mode.get()
+                    on:change=move |ev| {
+                        let value = ev
+                            .target()
+                            .and_then(|t| t.dyn_into::<web_sys::HtmlSelectElement>().ok())
+                            .map(|s| s.value())
+                            .unwrap_or_default();
+                        mode.set(value.clone());
+                        call(chat, "set_approval_mode", json!({"mode": value}));
+                    }
+                >
+                    <option value="destructive">"Destructive or irreversible actions (recommended)"</option>
+                    <option value="always">"Every action"</option>
+                    <option value="off">"Nothing (unattended; not recommended)"</option>
+                </select>
+                <p class="hint">"Other apps (Gmail, GitHub, …) connect through MCP. Add servers to:"</p>
+                <code class="path">{move || mcp_path.get()}</code>
+                <button class="btn" on:click=move |_| call(chat, "open_data_folder", json!({}))>"Open Relay's folder"</button>
+            </section>
+        </Show>
+    }
+}
+
+#[component]
+pub fn App() -> impl IntoView {
+    let chat = RwSignal::new(ChatState::default());
+    let draft = RwSignal::new(String::new());
+    let settings_open = RwSignal::new(false);
+    let list_ref = NodeRef::<leptos::html::Div>::new();
+
+    spawn_local(async move {
+        bridge::listen_events(move |event| chat.update(|c| c.apply(&event))).await;
+        refresh_status(chat).await;
+    });
+
+    // Keep the newest message in view.
+    Effect::new(move |_| {
+        chat.track();
+        set_timeout(
+            move || {
+                if let Some(el) = list_ref.get_untracked() {
+                    el.set_scroll_top(el.scroll_height());
+                }
+            },
+            Duration::from_millis(0),
+        );
+    });
+
+    let running = move || chat.with(|c| c.running);
+    let chip = move || chat.with(|c| status_chip(c.status.clone(), c.running));
+    let hotkey = move || {
+        chat.with(|c| {
+            c.status
+                .as_ref()
+                .map(|s| s.kill_hotkey.clone())
+                .unwrap_or_default()
+        })
+    };
+
+    view! {
+        <main class="app">
+            <header class="top">
+                <h1>"Relay"</h1>
+                <span class=move || chip().1>{move || chip().0}</span>
+                <div class="spacer"></div>
+                <button
+                    class="btn danger"
+                    disabled=move || !running()
+                    title=move || format!("Stop everything ({})", hotkey())
+                    on:click=move |_| call(chat, "stop_task", json!({}))
+                >
+                    "Stop"
+                </button>
+                <button class="btn" title="Start a new conversation" on:click=move |_| {
+                    chat.update(|c| c.clear());
+                    call(chat, "new_conversation", json!({}));
+                }>"New"</button>
+                <button
+                    class="btn icon"
+                    aria-label="Settings"
+                    aria-expanded=move || settings_open.get().to_string()
+                    on:click=move |_| settings_open.update(|o| *o = !*o)
+                >
+                    "⚙"
+                </button>
+            </header>
+            <SettingsPanel chat=chat open=settings_open />
+            <div class="list" node_ref=list_ref aria-live="polite">
+                {move || {
+                    let items = chat.with(|c| c.items.clone());
+                    if items.is_empty() {
+                        view! {
+                            <div class="empty">
+                                <h2>"What should I do?"</h2>
+                                <p>"Describe a task. I can see your screen and use the mouse and keyboard, and I'll ask before anything that can't be undone."</p>
+                                <p class="hint">{move || format!("Emergency stop: {}", hotkey())}</p>
+                            </div>
+                        }
+                        .into_any()
+                    } else {
+                        items
+                            .into_iter()
+                            .map(|item| render_item(item, chat))
+                            .collect_view()
+                            .into_any()
+                    }
+                }}
+            </div>
+            <footer class="composer">
+                <textarea
+                    rows="2"
+                    placeholder="Ask Relay to do something…  (Enter to send, Shift+Enter for a new line)"
+                    prop:value=move || draft.get()
+                    on:input=move |ev| draft.set(event_target_value(&ev))
+                    on:keydown=move |ev: web_sys::KeyboardEvent| {
+                        if ev.key() == "Enter" && !ev.shift_key() && !ev.is_composing() {
+                            ev.prevent_default();
+                            send(chat, draft);
+                        }
+                    }
+                ></textarea>
+                <button class="btn primary" disabled=move || running() || draft.get().trim().is_empty() on:click=move |_| send(chat, draft)>
+                    "Send"
+                </button>
+            </footer>
+        </main>
+    }
+}
+
+/// Mount the app.
+pub fn start() {
+    console_error_panic_hook_setup();
+    leptos::mount::mount_to_body(App);
+}
+
+fn console_error_panic_hook_setup() {
+    std::panic::set_hook(Box::new(|info| {
+        web_sys::console::error_1(&format!("panic: {info}").into());
+    }));
+}
