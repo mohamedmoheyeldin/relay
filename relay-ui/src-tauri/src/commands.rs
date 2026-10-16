@@ -13,7 +13,7 @@ use relay_core::operator::{Operator, Route};
 use relay_core::settings::{ActiveModel, Settings};
 use relay_core::{
     catalog, chat, chats, claude, diagnostics, doctor, gpu, local_agent, local_ai, mcp, paths,
-    system, updates,
+    projects, system, updates,
 };
 
 use crate::jobs;
@@ -69,6 +69,11 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
         chat_stop,
         chat_say,
         chat_new,
+        chat_move,
+        projects_list,
+        project_save,
+        project_delete,
+        tasks_list,
         chats_list,
         chat_open,
         chat_save,
@@ -736,7 +741,7 @@ async fn operator_turn(
 }
 
 #[tauri::command]
-async fn chat_send(app: AppHandle, prompt: String) -> Res<()> {
+async fn chat_send(app: AppHandle, prompt: String, project: Option<String>) -> Res<()> {
     let st = app.state::<AppState>();
     // A run the owner just stopped may take a moment to exit; wait for it briefly.
     for _ in 0..50 {
@@ -780,8 +785,17 @@ async fn chat_send(app: AppHandle, prompt: String) -> Res<()> {
         return Ok(());
     }
     let s = st.settings();
+    let resume = st.session.lock().expect("session lock").clone();
+    // A project's instructions go in front of the first message Claude sees in a chat.
+    let prompt = match (
+        &resume,
+        project.and_then(|id| projects::get(&projects::file(), &id)),
+    ) {
+        (None, Some(p)) => projects::preamble(&p).map_or(prompt.clone(), |pre| pre + &prompt),
+        _ => prompt,
+    };
     let opts = chat::TurnOptions {
-        resume: st.session.lock().expect("session lock").clone(),
+        resume,
         model: s.claude.model.clone(),
         effort: s.claude.effort.clone(),
     };
@@ -922,7 +936,7 @@ async fn run_local(app: &AppHandle, prompt: &str, reason: String) {
 /// of plan on its next step; anything else stops and the message starts a new turn in
 /// the same conversation.
 #[tauri::command]
-async fn chat_say(app: AppHandle, text: String) -> Res<()> {
+async fn chat_say(app: AppHandle, text: String, project: Option<String>) -> Res<()> {
     let st = app.state::<AppState>();
     if let Some(chat::Turn::Operator { op, id }) = st.turn.lock().await.as_ref() {
         return op.say(id, &text).await.map_err(anyhow_err);
@@ -933,7 +947,7 @@ async fn chat_say(app: AppHandle, text: String) -> Res<()> {
             turn.stop().await;
         }
     }
-    chat_send(app.clone(), text).await
+    chat_send(app.clone(), text, project).await
 }
 
 #[tauri::command]
@@ -981,6 +995,7 @@ fn chat_save(
     id: String,
     title: String,
     items: serde_json::Value,
+    project: Option<String>,
 ) -> Res<chats::Summary> {
     let session = state.session.lock().expect("session lock").clone();
     let chat = chats::Chat {
@@ -991,6 +1006,7 @@ fn chat_save(
         items,
         pinned: false,
         renamed: false,
+        project,
     };
     let saved = chats::save(&chats::dir(), chat).map_err(anyhow_err)?;
     Ok(chats::Summary::from(&saved))
@@ -1011,6 +1027,35 @@ fn chat_pin(id: String, pinned: bool) -> Res<chats::Summary> {
 #[tauri::command]
 fn chat_delete(id: String) -> Res<()> {
     chats::delete(&chats::dir(), &id).map_err(anyhow_err)
+}
+
+#[tauri::command]
+fn chat_move(id: String, project: Option<String>) -> Res<chats::Summary> {
+    let chat = chats::move_to(&chats::dir(), &id, project.as_deref()).map_err(anyhow_err)?;
+    Ok(chats::Summary::from(&chat))
+}
+
+#[tauri::command]
+fn projects_list() -> Vec<projects::Project> {
+    projects::list(&projects::file())
+}
+
+#[tauri::command]
+fn project_save(id: String, name: String, instructions: String) -> Res<projects::Project> {
+    projects::save(&projects::file(), &id, &name, &instructions).map_err(anyhow_err)
+}
+
+/// Delete a project; its chats stay, outside any project.
+#[tauri::command]
+fn project_delete(id: String) -> Res<()> {
+    projects::delete(&projects::file(), &id).map_err(anyhow_err)?;
+    chats::leave_project(&chats::dir(), &id);
+    Ok(())
+}
+
+#[tauri::command]
+fn tasks_list() -> Vec<chats::Task> {
+    chats::tasks(&chats::dir())
 }
 
 // ---------------------------------------------------------------- browsers, playbooks

@@ -210,7 +210,20 @@ export interface Playbook {
 }
 
 /** A saved conversation in the sidebar (relay-core chats.rs). */
-export type ChatSummary = { id: string; title: string; updated: number; pinned: boolean };
+export type ChatSummary = { id: string; title: string; updated: number; pinned: boolean; project: string | null };
+export type Project = { id: string; name: string; instructions: string; created: number };
+/** A task Relay ran on screen, from the saved chats (relay-core chats::Task). */
+export type TaskSummary = {
+    chat_id: string;
+    chat_title: string;
+    index: number;
+    goal: string;
+    app: string;
+    steps: number;
+    ok: boolean | null;
+    result: string;
+    updated: number;
+};
 export type SavedChat = ChatSummary & { session: string | null; items: unknown };
 
 export const api = {
@@ -252,13 +265,19 @@ export const api = {
     plugins: () => invoke<Plugin[]>("plugins_list"),
     pluginSetEnabled: (id: string, enabled: boolean) => invoke<void>("plugin_set_enabled", { id, enabled }),
 
-    chatSend: (prompt: string) => invoke<void>("chat_send", { prompt }),
+    chatSend: (prompt: string, project: string | null = null) => invoke<void>("chat_send", { prompt, project }),
     chatStop: () => invoke<void>("chat_stop"),
-    chatSay: (text: string) => invoke<void>("chat_say", { text }),
+    chatSay: (text: string, project: string | null = null) => invoke<void>("chat_say", { text, project }),
     chatNew: () => invoke<void>("chat_new"),
     chatsList: () => invoke<ChatSummary[]>("chats_list"),
     chatOpen: (id: string) => invoke<SavedChat>("chat_open", { id }),
-    chatSave: (id: string, title: string, items: unknown) => invoke<ChatSummary>("chat_save", { id, title, items }),
+    chatSave: (id: string, title: string, items: unknown, project: string | null = null) =>
+        invoke<ChatSummary>("chat_save", { id, title, items, project }),
+    chatMove: (id: string, project: string | null) => invoke<ChatSummary>("chat_move", { id, project }),
+    projectsList: () => invoke<Project[]>("projects_list"),
+    projectSave: (id: string, name: string, instructions: string) => invoke<Project>("project_save", { id, name, instructions }),
+    projectDelete: (id: string) => invoke<void>("project_delete", { id }),
+    tasksList: () => invoke<TaskSummary[]>("tasks_list"),
     chatDelete: (id: string) => invoke<void>("chat_delete", { id }),
     chatRename: (id: string, title: string) => invoke<ChatSummary>("chat_rename", { id, title }),
     chatPin: (id: string, pinned: boolean) => invoke<ChatSummary>("chat_pin", { id, pinned }),
