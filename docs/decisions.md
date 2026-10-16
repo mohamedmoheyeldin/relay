@@ -1764,3 +1764,15 @@ Round 7 added, under the same decision:
 - The llama log was 0 bytes while the server ran. The log is now opened for append
   with a start marker (a second load used to truncate it), and builds with
   `--log-file` also write llama.cpp's own flushed log to `llama-<model>.server.log`.
+
+Round 8 (19 of 22) added:
+- **Fields before Next.** Pressing Next, Submit, Continue, Apply, Send,
+  Finish or Save while a text or number box the task names is still empty is
+  refused once, naming the box. The job form skipped "6 years of experience".
+- **Three failures in a row** get a note to stop clicking by position and use
+  element ids or the keyboard; the prompt says to type whole entries into
+  Calculator (12*34=).
+- **launch_app** takes the name from any text field when the usual keys are
+  missing.
+- **Text checks read every matching window**, not the first: with two Notepad
+  windows open the text was in the second one.

@@ -91,15 +91,23 @@ class Desktop:
             return f"no window titled like {check['window_title']!r}"
         if "uia_text" in check:
             spec = check["uia_text"]
-            try:
-                tree = self.hands.run(
-                    "uia_tree", {"window": spec["window"], "depth": 14, "filter": spec["contains"]}
-                ).text
-            except Exception as exc:
-                return f"could not read {spec['window']!r}: {exc}"
-            if tree and str(spec["contains"]).lower() in tree.lower() and "No elements" not in tree:
-                return None
-            return f"{spec['contains']!r} not found in {spec['window']!r}"
+            want = str(spec["window"]).lower()
+            # Every window that matches, not just the first: with two Notepad windows
+            # open the text was in the second one (D-106).
+            names = [t for t in self.titles().values() if want in t.lower()] or [spec["window"]]
+            problem = ""
+            for name in names:
+                try:
+                    tree = self.hands.run(
+                        "uia_tree", {"window": name, "depth": 14, "filter": spec["contains"]}
+                    ).text
+                except Exception as exc:
+                    problem = f"could not read {spec['window']!r}: {exc}"
+                    continue
+                tree = tree or ""
+                if str(spec["contains"]).lower() in tree.lower() and "No elements" not in tree:
+                    return None
+            return problem or f"{spec['contains']!r} not found in {spec['window']!r}"
         if "file_contains" in check:
             spec = check["file_contains"]
             path = expand(spec["path"])
