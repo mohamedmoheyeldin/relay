@@ -29,6 +29,7 @@ from relay_screen.safety.killswitch import KillSwitchError
 MAX_STEPS = 25
 HISTORY = 10  # earlier steps repeated to the model as text
 SEND_EDGE = 1280  # px, long edge of the screenshot sent to the model
+ALIGN = 32  # sent sizes are multiples of the vision patch grid, so pixel models see it as sent
 MAX_BAD_REPLIES = 3
 STUCK_REPEATS = 3  # the same action with no visible change this many times in a row
 MAX_TEXT = 2000
@@ -40,6 +41,15 @@ MAX_APPS_CHARS = 2500
 MAX_WINDOWS_CHARS = 1500
 MAX_BATCH = 6  # actions the model may plan in one reply (D-084)
 RICH_ELEMENTS = 8  # with this many element lines, skip the screenshot unless asked
+
+REL1000 = (
+    "X and Y are positions on the screenshot from 0 to 1000: 0,0 is the top left corner "
+    "and 1000,1000 the bottom right."
+)
+PIXELS = (
+    "X and Y are pixels of the screenshot as you get it, counted from its top left "
+    "corner; its size is given with it."
+)
 
 SYSTEM_PROMPT = """\
 You are Relay, an assistant that operates a Windows PC for its owner. You get the \
@@ -75,11 +85,14 @@ element list in one go
 (a button, link, tab or menu item), found by Windows OCR. Use it when the element list \
 does not have what you need
 - {"action": "look"}  you need to see a screenshot before deciding
+- {"action": "ask_claude", "question": "..."}  ask Claude, the owner's cloud assistant, \
+when the task needs judgment or writing you can't do from the screen: what to write in \
+a cover letter or message, which result fits the owner best. Put everything Claude \
+needs in the question; its answer comes back as the result. Not for where to click.
 - {"action": "done", "summary": "..."}  the task is finished; say what you did
 - {"action": "fail", "reason": "..."}  you cannot finish; say why
 
-X and Y are positions on the screenshot from 0 to 1000: 0,0 is the top left corner \
-and 1000,1000 the bottom right.
+<COORDS>
 
 When an element list of the focused window is given, prefer invoke and set_value \
 with its ids over clicking and typing: they are faster and do not miss. Each line is \
@@ -98,11 +111,16 @@ task, reply with fail and the reason "sign-in needed".
 the owner before such steps either way.
 - If an action did not change the screen, try something different.
 - To go to a website, use open_url instead of typing in the address bar.
+- When the owner adds a note while you work, follow it from then on.
 - Never click taskbar buttons to switch programs (that minimizes them); use \
 focus_window. Never act on Relay's own window; it is marked in the windows list.
 """
 
 Status = Literal["done", "failed", "stopped"]
+
+
+def system_prompt(coords: Coords) -> str:
+    return SYSTEM_PROMPT.replace("<COORDS>", PIXELS if coords == "pixels" else REL1000)
 
 
 class Model(Protocol):
@@ -203,10 +221,9 @@ class Frame:
         image = Image.open(io.BytesIO(png)).convert("RGB")
         width, height = image.size
         scale = min(1.0, edge / max(width, height))
-        if scale < 1.0:
-            image = image.resize(
-                (round(width * scale), round(height * scale)), Image.Resampling.LANCZOS
-            )
+        size = (_align(width * scale), _align(height * scale))
+        if size != image.size:
+            image = image.resize(size, Image.Resampling.LANCZOS)
         out = io.BytesIO()
         image.save(out, "JPEG", quality=85)
         return cls(width, height, out.getvalue(), image.size)
@@ -229,6 +246,10 @@ class Frame:
             min(max(round(px), 0), self.width - 1),
             min(max(round(py), 0), self.height - 1),
         ]
+
+
+def _align(length: float) -> int:
+    return max(ALIGN, round(length / ALIGN) * ALIGN)
 
 
 def to_member(action: Mapping[str, Any], frame: Frame | None, coords: Coords) -> tuple[str, dict]:
@@ -372,6 +393,59 @@ def instant_plan(task: str) -> list[tuple[str, dict[str, Any]]] | None:
     return None
 
 
+def _element_label(elements: str, element_id: str) -> str:
+    """'"Search jobs"' for e20 when the listing has `[e20] Edit "Search jobs"`."""
+    found = re.search(rf"\[{re.escape(element_id)}\] (\w+)(?: \"([^\"]*)\")?", elements)
+    if found is None:
+        return "a control"
+    role, name = found.group(1), found.group(2)
+    return f'"{name}"' if name else f"the {role.lower()}"
+
+
+def plain(action: Mapping[str, Any], result: str, error: bool, elements: str) -> str:
+    """One line in plain words for the chat and the pill: 'Typed "python" into "Search"'."""
+    name = action.get("action")
+    a = dict(action)
+
+    def q(value: Any, limit: int = 60) -> str:
+        text = " ".join(str(value).split())
+        return '"' + (text if len(text) <= limit else text[: limit - 1] + "…") + '"'
+
+    match name:
+        case "open_url":
+            line = f"Opened {a.get('url')}"
+        case "focus_window":
+            line = f"Switched to {a.get('window')}"
+        case "launch_app" | "open_app" | "open":
+            line = f"Opened {a.get('name') or a.get('app')}"
+        case "type":
+            line = f"Typed {q(a.get('text', ''))}"
+        case "key" | "hotkey" | "press":
+            line = f"Pressed {a.get('keys') or a.get('key') or a.get('text')}"
+        case "set_value":
+            target = _element_label(elements, str(a.get("element")))
+            line = f"Typed {q(a.get('value', a.get('text', '')))} into {target}"
+        case "invoke":
+            line = f"Pressed {_element_label(elements, str(a.get('element')))}"
+        case "click_text":
+            line = f"Clicked {q(a.get('text', ''))}"
+        case "click" | "left_click" | "double_click" | "right_click":
+            verb = {"double_click": "Double-clicked", "right_click": "Right-clicked"}
+            line = verb.get(str(name), "Clicked") + " on the screen"
+        case "scroll":
+            line = f"Scrolled {a.get('direction', 'down')}"
+        case "wait":
+            line = f"Waited {a.get('seconds', 1)} s"
+        case "ask_claude":
+            line = f"Asked Claude: {q(a.get('question', ''), 80)}"
+        case _:
+            line = describe(action)
+    if error:
+        reason = result.removeprefix("STOP: ").removeprefix("failed: ")
+        return f"{line} (didn't work: {reason[:120]})"
+    return line
+
+
 def run_instant(task: str, hands: Hands, emit: Event) -> Outcome | None:
     """Do a one-move task straight away, or None when it needs the model.
 
@@ -397,8 +471,16 @@ def run_instant(task: str, hands: Hands, emit: Event) -> Outcome | None:
             continue
         step = Step(1, "", action, text)
         ms = round((time.perf_counter() - started) * 1000)
+        say = plain(action, text, False, "")
         emit(
-            {"event": "step", "step": 1, "thought": "", "action": describe(action), "result": text}
+            {
+                "event": "step",
+                "step": 1,
+                "thought": "",
+                "action": describe(action),
+                "say": say,
+                "result": text,
+            }
         )
         emit({"event": "done", "message": text, "steps": 1, "instant_ms": ms})
         return Outcome("done", text, [step])
@@ -415,8 +497,16 @@ class LocalAgent:
         max_steps: int = MAX_STEPS,
         on_event: Event | None = None,
         instant: bool = True,
+        inbox: Callable[[], list[str]] | None = None,
+        cancelled: Callable[[], bool] | None = None,
+        ask: Callable[[str], str] | None = None,
     ) -> None:
         self.instant = instant
+        self.inbox = inbox or (lambda: [])
+        self.cancelled = cancelled or (lambda: False)
+        self.ask = ask
+        self.notes: list[str] = []  # what the owner added while the task ran
+        self.elements = ""
         self.hands = hands
         self.model = model
         self.coords: Coords = coords
@@ -436,9 +526,16 @@ class LocalAgent:
         self._focus_target(task)
         n = 0
         while n < self.max_steps:
+            if self.cancelled():
+                return self._finish("stopped", "Stopped by the owner.", steps)
+            fresh = self.inbox()
+            if fresh:
+                self.notes.extend(fresh)
+                look = True
             began = time.perf_counter()
             windows = self._windows()
             elements = self._elements()
+            self.elements = elements
             show = look or not _rich(elements)
             frame = Frame.from_png(self._screenshot()) if show else None
             screen_text = self._screen_text() if _few(elements) else ""
@@ -460,6 +557,8 @@ class LocalAgent:
             bad_replies = 0
             thought, actions = plan
             for action, member, params in actions:
+                if self.cancelled():
+                    return self._finish("stopped", "Stopped by the owner.", steps)
                 if action["action"] == "done":
                     return self._finish("done", str(action.get("summary") or "Done."), steps)
                 if action["action"] == "fail":
@@ -511,6 +610,13 @@ class LocalAgent:
                 if i == 0:
                     planned.append((action, "", {}))
                 break
+            if action["action"] in ("ask_claude", "ask"):
+                question = action.get("question") or action.get("text")
+                if not isinstance(question, str) or not question.strip():
+                    raise ReplyError("ask_claude needs a question")
+                action = {**action, "action": "ask_claude", "question": question.strip()}
+                planned.append((action, "ask_claude", {"question": question.strip()[:MAX_TEXT]}))
+                break  # the answer changes what comes next
             member, params = to_member(action, frame, self.coords)
             element = params.get("element")
             if isinstance(element, str) and f"[{element}]" not in elements:
@@ -611,6 +717,9 @@ class LocalAgent:
         if steps:
             lines.append("What you did so far:")
             lines.extend(s.line() for s in steps[-HISTORY:])
+        if self.notes:
+            lines.append("The owner added while you worked (follow it):")
+            lines.extend(f"- {n}" for n in self.notes[-5:])
         if note:
             lines.append(note)
         if context.elements.startswith("Elements"):
@@ -626,18 +735,21 @@ class LocalAgent:
                 'or reply {"action": "look"} to see the screen. What next?'
             )
         else:
-            lines.append("Here is the screen now. What next?")
+            width, height = frame.sent_size
+            lines.append(f"Here is the screen now ({width}x{height} pixels). What next?")
         content.append({"type": "text", "text": "\n".join(lines)})
         if frame is not None:
             content.append({"type": "image_url", "image_url": {"url": frame.data_url()}})
         return [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt(self.coords)},
             {"role": "user", "content": content},
         ]
 
     def _act(self, n: int, thought: str, action: dict[str, Any], member: str, params: dict) -> Step:
         try:
-            if member == "click_text":
+            if member == "ask_claude":
+                result = self._ask_claude(str(params["question"]))
+            elif member == "click_text":
                 result = self._click_text(str(params["text"]))
             else:
                 result = self.hands.run(member, params)
@@ -653,10 +765,20 @@ class LocalAgent:
                 "step": n,
                 "thought": thought,
                 "action": describe(action),
+                "say": plain(action, text, error, self.elements),
                 "result": text,
             }
         )
         return step
+
+    def _ask_claude(self, question: str) -> ActionResult:
+        if self.ask is None:
+            raise ActionError("Claude can't be asked from here; decide from the screen")
+        self.emit({"event": "note", "text": "Asking Claude: " + question[:200]})
+        answer = self.ask(question).strip()
+        if not answer:
+            raise ActionError("Claude gave no answer")
+        return ActionResult(answer[:MAX_TEXT])
 
     def _click_text(self, text: str) -> ActionResult:
         found = self.hands.run("find_text", {"text": text}).text or ""

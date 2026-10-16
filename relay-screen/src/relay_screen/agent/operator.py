@@ -24,13 +24,21 @@ from relay_screen.runtime.supervisor import (
     popen_detached,
 )
 
-SETUP_MODEL = "qwen3-vl-8b-instruct"  # the planner the operator is tuned for (D-072)
+SETUP_MODEL = "holo-3.1-9b"  # the operator's model (D-087)
 WARM_SECONDS = 900.0  # the operator's model stays loaded at least this long (D-084)
 
 
 class Operator(Protocol):
     def run(
-        self, task: str, hands: Hands, max_steps: int, on_event: Event | None = None
+        self,
+        task: str,
+        hands: Hands,
+        max_steps: int,
+        on_event: Event | None = None,
+        *,
+        inbox: Callable[[], list[str]] | None = None,
+        cancelled: Callable[[], bool] | None = None,
+        ask: Callable[[str], str] | None = None,
     ) -> tuple[str, Outcome]: ...
 
 
@@ -115,13 +123,36 @@ class LocalOperator:
         self.setup = Setup(self.store, record=self.record)
         self._lock = threading.Lock()  # one UI task at a time: there is one mouse
 
+    def warm(self) -> None:
+        """Load the model before the first task, when it is downloaded (D-088)."""
+        from relay_screen.agent.cli import pick_model
+
+        if self.setup.missing():
+            self.setup.start()
+            return
+        try:
+            model_id = pick_model(self.store.installed().models, self.settings, None)
+            with self._lock:
+                self.supervisor.ensure(model_id)
+        except RuntimeUnavailable as exc:
+            self.record({"event": "warm", "status": "failed", "error": str(exc)})
+
     def run(
-        self, task: str, hands: Hands, max_steps: int, on_event: Event | None = None
+        self,
+        task: str,
+        hands: Hands,
+        max_steps: int,
+        on_event: Event | None = None,
+        *,
+        inbox: Callable[[], list[str]] | None = None,
+        cancelled: Callable[[], bool] | None = None,
+        ask: Callable[[str], str] | None = None,
     ) -> tuple[str, Outcome]:
         from relay_screen.agent.cli import pick_model
 
+        emit = on_event or (lambda event: None)
         with self._lock:  # one-move tasks need no model, so no download either (D-084)
-            done = run_instant(task, hands, on_event or (lambda event: None))
+            done = run_instant(task, hands, emit)
         if done is not None:
             self.record({"event": "ui_task", "model": "instant", "status": done.status})
             return "instant", done
@@ -136,6 +167,8 @@ class LocalOperator:
         with self._lock:
             model_id = pick_model(self.store.installed().models, self.settings, None)
             spec = catalog.find(model_id)
+            if model_id not in self.supervisor.servers:
+                emit({"event": "note", "text": f"Loading the local model {model_id}…"})
             with self.supervisor.task(model_id):
                 model = self.connect(self.supervisor.ensure(model_id).url)
                 agent = LocalAgent(
@@ -145,6 +178,9 @@ class LocalOperator:
                     max_steps=max_steps,
                     on_event=on_event,
                     instant=False,
+                    inbox=inbox,
+                    cancelled=cancelled,
+                    ask=ask,
                 )
                 outcome = agent.run(task)
             self.record({"event": "ui_task", "model": model_id, "status": outcome.status})

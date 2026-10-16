@@ -277,7 +277,12 @@ class FakeOperator:
         self.calls: list[tuple[str, int]] = []
 
     def run(
-        self, task: str, hands: Hands, max_steps: int, on_event: Event | None = None
+        self,
+        task: str,
+        hands: Hands,
+        max_steps: int,
+        on_event: Event | None = None,
+        **hooks: object,
     ) -> tuple[str, Outcome]:
         self.calls.append((task, max_steps))
         if self.error:

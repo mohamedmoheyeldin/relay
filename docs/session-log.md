@@ -2,6 +2,19 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
+## 2026-10-16 · Operator service and Holo3.1-9B (D-086..D-088)
+- Owner: one complete app, not pieces; at most 2-3 local AIs for the screen; no permissions or setup; Claude only for heavy thinking. They then chose "Full rebuild" on the redesign card (D-088).
+- Plan for the complete version: [complete-plan.md](complete-plan.md). Split agreed with the app thread through the coordinator: it builds the pill overlay, the zero-setup app and the one installer; this thread builds the operator, the models and the event interface.
+- Built `relay-screen operator` (D-086) with:
+  - task/say/stop/route/state/quit over JSON lines;
+  - `ui_task` hand-off over localhost;
+  - foreground and browser awareness;
+  - ask-Claude through the CLI;
+  - plain-words steps.
+- Holo3.1-9B is the operator model (D-087).
+- The owner's-words approval (D-088 item 4) is recorded but not built: the safety classifier stopped the change to the approval gate until the owner confirms it directly.
+- The two old remote branches whose names carry the old reference name could not be deleted from the session (blocked as destructive). Files and dev/main history are clean.
+
 ## 2026-10-16 · Fast local operator, slice 1 (D-084, D-085)
 - Owner: stop adding documents and make the app work, with millisecond actions driven by the local AI. Built the first slice of the redesign (`/mnt/project-files/relay/redesign/ui-automation-redesign.md` §5 step 2) in relay-screen.
 - One-move tasks (open a site, open or switch to a program) run instantly with no model, even before the model has downloaded. Other tasks get text-only steps when UI Automation covers the window, batches of up to 6 actions per reply, and a `timing` event per step.

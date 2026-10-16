@@ -1328,3 +1328,87 @@ mid-task, and a skills recorder come in later slices.
 - Other local-model uses (bench, CLI) keep the per-process D-042 lifetime.
 - The app should stop the server when Relay quits. That is the app thread's
   part.
+
+## D-086 The operator runs as a service while Relay is open
+*2026-10-16 · accepted · owner ("fully working application", no pieces) · builds on D-084*
+
+- The app starts `relay-screen operator` once, hidden, and talks to it in JSON
+  lines over stdin/stdout. Commands:
+  - `task`
+  - `say`: a follow-up or correction into the running task; with no task
+    running, a new task that knows the last one
+  - `stop`
+  - `route`: send to the local AI or to Claude
+  - `state`
+  - `quit`
+- Every event carries its task id. A `step` event has a plain-words `say` line
+  for the pill and chat. The full shape is in `agent/service.py`'s docstring.
+- The service keeps the following warm:
+  - the model;
+  - the app catalog;
+  - a foreground-window watch, with the last 20 switches held in memory only
+    and never written to disk;
+  - the browser in front's address, read from its address bar through UIA.
+- It also listens on a localhost port named in `operator.json`, behind a token.
+  Claude's `ui_task` hands its task there when the service is running. That
+  gives one mouse and one operator, and the pill shows Claude's hand-offs
+  too (`"source": "claude"`). Without the service, `ui_task` runs the
+  operator in-process as before.
+- One task runs at a time. A second task while one runs is refused with a
+  message saying to stop the first or add to it.
+- The local AI can ask Claude through the owner's `claude` CLI: one
+  question, text answer, no tools, no MCP servers (D-002). It does this for
+  writing and judgment only, never for where to click.
+- This interface stays the same when the operator moves into relay-core
+  (D-088), so the pill and chat don't change.
+
+## D-087 Holo3.1-9B is the operator's model
+*2026-10-16 · accepted · plan thread, within the owner's "best local AI, 2-3 models at most" · amends D-072*
+
+- Holo3.1-9B is H Company's computer-use model (June 2026, Apache-2.0, Qwen3.5
+  base). It replaces Qwen3-VL-8B as the model Setup downloads and the operator
+  prefers:
+  - Q5_K_M weights, 6.5 GB, with the f16 vision projector, 0.9 GB;
+  - about 8 GB of VRAM with a 16k context.
+- It does both jobs the operator needs: text planning over the element list
+  (D-084) and reading screenshots when UIA can't.
+- The local AI is then one model plus two OS engines, UI Automation and
+  Windows OCR, within the owner's limit of two to three.
+- Qwen3-VL-8B stays in the catalog as a fallback. A second resident model, a
+  grounding specialist, is added only if the benchmark shows misses.
+- Coordinates:
+  - Holo writes pixels of the image it is sent (`coords="pixels"`).
+  - Sent images are now multiples of 32 px, so the vision encoder doesn't
+    resize them again and the pixels map back exactly.
+  - The prompt names the image size each step.
+- Source:
+  - H Company publishes GGUF only for the 35B model. That model needs about
+    20 GB, which doesn't fit 16 GB of VRAM (D-006).
+  - The 9B therefore comes from the community conversion
+    `prithivMLmods/Holo-3.1-9B-GGUF`.
+  - This is an exception to "publisher repos only". The lock file records the
+    exact commit, and the store checks each file's published SHA-256.
+- Planner choice: an explicit Settings choice for the operator wins. The
+  describe/grounding picks no longer override a downloaded planner.
+
+## D-088 Full rebuild: the five redesign choices
+*2026-10-16 · accepted · owner (decision card "Full rebuild", 00:39) · redesign §6*
+
+The owner chose the full rebuild with every recommendation:
+
+1. **Tiered, UIA-first operator, moved into relay-core (Rust).** The Python
+   operator and service (D-084..D-087) are the first stage. relay-core takes
+   over behind the same JSON-lines interface (D-086) and the same MCP tool
+   names (D-009).
+2. **The model stays loaded while Relay runs.** The operator service holds it
+   and frees the VRAM on `quit`. Without the service, the D-085 floor of
+   15 minutes applies.
+3. **The browser extension, its policy install and the token step are
+   removed.** Browsers are driven through UI Automation. The app thread
+   removes the lane and the policy, and cleans up on update.
+4. **The owner's own words count as approval.** When the task itself says
+   send, submit, apply or pay, a matching step runs without a card. A card
+   appears only for irreversible steps the owner didn't ask for.
+   Implementation pending.
+5. **Quick wins first, but no separate release.** The owner gets one
+   complete build.
