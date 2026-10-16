@@ -935,6 +935,24 @@ def _only_empty_field(elements: str) -> str | None:
     return found[0] if len(found) == 1 else None
 
 
+BOX = re.compile(r'^\s*\[e\d+\] (\w+)( "[^"]*")?[^\n]*?box \[(\d+), (\d+), (\d+), (\d+)\]', re.M)
+
+
+def _field_at(elements: str, point: Any) -> str:
+    """'Document "Text editor"' when the point is inside a listed text box, else ""."""
+    if not (isinstance(point, list | tuple) and len(point) == 2):
+        return ""
+    x, y = point
+    best = ""
+    for found in BOX.finditer(elements):
+        role = found.group(1)
+        x0, y0, x1, y1 = (int(found.group(i)) for i in range(3, 7))
+        page = "#RootWebArea" in found.group(0)  # a whole web page, not a text box
+        if role in ("Edit", "Document") and not page and x0 <= x <= x1 and y0 <= y <= y1:
+            best = f"{role}{found.group(2) or ''}"  # the innermost (latest) one wins
+    return best
+
+
 def _intended_field(elements: str, thought: str) -> str | None:
     found = _named(elements, thought, FIELD_ROLES, empty=True)
     return found[0] if found else None
@@ -1093,6 +1111,7 @@ class LocalAgent:
         self.notes: list[str] = []  # what the owner added while the task ran
         self.target = ""  # the program the task works in (its exe stem), once known
         self.stuck_warned = False  # told once that its actions change nothing
+        self.steps_so_far: list[Step] = []
         self.target_handle = 0  # and its exact window: a second Notepad isn't it (D-106)
         self.idle = idle if idle is not None else seconds_since_input
         self.last_input = 0.0  # monotonic time Relay last sent real input
@@ -1120,6 +1139,7 @@ class LocalAgent:
             if done is not None:
                 return done
         steps: list[Step] = []
+        self.steps_so_far = steps
         bad_replies = 0
         last_batch, repeats = "", 0
         note = ""
@@ -1191,6 +1211,8 @@ class LocalAgent:
                     message = f"The local model's replies could not be used ({exc})."
                     return self._finish("failed", message, steps)
                 note = f"Your last reply could not be used: {exc}. Reply with one JSON object."
+                if "not seen the screen" in str(exc):
+                    look = True  # it wants to click by position: show it the screen (D-112)
                 continue
             bad_replies = 0
             thought, actions = plan
@@ -1448,6 +1470,13 @@ class LocalAgent:
     def _launch(self, params: Mapping[str, Any]) -> ActionResult:
         """launch_app, and again without a "Windows "/"Microsoft " the app list doesn't
         use: "Windows Settings" is "Settings" there (D-112)."""
+        name = str(params.get("name", "")).casefold()
+        parts = self._front_line().split(" · ")
+        stem = parts[1].casefold().removesuffix(".exe") if len(parts) > 2 else ""
+        if stem in BROWSER_STEMS and ("browser" in name or name.startswith(stem)):
+            # The prices page was open in Brave and the model opened Brave again, onto
+            # its start page (D-112).
+            return ActionResult(f"{parts[0]} is already in front; use it")
         try:
             return self.hands.run("launch_app", params)
         except ActionError:
@@ -1559,6 +1588,13 @@ class LocalAgent:
                     self._bring_back()
                 if member in ("type", "uia_set_value"):
                     self._not_twice(n, str(params.get("text", params.get("value", ""))))
+                if member in POINT_CLICKS and self._clicked_thrice(action):
+                    # The web form's colour box was clicked 23 times (D-112).
+                    raise ActionError(
+                        "Relay didn't click there again: the last three clicks were on the "
+                        "same spot. If it is a box to type in, it has the focus: type now. "
+                        "Otherwise use an element id, a key, or another way"
+                    )
                 if member in POINT_CLICKS:
                     try:
                         self._inside_front(params)
@@ -1606,6 +1642,12 @@ class LocalAgent:
             if not error and member in ("type", "uia_set_value"):
                 self.typed.setdefault(_typed_key(params), n)
             self.last_type_step = n if not error and member == "type" else 0
+            if not error and member in POINT_CLICKS and "no visible change" in text:
+                field = _field_at(self.elements, params.get("coordinate"))
+                if field:
+                    # Clicking into Notepad changes nothing to see, and the model clicked
+                    # again and again instead of typing (D-112).
+                    text = f"{text}; the click went into {field}, which now has the focus: type"
             if not error and member == "type" and "no visible change" in text:
                 text = self._type_into_field(thought, str(params.get("text", "")), text)
             if not error and member == "uia_set_value" and self._search_box(params):
@@ -1900,6 +1942,14 @@ class LocalAgent:
         """Typing went nowhere (no box had the focus): put the text into the empty box
         the thought names, or the page's only empty box (D-106). The library search
         typed "Dune" four times into nothing."""
+        probe = " ".join(value.split())[:40]
+        with contextlib.suppress(ActionError):
+            found = self.hands.run("uia_find", {"query": probe}).text or "" if probe else ""
+            there = re.search(r"^\[e\d+\] (Edit|Document)( \"[^\"]*\")?", found, re.M)
+            if there:
+                # The screen check missed it, but the text is there: Notepad's first line
+                # in round 16, after which the model pressed Enter four times (D-112).
+                return f"OK · typed; the text is now in {there.group(1)}{there.group(2) or ''}"
         field = _intended_field(self.elements, thought) or _only_empty_field(self.elements)
         if field is None:
             return text
@@ -1908,6 +1958,10 @@ class LocalAgent:
             return text
         label = _element_label(self.elements, field)
         return f"{text}; nothing had the focus, so Relay put it into {label}"
+
+    def _clicked_thrice(self, action: Mapping[str, Any]) -> bool:
+        last = self.steps_so_far[-3:]
+        return len(last) == 3 and all(s.action == action for s in last)
 
     def _typing_again(self, n: int) -> bool:
         """The step before this one also typed, so the focus is still on that field."""
@@ -2014,6 +2068,8 @@ class LocalAgent:
         if all(s.action.get("action") == "wait" for s in last):
             return True  # waiting on and on for a page that won't change (D-112)
         same = all(s.action == first.action for s in last)
+        if same and "didn't click there again" in last[-1].result:
+            return True  # a fourth click on the same spot, refused
         if same and all(s.error for s in last):
             return True  # the same refused click, twenty times in round 7 (D-106)
         if same and first.action.get("action") in REPEAT_IS_STUCK:

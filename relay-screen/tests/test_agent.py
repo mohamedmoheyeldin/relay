@@ -206,7 +206,7 @@ def test_stops_when_the_same_action_keeps_changing_nothing() -> None:
     model = Script(click, click, click, click)
     outcome, _ = run(hands, model)
     assert outcome.status == "failed" and "kept changing nothing" in outcome.message
-    assert len(hands.acts()) == 4  # one warning first (D-112)
+    assert len(hands.acts()) == 3  # one warning, then a fourth click is refused (D-112)
     assert "changed nothing" in model.prompt(3)
 
 
@@ -232,6 +232,21 @@ def test_typing_that_went_nowhere_goes_into_the_only_empty_box() -> None:
     assert ("uia_set_value", {"element": "e2", "value": "Dune"}) in hands.acts()
     step = next(e for e in events if e["event"] == "step")
     assert '"Search the catalogue"' in step["result"]
+
+
+def test_a_click_into_a_text_box_says_it_has_the_focus() -> None:
+    tree = 'Elements:\n[e1] Document "Text editor" {value} center (50, 50) box [0, 0, 100, 100]'
+    hands = FakeHands({"uia_tree": tree, "left_click": "OK · no visible change"})
+    _, events = run(hands, Script({"action": "click", "x": 50, "y": 50}, done()))
+    step = next(e for e in events if e["event"] == "step")
+    assert 'Document "Text editor", which now has the focus: type' in step["result"]
+
+
+def test_a_browser_in_front_is_not_launched_again() -> None:
+    windows = '1 open window(s), topmost first:\n"Laptop prices - Brave" · brave.exe · in front'
+    hands = FakeHands({"list_windows": windows})
+    run(hands, Script({"action": "launch_app", "name": "browser"}, done()))
+    assert not any(a[0] == "launch_app" for a in hands.acts())
 
 
 def test_focusing_the_same_window_again_and_again_is_stuck() -> None:
@@ -705,7 +720,7 @@ def test_rich_element_lists_skip_the_screenshot() -> None:
     outcome, events = run(hands, model)
     assert outcome.status == "done"
     shots = [len(m[1]["content"]) == 2 for m in model.seen]
-    assert shots == [True, False, False, True]  # first step, then text only until look
+    assert shots == [True, False, True, True]  # a click with no screen seen shows it (D-112)
     assert "No screenshot this time" in model.prompt(1)
     assert any(e["event"] == "bad_reply" and "look" in e["error"] for e in events)
     assert hands.acts() == [("uia_invoke", {"element": "e3"})]
@@ -1118,7 +1133,7 @@ def test_the_same_failing_action_three_times_is_stuck() -> None:
     hands = FakeHands({"left_click": ActionError("outside the window in front")})
     click = {"action": "click", "x": 10, "y": 10}
     outcome, _ = run(hands, Script(click, click, click, click, click))
-    assert outcome.status == "failed" and len(hands.acts()) == 4
+    assert outcome.status == "failed" and len(hands.acts()) == 3  # the 4th isn't tried
 
 
 def test_focusing_the_program_returns_to_its_exact_window() -> None:
@@ -1356,3 +1371,15 @@ def test_click_text_presses_the_listed_button_of_that_name() -> None:
     run(hands, Script({"action": "click_text", "text": "Search"}, done()))
     assert ("uia_invoke", {"element": "e3"}) in hands.acts()
     assert not any(a[0] == "find_text" for a in hands.acts())
+
+
+def test_typing_the_screen_check_missed_is_confirmed_by_ui_automation() -> None:
+    hands = FakeHands(
+        {
+            "type": "OK · no visible change",
+            "uia_find": "1 match(es), best first:\n[e4] Document \"Text editor\" value='Hi'",
+        }
+    )
+    _, events = run(hands, Script({"action": "type", "text": "Hi"}, done()))
+    step = next(e for e in events if e["event"] == "step")
+    assert step["result"] == 'OK · typed; the text is now in Document "Text editor"'

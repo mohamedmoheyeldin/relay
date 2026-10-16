@@ -1926,3 +1926,15 @@ any program, so the fixes are general:
   `logs/operator-hangs.log` every 2 minutes while it runs that long. Round 15 hung
   after one step of compare-and-copy, and the eight scenarios after it found Relay
   "already doing a task".
+- Round 16 additions:
+  - **A click into a text box says so.** A click that changes nothing to see but
+    lands in a listed Edit or Document reports that the box has the focus and to type.
+    The model had clicked Notepad's page twenty times.
+  - **A fourth click on the same spot is refused**, and it counts towards stuck. The
+    web form's colour box was clicked 23 times.
+  - **Typing the screen check missed is checked with UI Automation**, so a typed
+    line in Notepad doesn't read as "no visible change".
+  - **A position click before any screenshot gets one**, instead of failing the
+    reply three times.
+  - **launch_app of the browser that is in front does nothing**; it had opened the
+    browser's start page over the page the task needed.
