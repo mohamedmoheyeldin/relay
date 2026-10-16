@@ -611,7 +611,9 @@ class Computer:
         cy = window.rect.top + window.rect.height // 2
         display = display_at(self.state.displays(), cx, cy)
         if display is not None and display.id != self.state.active().id:
-            return f" on display {display.id}, not the active one (select_display {display.id})"
+            # Follow the window: screenshots and coordinates now use its display (D-093).
+            self.state.select(display.id)
+            return f" on display {display.id}, now the active display"
         return ""
 
     def _do_list_windows(self, query: str | None = None) -> ActionResult:

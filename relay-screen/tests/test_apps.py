@@ -195,7 +195,8 @@ def test_launch_app_through_computer(owner_displays):
     assert fake.launched == [("Brave Origin", ["https://example.com"])]
     assert seen[0].summary == 'Open Brave Origin with "https://example.com"'
     assert text.startswith('Opened Brave Origin · window "Example Domain - Brave" in front')
-    assert text.endswith("(select_display 3)")  # the display below the primary
+    assert text.endswith("on display 3, now the active display")  # below the primary
+    assert c.state.active().id == 3  # screenshots follow the window (D-093)
     with pytest.raises(ActionError, match="list of strings"):
         c.run("launch_app", {"name": "Notepad", "args": "x"})
     with pytest.raises(ActionError, match="No installed app"):
@@ -261,6 +262,17 @@ def test_find_window_by_title_program_or_app_name_never_relay():
         find_window(windows, "Relay")
     with pytest.raises(ActionError, match="launch_app"):
         find_window(windows, "Calculator", catalog())
+
+
+def test_find_window_takes_the_looser_names_a_model_gives():
+    """The 0.1.10 Dice run: focus_window failed twice on names like these (D-093)."""
+    windows = desktop()
+    assert find_window(windows, "Brave Origin").handle == 6  # no catalog: program word
+    assert find_window(windows, "Brave browser").handle == 6
+    assert find_window(windows, "https://www.dice.com/").handle == 8
+    assert find_window(windows, "dice.com").handle == 8
+    with pytest.raises(ActionError, match='Open windows: "Monster Jobs - Brave"'):
+        find_window(windows, "Excel")
 
 
 def test_focus_window_through_computer(owner_displays):

@@ -9,7 +9,9 @@ into one catalog Claude can search with ``list_apps`` and open with ``launch_app
 from __future__ import annotations
 
 import json
+import re
 import time
+import unicodedata
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from difflib import SequenceMatcher
@@ -159,6 +161,7 @@ class AppCatalog:
 
     def resolve(self, name: str) -> App:
         """The one app ``name`` means, or an error naming the closest ones."""
+        name = clean_name(name)
         found = self.search(name)
         if not found:
             found = self.search(name, refresh=True)  # installed since the last scan?
@@ -293,9 +296,15 @@ def window_listing(windows: Sequence[Window], foreground: int, query: str | None
     return "\n".join([head, *lines])
 
 
+def _norm(text: str) -> str:
+    """Casefolded, without invisible marks (a page title can carry U+200E) or extra spaces."""
+    shown = "".join(c for c in text if unicodedata.category(c) != "Cf")
+    return " ".join(shown.casefold().split())
+
+
 def window_score(window: Window, query: str, app: App | None = None) -> float:
-    q = query.casefold().strip()
-    title = window.title.casefold()
+    q = _norm(query)
+    title = _norm(window.title)
     stem = _stem(window.exe)
     if not q:
         return 0.0
@@ -309,7 +318,23 @@ def window_score(window: Window, query: str, app: App | None = None) -> float:
         return 0.85
     if stem is not None and stem.startswith(q):
         return 0.8
+    # Looser names a model gives (D-093): "Brave Origin", "Brave browser",
+    # "https://www.dice.com/", "Dice jobs". A program word or every word in the title.
+    words = [w for w in re.findall(r"[a-z0-9]+", _site(q)) if len(w) >= 3 and w not in _NOISE]
+    if words and stem is not None and stem in words:
+        return 0.75
+    if words and all(w in title for w in words):
+        return 0.7
     return 0.0
+
+
+_NOISE = frozenset({"the", "window", "browser", "app", "www", "com", "https", "http", "tab"})
+
+
+def _site(q: str) -> str:
+    """'dice' for 'https://www.dice.com/jobs'; other text unchanged."""
+    found = re.match(r"(?:https?://)?(?:www\.)?([a-z0-9-]+)\.[a-z.]{2,}(?:/\S*)?$", q)
+    return found.group(1) if found else q
 
 
 def rank_windows(
@@ -320,8 +345,22 @@ def rank_windows(
     return sorted(scored, key=lambda pair: -pair[0])  # stable: z-order within a score
 
 
+def clean_name(name: str) -> str:
+    """A name as a model copies it from a listing, cut back to the name (D-093).
+
+    'Brave Origin \\u00b7 browser' (an escape typed out, then the listing's label) and
+    '"Dice - Brave" · brave.exe · in front' both come back as the bare name.
+    """
+    text = re.sub(r"\\u([0-9a-fA-F]{4})", lambda m: chr(int(m.group(1), 16)), name)
+    text = text.split(" \u00b7 ", 1)[0].strip()
+    if len(text) >= 2 and text[0] == text[-1] == '"':
+        text = text[1:-1]
+    return text.strip() or name.strip()
+
+
 def find_window(windows: Sequence[Window], query: str, catalog: AppCatalog | None = None) -> Window:
     """The open window ``query`` means: a title, a program name, or an installed app's name."""
+    query = clean_name(query)
     app = None
     if catalog is not None:
         try:
@@ -330,8 +369,10 @@ def find_window(windows: Sequence[Window], query: str, catalog: AppCatalog | Non
             app = None
     found = rank_windows(windows, query, app)
     if not found:
+        names = [f'"{w.title}"' for w in windows if not is_relay(w)][:8]
+        open_now = f" Open windows: {', '.join(names)}." if names else ""
         raise ActionError(
-            f"No open window matches {query!r}. Use list_windows to see them, "
+            f"No open window matches {query!r}.{open_now} Use one of those titles, "
             "or launch_app to open the program."
         )
     return found[0][1]

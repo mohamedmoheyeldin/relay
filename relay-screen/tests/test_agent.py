@@ -10,7 +10,14 @@ from PIL import Image
 
 from relay_screen.actions import ActionResult
 from relay_screen.agent.cli import idle_seconds, pick_model
-from relay_screen.agent.local import Frame, LocalAgent, ReplyError, parse_reply, to_member
+from relay_screen.agent.local import (
+    PLAN_PROMPT,
+    Frame,
+    LocalAgent,
+    ReplyError,
+    parse_reply,
+    to_member,
+)
 from relay_screen.errors import ActionError
 from relay_screen.runtime.store import InstalledFile, InstalledModel
 from relay_screen.runtime.supervisor import RuntimeUnavailable
@@ -51,11 +58,16 @@ class FakeHands:
 class Script:
     """A fake model that answers with the given replies in order."""
 
-    def __init__(self, *replies: Any) -> None:
+    def __init__(self, *replies: Any, plan: dict[str, Any] | None = None) -> None:
         self.replies = [r if isinstance(r, str) else json.dumps(r) for r in replies]
         self.seen: list[list[dict[str, Any]]] = []
+        self.plan = plan or {"action": "plan"}
+        self.planned: list[list[dict[str, Any]]] = []
 
     def __call__(self, messages: list[dict[str, Any]]) -> str:
+        if messages[0]["content"] == PLAN_PROMPT:  # the plan before the first step
+            self.planned.append(messages)
+            return json.dumps(self.plan)
         self.seen.append(messages)
         return self.replies.pop(0)
 
@@ -411,6 +423,65 @@ def test_opens_the_page_the_task_names_before_the_first_step() -> None:
     assert hands.acts() == [("open_url", {"url": "https://www.dice.com/"})]
 
 
+def test_the_dice_run_from_the_owners_pc() -> None:
+    """0.1.10 on the PC: the URL never showed as a step and select_display failed 3 times."""
+    hands = FakeHands({"list_windows": WINDOWS})
+    model = Script(
+        {"thought": "bring the browser up", "action": "focus_window", "window": "Brave Origin"},
+        {"thought": "it is on another monitor", "action": "select_display", "display_id": 2},
+        {"thought": "search", "action": "done", "summary": "searched"},
+    )
+    events: list[dict[str, Any]] = []
+    task = "go to https://www.dice.com/ and search for fde jobs"
+    outcome = LocalAgent(hands, model, on_event=events.append, instant=False).run(task)
+    assert outcome.status == "done"
+    steps = [e for e in events if e["event"] == "step"]
+    assert steps[0]["say"] == "Opened https://www.dice.com/"
+    assert steps[1]["say"] == "Switched to Brave Origin"
+    assert not [e for e in events if e["event"] == "bad_reply"]
+    assert hands.acts()[0] == ("open_url", {"url": "https://www.dice.com/"})
+    assert "Step 1: open_url" in model.prompt(0)  # the model knows the page is open
+
+
+def test_reply_schema_lists_only_actions_relay_runs() -> None:
+    from relay_screen.agent.local import ACTION_NAMES, REPLY_SCHEMA
+
+    frame = Frame.from_png(png())
+    special = {"look", "done", "fail", "ask_claude", "plan"}
+    for name in set(ACTION_NAMES) - special:
+        action = {"action": name, "x": 1, "y": 1, "text": "a", "keys": "a", "name": "a"}
+        action |= {"url": "a.com", "window": "a", "element": "e1", "value": "v"}
+        to_member(action, frame, "rel1000")  # raises for an unknown action
+    single, batch = REPLY_SCHEMA["anyOf"]
+    assert single["properties"]["action"]["enum"] == list(ACTION_NAMES)
+    assert batch["properties"]["actions"]["items"]["properties"]["action"]["enum"] == list(
+        ACTION_NAMES
+    )
+
+
+def test_llama_requests_carry_the_reply_schema(monkeypatch: pytest.MonkeyPatch) -> None:
+    from relay_screen.agent import cli
+    from relay_screen.agent.local import REPLY_SCHEMA
+
+    sent: list[dict[str, Any]] = []
+
+    class Reply(io.BytesIO):
+        def __enter__(self) -> Reply:
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+    def urlopen(request: Any, timeout: float) -> Reply:
+        sent.append(json.loads(request.data))
+        body = {"choices": [{"message": {"content": '{"thought": "", "action": "look"}'}}]}
+        return Reply(json.dumps(body).encode())
+
+    monkeypatch.setattr(cli.urllib.request, "urlopen", urlopen)
+    cli.llama_model("http://127.0.0.1:1")([{"role": "user", "content": "hi"}])
+    assert sent[0]["response_format"] == {"type": "json_object", "schema": REPLY_SCHEMA}
+
+
 def test_open_url_action_maps_to_the_member() -> None:
     frame = Frame.from_png(png())
     assert to_member({"action": "open_url", "url": "dice.com"}, frame, "rel1000") == (
@@ -572,3 +643,156 @@ def test_a_browser_in_front_is_read_from_its_page() -> None:
 def test_a_thinking_block_before_the_json_is_ignored() -> None:
     reply = '<think>The button {maybe} is here</think>{"action": "key", "keys": "Return"}'
     assert parse_reply(reply) == {"action": "key", "keys": "Return"}
+
+
+# --- the owner's PC runs, 0.1.10 (D-093) -------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("task", "found"),
+    [
+        ("Find a cheap flight to Cairo next month", "cheap+flight+to+Cairo+next+month"),
+        ("search for python jobs", "python+jobs"),
+        ("find the invoice pdf in my downloads", None),
+        ("go to dice.com and search for fde jobs", None),
+        ("find the cat note in notepad", None),  # an open program is named
+    ],
+)
+def test_web_search_first_for_find_tasks(task: str, found: str | None) -> None:
+    from relay_screen.agent.local import SEARCH_URL, web_search_url
+
+    url = web_search_url(task, WINDOWS)
+    assert url == (SEARCH_URL + found if found else None)
+
+
+def test_find_task_opens_a_search_with_no_model() -> None:
+    hands = FakeHands({"list_windows": WINDOWS})
+    model = Script({"thought": "", "action": "done", "summary": "ok"})
+    LocalAgent(hands, model, instant=False).run("Find a cheap flight to Cairo next month")
+    assert hands.acts()[0][0] == "open_url"
+    assert "cheap+flight+to+Cairo" in hands.acts()[0][1]["url"]
+
+
+def test_invoke_on_an_address_bar_clicks_its_center_instead() -> None:
+    def invoke(params: dict[str, Any]) -> Any:
+        return ActionError('Edit "Address and search bar" has no invoke action; click its center')
+
+    hands = FakeHands({"uia_invoke": invoke})
+    agent = LocalAgent(hands, Script())
+    agent.elements = 'Elements\n[e1795] Edit "Address and search bar" {value} center (640, 52)'
+    step = agent._act(
+        1, "", {"action": "invoke", "element": "e1795"}, "uia_invoke", {"element": "e1795"}
+    )
+    assert not step.error
+    assert ("left_click", {"coordinate": [640, 52]}) in hands.calls
+
+
+def test_real_input_brings_the_task_program_back_first() -> None:
+    front = {"line": '"Cairo flights - Brave" · brave.exe · in front'}
+
+    def windows(params: dict[str, Any]) -> str:
+        return "2 open window(s), topmost first:\n" + front["line"]
+
+    hands = FakeHands({"list_windows": windows})
+    agent = LocalAgent(hands, Script())
+    agent._act(
+        1, "", {"action": "focus_window", "window": "Brave"}, "focus_window", {"window": "Brave"}
+    )
+    assert agent.target == "brave"
+    front["line"] = '"notes.txt - Notepad" · notepad.exe · in front'  # the owner clicked away
+    agent._act(2, "", {"action": "type", "text": "x"}, "type", {"text": "x"})
+    acts = hands.acts()
+    assert acts[-2:] == [("focus_window", {"window": "brave"}), ("type", {"text": "x"})]
+
+
+def test_stop_ends_a_slow_model_call_at_once() -> None:
+    import threading
+    import time
+
+    stop = threading.Event()
+    release = threading.Event()
+
+    def slow(messages: list[dict[str, Any]]) -> str:
+        stop.set()  # the owner presses Stop while the model thinks
+        release.wait(5)
+        return '{"thought": "", "action": "done"}'
+
+    started = time.perf_counter()
+    outcome = LocalAgent(FakeHands(), slow, cancelled=stop.is_set, instant=False).run("write hello")
+    release.set()
+    assert outcome.status == "stopped"
+    assert time.perf_counter() - started < 1
+
+
+def test_claude_signed_out_leaves_the_local_ai_going() -> None:
+    def ask(question: str) -> str:
+        raise RuntimeError("Invalid API key · Please run /login")
+
+    hands = FakeHands()
+    model = Script(
+        {"thought": "", "action": "ask_claude", "question": "what to write?"},
+        {"thought": "", "action": "done", "summary": "wrote it myself"},
+    )
+    events: list[dict[str, Any]] = []
+    outcome = LocalAgent(hands, model, ask=ask, on_event=events.append).run("write hello")
+    assert outcome.status == "done"
+    assert "decide yourself" in outcome.steps[0].result
+
+
+def test_names_copied_from_listings_are_cleaned() -> None:
+    from relay_screen.apps import clean_name
+
+    assert clean_name("Brave Origin \\u00b7 browser") == "Brave Origin"
+    assert clean_name('"Dice - Brave" · brave.exe · in front') == "Dice - Brave"
+    assert clean_name("Notepad") == "Notepad"
+
+
+def test_plans_first_and_asks_the_owner_before_acting() -> None:
+    hands = FakeHands()
+    plan = {
+        "action": "plan",
+        "goal": "a shopping list saved as a file",
+        "app": "Notepad",
+        "steps": ["Open a new Notepad tab", "Type the list", "Save it"],
+        "done_when": "the list is saved",
+        "question": "Where should I save the list?",
+        "default": "Documents",
+    }
+    model = Script({"thought": "", "action": "done", "summary": "ok"}, plan=plan)
+    events: list[dict[str, Any]] = []
+    answers = [[], ["on my desktop"]]
+    agent = LocalAgent(
+        hands,
+        model,
+        on_event=events.append,
+        inbox=lambda: answers.pop(0) if answers else [],
+        instant=False,
+    )
+    agent.run("write a shopping list and save it")
+    kinds = [e["event"] for e in events]
+    assert kinds.index("plan") < kinds.index("question") < kinds.index("done")
+    assert any(e["event"] == "note" and e["text"].startswith("Plan: 1) Open") for e in events)
+    prompt = model.prompt(0)
+    assert "Your plan: a shopping list saved as a file in Notepad." in prompt
+    assert "The owner answered: on my desktop" in prompt
+
+
+def test_a_writing_task_opens_a_new_tab_before_typing() -> None:
+    windows = (
+        "2 open window(s), topmost first:\n"
+        '"Relay" · relay.exe · Relay itself, never the target\n'
+        '"push-rewrite.ps1 - Notepad" · notepad.exe · in front'
+    )
+    hands = FakeHands({"list_windows": windows})
+    model = Script(
+        {"thought": "", "action": "type", "text": "Shopping List\n- Milk\n- Eggs\n- Bread"},
+        {"thought": "", "action": "type", "text": "Shopping List\n- Milk\n- Eggs\n- Bread"},
+        {"thought": "", "action": "done", "summary": "ok"},
+    )
+    outcome = LocalAgent(hands, model, instant=False).run("open notepad and write a shopping list")
+    acts = hands.acts()
+    assert acts[0] == ("key", {"text": "ctrl+n"})  # before any typing
+    assert [a for a in acts if a[0] == "type"] == [
+        ("type", {"text": "Shopping List\n- Milk\n- Eggs\n- Bread"})
+    ]  # typed once
+    assert "already typed in step 1" in outcome.steps[1].result
