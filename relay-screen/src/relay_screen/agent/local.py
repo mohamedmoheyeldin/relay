@@ -364,6 +364,7 @@ class Frame:
         ]
 
 
+LAUNCH_NAMES = frozenset({"launch_app", "open_app", "open"})
 CLICK_NAMES = frozenset({"click", "left_click", "double_click", "right_click"})
 LISTED_CENTER = re.compile(r"center \((\d+), (\d+)\)")
 SNAP_PX = 3
@@ -458,6 +459,10 @@ def to_member(action: Mapping[str, Any], frame: Frame | None, coords: Coords) ->
         )
         if not isinstance(app, str) or not app:
             # Holo also wrote {"action": "launch_app", "app_name": "Notepad"} (D-106).
+            args = action.get("args")
+            if isinstance(args, list) and args and isinstance(args[0], str):
+                app = args[0]
+        if not isinstance(app, str) or not app:
             app = next(
                 (
                     v
@@ -715,8 +720,13 @@ def _center(elements: str, element_id: str) -> list[int] | None:
     return [int(found.group(1)), int(found.group(2))] if found else None
 
 
+# "Open a new tab in the web browser and search the web for ..." (D-106).
+_BROWSER_LEAD = (
+    r"(?:(?:open|start)\s+(?:a\s+new\s+tab|(?:the\s+|a\s+)?(?:web\s+)?browser)"
+    r"(?:\s+in\s+(?:the\s+|my\s+)?(?:web\s+)?browser)?\s+and\s+(?:then\s+)?)?"
+)
 WEB_FIND = re.compile(
-    _LEAD + r"(?:find|search(?: the web)? for|search|look up|look for|compare|book|"
+    _LEAD + _BROWSER_LEAD + r"(?:find|search(?: the web)? for|search|look up|look for|compare|book|"
     r"check (?:the )?prices? (?:of|for)|get me)\s+(?:me\s+)?(?:an?\s+|the\s+|some\s+)?(.{3,200})$",
     re.IGNORECASE,
 )
@@ -726,6 +736,7 @@ ON_THE_PC = re.compile(
     re.IGNORECASE,
 )
 SEARCH_URL = "https://www.google.com/search?q="
+BROWSER_STEMS = frozenset({"brave", "chrome", "msedge", "firefox", "opera", "vivaldi"})
 
 
 def web_search_url(task: str, windows: str = "") -> str | None:
@@ -741,7 +752,10 @@ def web_search_url(task: str, windows: str = "") -> str | None:
     words = set(re.findall(r"[a-z0-9]+", text.casefold()))
     for line in windows.splitlines():
         parts = line.split(" · ")
-        if len(parts) > 1 and parts[1].casefold().removesuffix(".exe") in words - {"find"}:
+        if len(parts) < 2 or any(p.startswith("Relay itself") for p in parts):
+            continue  # "relay diagnostics 1" names Relay's own window, not a program
+        stem = parts[1].casefold().removesuffix(".exe")
+        if stem in words - {"find"} and stem not in BROWSER_STEMS:
             return None  # "find the invoice in Outlook": work in that program
     return SEARCH_URL + urllib.parse.quote_plus(found.group(1))
 
@@ -883,6 +897,7 @@ class LocalAgent:
         self.typed: dict[str, int] = {}  # text typed so far -> the step that typed it
         self.save_to = ""  # full path for the Save dialog, once the task and owner name it
         self.task = ""
+        self.plan_app = ""  # the program the plan named, for a launch_app with no name
         self.warned: set[str] = set()  # empty fields already pointed out (D-106)
         self.new_doc = False  # a writing task: editors get a new tab first
         self.fresh: set[str] = set()  # editors that already got their new tab
@@ -1071,6 +1086,17 @@ class LocalAgent:
                 member = "left_click" if name in ("click", "left_click") else name
                 params: dict[str, Any] = {"coordinate": hit}
             else:
+                if (
+                    action["action"] in LAUNCH_NAMES
+                    and self.plan_app
+                    and not any(
+                        isinstance(v, str) and v.strip()
+                        for k, v in action.items()
+                        if k not in ("action", "thought")
+                    )
+                ):
+                    # A bare launch_app: the plan already named the program (D-106).
+                    action = {**action, "name": self.plan_app}
                 member, params = to_member(action, frame, self.coords)
                 if member in POINT_CLICKS:
                     params = {"coordinate": _likely_point(elements, action, params["coordinate"])}
@@ -1355,6 +1381,7 @@ class LocalAgent:
             return ""
         steps = [str(x) for x in plan.get("steps") or [] if str(x).strip()][:6]
         goal, app = str(plan.get("goal") or ""), str(plan.get("app") or "")
+        self.plan_app = app.strip()[:80]
         done_when = str(plan.get("done_when") or "")
         question = str(plan.get("question") or "").strip()
         default = str(plan.get("default") or "").strip()

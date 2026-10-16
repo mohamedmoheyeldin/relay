@@ -685,6 +685,11 @@ def test_a_thinking_block_before_the_json_is_ignored() -> None:
         ("find the invoice pdf in my downloads", None),
         ("go to dice.com and search for fde jobs", None),
         ("find the cat note in notepad", None),  # an open program is named
+        (
+            "Open a new tab in the web browser and search the web for relay diagnostics 1",
+            "relay+diagnostics+1",
+        ),
+        ("open the browser and then search for brave news", "brave+news"),
     ],
 )
 def test_web_search_first_for_find_tasks(task: str, found: str | None) -> None:
@@ -1108,3 +1113,11 @@ def test_three_failed_steps_in_a_row_tell_the_model_to_change_approach() -> None
     run(hands, model)
     assert "Stop clicking by position" in model.prompt(3)
     assert "Stop clicking by position" not in model.prompt(2)
+
+
+def test_a_launch_app_with_no_name_opens_the_planned_program() -> None:
+    # Round 9: Holo sent a bare {"action": "launch_app"} three times (D-106).
+    plan = {"action": "plan", "goal": "type", "app": "Notepad", "steps": ["Open Notepad"]}
+    hands = FakeHands({"launch_app": "Opened Notepad"})
+    run(hands, Script({"action": "launch_app"}, done(), plan=plan))
+    assert ("launch_app", {"name": "Notepad", "args": []}) in hands.acts()
