@@ -2,6 +2,9 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
+## 2026-10-16 · 0.1.10: ship main as it stands
+- Owner wants an app they can run and test, not more documents. Built main (4283268) as 0.1.10: D-081 (chat has no shell or scripts, and screen work goes through `ui_task`) plus 0.1.9's extension install. From now on each local-operator slice the plan thread merges into main gets a fresh installer in Downloads.
+
 ## 2026-10-15 · 0.1.9: the Playwright Extension installs itself
 - Owner on 0.1.7: Relay should install the extension it needs without stopping the work. They chose on the decision card to let the installer set a browser policy (accepting "Managed by your organization").
 - The elevated NSIS post-install hook adds the extension to `ExtensionInstallForcelist` for Brave (all channels, Brave Origin included, read `BraveSoftware\Brave`; checked in Brave Origin's chrome.dll), Chrome and Edge when installed. It uses the first free numbered slot, and a marker in `HKLM\Software\Relay` makes uninstall remove only Relay's entry, keeping the list gap-free.
