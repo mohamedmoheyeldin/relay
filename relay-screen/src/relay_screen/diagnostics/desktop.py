@@ -176,12 +176,40 @@ def gpu_processes() -> dict[int, int]:
     return found
 
 
-# -- Relay's own window, for the app-function tests (D-101) ------------------------
+# -- Relay's own window, for the app-function tests (D-101, D-103) ----------------
+
+SW_MAXIMIZE, SW_RESTORE = 3, 9
+
+
+class _WinRect(ctypes.Structure):
+    _fields_ = (("left", ctypes.c_long), ("top", ctypes.c_long),
+                ("right", ctypes.c_long), ("bottom", ctypes.c_long))  # fmt: skip
+
+
+def _image_path(pid: int) -> str | None:
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    kernel32.QueryFullProcessImageNameW.argtypes = (
+        wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD),
+    )  # fmt: skip
+    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not handle:
+        return None
+    try:
+        size = wintypes.DWORD(1024)
+        buffer = ctypes.create_unicode_buffer(size.value)
+        ok = kernel32.QueryFullProcessImageNameW(handle, 0, buffer, ctypes.byref(size))
+        return buffer.value if ok else None
+    finally:
+        kernel32.CloseHandle(handle)
 
 
 class RelayWindow:
     """diagnostics.app.AppUi over UI Automation: Relay's main window, found by its
-    process, read in one cached call per look and pressed through Invoke."""
+    process, read in one cached call per look, and used with real clicks and keys so a
+    control that needs two clicks fails the way it does for the owner."""
 
     def __init__(self) -> None:
         from relay_screen.uia_windows import WinUiaBackend
@@ -211,27 +239,27 @@ class RelayWindow:
 
         return self._backend.run(work)
 
+    def _handle(self) -> int | None:
+        main = self._main()
+        return int(main._c.NativeWindowHandle) if main is not None else None
+
     def ready(self) -> str | None:
         main = self._main()
         if main is None:
             return "Relay's window is not open"
-
-        def work() -> None:
-            control = main._c
-            if control.IsMinimize() if hasattr(control, "IsMinimize") else False:
-                control.Restore()
-            control.SetActive()
-            control.SetTopmost(False)
-
+        handle = int(main._c.NativeWindowHandle)
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        if user32.IsIconic(handle):
+            user32.ShowWindow(handle, SW_RESTORE)
         with contextlib.suppress(Exception):
-            self._backend.run(work)
+            self._backend.run(lambda: main._c.SetActive())
         return None
 
     def _matches(self, name: str, role: str | None) -> list[Any]:
         main = self._main()
         if main is None:
             return []
-        q = name.strip().casefold()
+        q = " ".join(name.split()).casefold()
 
         def work() -> list[Any]:
             (root,) = self._backend.snapshot([main])
@@ -253,39 +281,48 @@ class RelayWindow:
         return list(self._backend.run(work))  # type: ignore[arg-type]
 
     def find(self, name: str, role: str | None = None) -> list[str]:
-        return [e.name for e in self._matches(name, role)]
+        return [e.name for e in self._matches(name, role) if e.rect is not None]
+
+    def _click(self, element: Any) -> None:
+        """A real left click in the middle of `element`, like the owner's."""
+        r = element.rect
+        if r is None:
+            raise LookupError(element.name)
+        auto = self._backend._auto
+        x, y = r.left + r.width // 2, r.top + r.height // 2
+        self._backend.run(lambda: auto.Click(x, y, waitTime=0.05))
 
     def press(self, name: str, role: str | None = None) -> str:
-        found = self._matches(name, role)
+        found = [e for e in self._matches(name, role) if e.rect is not None]
         if not found:
             raise LookupError(name)
-        element = found[0]
-
-        def work() -> None:
-            try:
-                element.invoke()
-            except Exception:
-                element._live()._c.Click(simulateMove=False)
-
-        self._backend.run(work)
-        return element.name
+        self._click(found[0])
+        return found[0].name
 
     def fill(self, name: str, text: str) -> None:
-        found = self._matches(name, "Edit")
+        found = [e for e in self._matches(name, "Edit") if e.rect is not None]
         if not found:
             raise LookupError(name)
-        element = found[0]
+        self._click(found[0])
         auto = self._backend._auto
 
         def work() -> None:
-            element._live()._c.SetFocus()
             auto.SendKeys("{Ctrl}a{Delete}", waitTime=0.05)
-            auto.SendKeys(text.replace("{", "{{}").replace("}", "{}}"), interval=0.005)
+            if text:
+                auto.SendKeys(text.replace("{", "{{}").replace("}", "{}}"), interval=0.002)
 
         self._backend.run(work)
 
     def key(self, keys: str) -> None:
         self._backend.run(lambda: self._backend._auto.SendKeys(keys, waitTime=0.1))
+
+    def value(self, name: str, role: str | None = None) -> str | None:
+        found = self._matches(name, role)
+        return found[0].value() if found else None
+
+    def toggled(self, name: str) -> bool | None:
+        states = [e.toggled() for e in self._matches(name, None)]
+        return next((s for s in states if s is not None), None)
 
     def dialog(self) -> str | None:
         main = self._main()
@@ -297,3 +334,62 @@ class RelayWindow:
             return (found[0].Name or "file dialog") if found else None
 
         return self._backend.run(work)  # type: ignore[return-value]
+
+    def restart(self) -> str | None:
+        main = self._main()
+        if main is None:
+            return "Relay's window is not open"
+        pid = int(main._c.ProcessId)
+        exe = _image_path(pid)
+        if not exe:
+            return "could not tell where relay.exe is"
+        subprocess.run(
+            ["taskkill", "/F", "/T", "/PID", str(pid)],
+            capture_output=True, creationflags=0x08000000, check=False,
+        )  # fmt: skip
+        time.sleep(1.5)
+        self._pids = set()
+        subprocess.Popen([exe], creationflags=0x00000008 | 0x00000200)  # detached
+        until = time.monotonic() + 60
+        while time.monotonic() < until:
+            time.sleep(0.5)
+            self._pids = set()
+            if self._main() is not None:
+                return self.ready()
+        return "Relay's window did not come back"
+
+    def size(self) -> tuple[int, int, bool]:
+        handle = self._handle()
+        if handle is None:
+            return (0, 0, False)
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        rect = _WinRect()
+        user32.GetWindowRect(handle, ctypes.byref(rect))
+        zoomed = bool(user32.IsZoomed(handle))
+        return (rect.right - rect.left, rect.bottom - rect.top, zoomed)
+
+    def resize(self, width: int, height: int, maximized: bool = False) -> None:
+        handle = self._handle()
+        if handle is None or width <= 0:
+            return
+        user32 = _user32()
+        user32.ShowWindow(handle, SW_RESTORE)
+        rect = _WinRect()
+        user32.GetWindowRect(handle, ctypes.byref(rect))
+        user32.MoveWindow(handle, rect.left, rect.top, width, height, True)
+        if maximized:
+            user32.ShowWindow(handle, SW_MAXIMIZE)
+
+    def inside(self, name: str, role: str | None = None) -> bool:
+        main = self._main()
+        found = [e for e in self._matches(name, role) if e.rect is not None]
+        if main is None or not found:
+            return False
+        r, w = found[0].rect, main.rect
+        return (
+            w is not None
+            and r.left >= w.left
+            and r.top >= w.top
+            and r.left + r.width <= w.left + w.width
+            and r.top + r.height <= w.top + w.height
+        )

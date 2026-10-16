@@ -74,8 +74,27 @@ class Scenario:
     cleanup_files: tuple[str, ...] = ()
 
 
+# The full run's areas, in the order they run and are shown (D-101).
+AREAS = ("Relay app", "Real-world tasks", "Claude and signed out", "System")
+
+
+def area_of(s: Scenario) -> str:
+    if s.kind == "app":
+        return AREAS[0]
+    if s.kind.startswith("claude") or s.offline:
+        return AREAS[2]
+    if s.kind in ("displays", "route"):
+        return AREAS[3]
+    return AREAS[1]
+
+
 def scenarios(stamp: str, site: str) -> list[Scenario]:
-    """The full run, in order. `stamp` makes the typed text unique to this run."""
+    """Everything, area by area: the app, real tasks, Claude, then the system checks."""
+    return sorted(_scenarios(stamp, site), key=lambda s: AREAS.index(area_of(s)))
+
+
+def _scenarios(stamp: str, site: str) -> list[Scenario]:
+    """Every scenario. `stamp` makes the typed text unique to this run."""
     note = f"Relay diagnostics {stamp}"
     query = f"relay diagnostics {stamp}"
     claude_note = f"Claude sent this {stamp}"
@@ -218,11 +237,13 @@ def scenarios(stamp: str, site: str) -> list[Scenario]:
             f"Open Notepad and type: {claude_note}",
             ({"uia_text": {"window": "Notepad", "contains": claude_note}},),
         ),
-        Scenario("app-settings", "Relay app: every Settings page", "app"),
-        Scenario("app-model-picker", "Relay app: model and effort picker", "app"),
-        Scenario("app-chat", "Relay app: new chat, reply, pin, rename, search, delete", "app"),
+        Scenario("app-navigation", "Relay app: sidebar, Back and Forward", "app"),
+        Scenario("app-settings", "Relay app: every Settings page and toggle", "app"),
+        Scenario("app-composer", "Relay app: composer, keys, long message, model picker", "app"),
+        Scenario("app-chats", "Relay app: chats survive a restart (pin, rename, delete)", "app"),
         Scenario("app-attach", "Relay app: attach opens a file picker", "app"),
         Scenario("app-stop", "Relay app: Stop ends an answer", "app"),
+        Scenario("app-small-window", "Relay app: a smaller window", "app"),
     ]
 
 
@@ -284,6 +305,7 @@ class Result:
     details: dict[str, Any] = field(default_factory=dict)
     screenshots: list[str] = field(default_factory=list)
     folder: str = ""
+    area: str = ""
 
     @property
     def passed(self) -> bool:
@@ -912,6 +934,7 @@ def run_all(
         finally:
             rec.close()
         result.folder = rec.folder.name
+        result.area = area_of(s)
         result.screenshots = rec.shots
         (rec.folder / "result.json").write_text(json.dumps(asdict(result), indent=2), "utf-8")
         results.append(result)
@@ -1090,6 +1113,11 @@ def summarize(
         "total": len(results),
         "ok": counts["failed"] == 0 and counts["passed"] > 0,
         "problems": problems,
+        "areas": [
+            {"area": a, **{k: sum(1 for r in mine if r.status == k) for k in counts}}
+            for a in AREAS
+            if (mine := [r for r in results if r.area == a])
+        ],
         "environment": dict(environment),
         "results": [asdict(r) for r in results],
     }
@@ -1126,7 +1154,15 @@ def report_html(summary: Mapping[str, Any]) -> str:
         f"in {summary['seconds']} s"
     )
     rows = []
+    area = None
     for r in summary["results"]:
+        if r.get("area") and r["area"] != area:
+            area = r["area"]
+            got = next((a for a in summary.get("areas", []) if a["area"] == area), {})
+            rows.append(
+                f"<h2 class=area>{e(area)} <small>{got.get('passed', 0)} passed, "
+                f"{got.get('failed', 0)} failed, {got.get('skipped', 0)} skipped</small></h2>"
+            )
         shots = "".join(
             f'<a href="{e(r["folder"])}/{e(x)}"><img src="{e(r["folder"])}/{e(x)}" '
             f'title="{e(x)}"></a>'
@@ -1151,6 +1187,7 @@ section{{border:1px solid #8884;border-radius:12px;padding:12px 18px;margin:14px
 h2{{font-size:17px;margin:4px 0}}h2 span{{font-size:13px;padding:2px 8px;border-radius:8px}}
 .passed h2 span{{background:#2a7a3a;color:#fff}}.failed h2 span{{background:#b3261e;color:#fff}}
 .skipped h2 span{{background:#777;color:#fff}}.meta{{color:#888}}pre{{white-space:pre-wrap}}
+h2.area{{font-size:20px;margin-top:28px}}h2.area small{{font-size:13px;color:#888}}
 .shots img{{height:120px;margin:4px;border:1px solid #8884;border-radius:6px}}
 </style></head><body><h1>Relay diagnostics</h1><p>{e(head)}</p>
 <pre>{e(json.dumps(summary.get("overview", {}), indent=2))}</pre>
@@ -1184,15 +1221,16 @@ class ServiceLink:
 
     name = "service"
 
-    def __init__(self, port: int, token: str) -> None:
+    def __init__(self, port: int, token: str, home: Path | None = None) -> None:
         self.port = port
         self.token = token
+        self.home = home  # re-read before each task: the app tests restart Relay
 
     @classmethod
     def find(cls, home: Path) -> ServiceLink | None:
         try:
             info = json.loads(record_path(home).read_text("utf-8"))
-            link = cls(int(info["port"]), str(info["token"]))
+            link = cls(int(info["port"]), str(info["token"]), home)
         except (OSError, ValueError, KeyError, TypeError):
             return None
         try:
@@ -1210,6 +1248,8 @@ class ServiceLink:
     def run(
         self, task: str, on_event: Event, *, offline: bool, max_steps: int, answer: str = ANSWER
     ) -> None:
+        if self.home is not None and (fresh := ServiceLink.find(self.home)) is not None:
+            self.port, self.token = fresh.port, fresh.token
         command = {"op": "task", "text": task, "source": "diagnostics", "offline": offline}
         command["max_steps"] = max_steps
         with self._send(command) as conn, conn.makefile("rb") as stream:

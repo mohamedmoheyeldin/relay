@@ -2,73 +2,110 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 from relay_screen.diagnostics import app
 from relay_screen.diagnostics import run as diag
 
 from .test_diagnostics import FakeClaude, FakeLink, tools
 
+PICKS = {
+    "DefaultClaude Code's choice": ("model", ""),
+    "OpusMost capable": ("model", "opus"),
+    "SonnetFast and smart": ("model", "sonnet"),
+    "Default": ("effort", ""),
+    "Low": ("effort", "low"),
+    "High": ("effort", "high"),
+}
+REPLIES = {app.QUESTION: "42", app.SECOND: "blue", app.LONG_MESSAGE: "OK"}
+
 
 class FakeRelay:
-    """Relay's window as a list of (role, name): enough of the app to run the scripts."""
+    """Enough of Relay's window to run the scripts: a list of (role, name) per state.
+    `double_delete` is the owner's bug: Delete needs a second click."""
 
-    def __init__(self, settings: Path, *, picker_works: bool = True) -> None:
+    def __init__(self, settings: Path, *, picker_works=True, double_delete=False) -> None:
         self.settings = settings
         self.picker_works = picker_works
-        self.page = "chat"
+        self.double_delete = double_delete
+        self.deletes = 0
+        self.saved: list[dict[str, Any]] = []  # chats on disk: kept across restarts
+        self.restarts = 0
+        self._fresh()
+
+    def _fresh(self) -> None:
+        self.history: list[tuple[str, dict[str, Any] | None]] = [("chat", None)]
+        self.at = 0
+        self.page = "General"
+        self.sidebar = True
         self.menu: str | None = None
-        self.chats: list[dict[str, object]] = []
         self.searching: str | None = None
-        self.renaming = False
+        self.renaming: dict[str, Any] | None = None
         self.dialog_open = False
         self.busy = False
-        self.focused = ""
-        self.typed: dict[str, str] = {}
+        self.message = ""
+        self.focus = ""
+        self.window = (1600, 1000, True)
 
-    def _save(self, key: str, value: str) -> None:
-        data = json.loads(self.settings.read_text())
-        data["claude"][key] = value
+    # -- state ----------------------------------------------------------------------
+
+    @property
+    def view(self) -> str:
+        return self.history[self.at][0]
+
+    @property
+    def chat(self) -> dict[str, Any] | None:
+        return self.history[self.at][1]
+
+    def go(self, view: str, chat: dict[str, Any] | None = None) -> None:
+        self.history = [*self.history[: self.at + 1], (view, chat)]
+        self.at += 1
+
+    def data(self) -> dict[str, Any]:
+        return json.loads(self.settings.read_text())
+
+    def put(self, section: str, key: str, value: Any) -> None:
+        data = self.data()
+        data.setdefault(section, {})[key] = value
         self.settings.write_text(json.dumps(data))
 
     def elements(self) -> list[tuple[str, str]]:
-        found = [("Button", "New chat"), ("Button", "Settings")]
-        if self.searching is None:
-            found.append(("Button", "Search"))
+        found: list[tuple[str, str]] = []
+        if not self.sidebar:
+            found += [("Button", "Open sidebar"), ("Button", "New chat"), ("Button", "Settings")]
         else:
-            found += [("Edit", "Search chats"), ("Button", "Close search")]
-        shown = [
-            c
-            for c in self.chats
-            if self.searching in (None, "") or self.searching in str(c["title"])
-        ]
-        if any(c["pinned"] for c in self.chats):
-            found.append(("Text", "Pinned"))
-        found += [("Button", f"Options for {c['title']}") for c in shown]
-        if self.renaming:
-            found.append(("Edit", "Chat name"))
-        if self.page == "settings":
+            found += [("Button", "Close sidebar"), ("Button", "Back"), ("Button", "Forward")]
+            found += [("Button", "New chat"), ("Button", "Settings")]
+            if self.searching is None:
+                found.append(("Button", "Search"))
+            else:
+                found += [("Edit", "Search chats"), ("Button", "Close search")]
+            shown = [c for c in self.saved if not self.searching or self.searching in c["title"]]
+            if any(c["pinned"] for c in self.saved):
+                found.append(("Text", "Pinned"))
+            for c in shown:
+                found += [("Button", c["title"]), ("Button", f"Options for {c['title']}")]
+            if self.renaming:
+                found.append(("Edit", "Chat name"))
+        if self.view == "settings":
             found += [("Button", label) for label, _ in app.PAGES]
-            found.append(("Text", self.settings_words))
+            found.append(("Text", dict(app.PAGES)[self.page]))
+            found += [("CheckBox", toggle) for page, toggle, _ in app.TOGGLES if page == self.page]
         else:
-            found += [
-                ("Edit", "Message"),
-                ("Button", "Model and effort"),
-                ("Button", "Attach files"),
-            ]
+            found += [("Edit", "Message"), ("Button", "Model and effort")]
+            found += [("Button", "Attach files")]
             found.append(("Button", "Stop") if self.busy else ("Button", "Send"))
-            if any(c.get("reply") for c in self.chats):
-                found.append(("Text", "42"))
+            if self.chat and self.chat.get("reply"):
+                found.append(("Text", self.chat["reply"]))
         if self.menu == "picker":
-            found += [("MenuItem", "DefaultClaude Code's choice"), ("MenuItem", "OpusMost capable")]
-            found += [("MenuItem", "SonnetFast and smart"), ("MenuItem", "Default")]
-            found += [("MenuItem", "Low"), ("MenuItem", "High")]
+            found += [("MenuItem", name) for name in PICKS]
         elif self.menu:
-            chat = next(c for c in self.chats if c["title"] == self.menu)
+            chat = next(c for c in self.saved if c["title"] == self.menu)
             found += [("MenuItem", "Unpin" if chat["pinned"] else "Pin")]
             found += [("MenuItem", "Rename"), ("MenuItem", "Delete")]
         return found
 
-    settings_words = app.PAGES[0][1]
+    # -- AppUi ------------------------------------------------------------------------
 
     def ready(self) -> str | None:
         return None
@@ -88,36 +125,41 @@ class FakeRelay:
             raise LookupError(name)
         hit = hits[0]
         menu, self.menu = self.menu, None
+        toggles = {toggle: path for _, toggle, path in app.TOGGLES}
+        titles = {c["title"]: c for c in self.saved}
         if hit == "New chat":
-            self.page = "chat"
+            self.go("chat")
+        elif hit in ("Close sidebar", "Open sidebar"):
+            self.sidebar = hit == "Open sidebar"
         elif hit == "Settings":
-            self.page = "settings"
-        elif self.page == "settings" and any(hit == label for label, _ in app.PAGES):
-            self.settings_words = dict(app.PAGES)[hit]
+            self.go("settings")
+        elif hit == "Back" and self.at > 0:
+            self.at -= 1
+        elif hit == "Forward" and self.at < len(self.history) - 1:
+            self.at += 1
+        elif self.view == "settings" and hit in dict(app.PAGES):
+            self.page = hit
+        elif hit in toggles:
+            section, key = toggles[hit]
+            self.put(section, key, not self.data().get(section, {}).get(key, False))
         elif hit == "Model and effort":
             self.menu = "picker" if self.picker_works else None
         elif menu == "picker":
-            values = {
-                "DefaultClaude Code's choice": ("model", ""),
-                "SonnetFast and smart": ("model", "sonnet"),
-            }
-            values |= {"OpusMost capable": ("model", "opus"), "Default": ("effort", "")}
-            values |= {"Low": ("effort", "low"), "High": ("effort", "high")}
-            self._save(*values[hit])
+            self.put("claude", *PICKS[hit])
         elif hit.startswith("Options for "):
             self.menu = hit.removeprefix("Options for ")
         elif menu and hit in ("Pin", "Unpin", "Rename", "Delete"):
-            chat = next(c for c in self.chats if c["title"] == menu)
+            chat = titles[menu]
             if hit == "Delete":
-                self.chats.remove(chat)
+                self.deletes += 1
+                if not self.double_delete or self.deletes % 2 == 0:
+                    self.saved.remove(chat)
             elif hit == "Rename":
-                self.renaming, self.editing = True, chat
+                self.renaming = chat
             else:
                 chat["pinned"] = hit == "Pin"
-        elif hit == "Send":
-            text = self.typed.get("Message", "")
-            self.chats.append({"title": text[:60], "pinned": False, "reply": text == app.QUESTION})
-            self.busy = text == app.LONG_ASK
+        elif hit in titles:
+            self.go("chat", titles[hit])
         elif hit == "Stop":
             self.busy = False
         elif hit == "Search":
@@ -131,27 +173,70 @@ class FakeRelay:
     def fill(self, name: str, text: str) -> None:
         if not self.find(name, "Edit"):
             raise LookupError(name)
-        self.focused = name
-        self.typed[name] = text
-        if name == "Search chats":
+        self.focus = name
+        if name == "Message":
+            self.message = text
+        elif name == "Search chats":
             self.searching = text
+        elif name == "Chat name" and self.renaming:
+            self.renaming["new"] = text
 
     def key(self, keys: str) -> None:
         if keys == "{Esc}":
             self.dialog_open = False
             self.menu = None
-        if keys == "{Enter}" and self.renaming:
-            self.editing["title"] = self.typed["Chat name"]
-            self.renaming = False
+        elif keys == "{Enter}" and self.renaming:
+            self.renaming["title"] = self.renaming.pop("new", self.renaming["title"])
+            self.renaming = None
+        elif keys == "{Enter}" and self.focus == "Message" and self.message.strip():
+            reply = REPLIES.get(self.message)
+            chat = {"title": self.message[:60], "pinned": False, "reply": reply}
+            self.saved.append(chat)
+            self.history[self.at] = ("chat", chat)
+            self.busy = self.message == app.LONG_ASK
+            self.message = ""
+        elif keys == "{Shift}{Enter}":
+            self.message += "\n"
+        elif not keys.startswith("{"):
+            self.message += keys
+
+    def value(self, name: str, role: str | None = None) -> str | None:
+        return self.message if name == "Message" else None
+
+    def toggled(self, name: str) -> bool | None:
+        path = next((p for _, toggle, p in app.TOGGLES if toggle == name), None)
+        return bool(self.data().get(path[0], {}).get(path[1])) if path else None
 
     def dialog(self) -> str | None:
         return "Open" if self.dialog_open else None
 
+    def restart(self) -> str | None:
+        self.restarts += 1
+        self._fresh()
+        return None
 
-def app_tools(tmp_path: Path, **kw: object) -> tuple[diag.Tools, FakeRelay, Path]:
+    def size(self) -> tuple[int, int, bool]:
+        return self.window
+
+    def resize(self, width: int, height: int, maximized: bool = False) -> None:
+        self.window = (width, height, maximized)
+
+    def inside(self, name: str, role: str | None = None) -> bool:
+        return bool(self.find(name, role))
+
+
+START = {
+    "claude": {"model": "opus", "effort": ""},
+    "general": {"start_at_login": True},
+    "safety": {"phone_approvals": False},
+    "updates": {"check_on_start": True},
+}
+
+
+def app_tools(tmp_path: Path, **kw: Any) -> tuple[diag.Tools, FakeRelay, Path]:
     settings = tmp_path / "settings.json"
-    settings.write_text(json.dumps({"claude": {"model": "opus", "effort": ""}}))
-    relay = FakeRelay(settings, **kw)  # type: ignore[arg-type]
+    settings.write_text(json.dumps(START))
+    relay = FakeRelay(settings, **kw)
     t = tools(FakeLink(), claude=FakeClaude())
     t.app, t.settings_file, t.stamp = relay, settings, "123456"
     return t, relay, settings
@@ -163,27 +248,42 @@ def run(t: diag.Tools, ids: list[str], tmp_path: Path) -> dict[str, diag.Result]
     return {r.id: r for r in results}
 
 
+APP = [s.id for s in diag.scenarios("1", "http://x") if s.kind == "app"]
+
+
 def test_app_scripts_pass_on_a_working_app(tmp_path: Path) -> None:
     t, relay, settings = app_tools(tmp_path)
-    ids = ["app-settings", "app-model-picker", "app-chat", "app-attach", "app-stop"]
-    results = run(t, ids, tmp_path)
+    results = run(t, APP, tmp_path)
+    assert list(results) == APP and len(APP) == len(app.SCRIPTS)
     for r in results.values():
+        assert r.area == "Relay app"
         assert r.status == "passed", (r.id, r.failed_checks)
-        assert r.details["checks"]
-    # The picker was put back, the test chats are gone and Relay is on Settings.
-    assert json.loads(settings.read_text())["claude"] == {"model": "opus", "effort": ""}
-    assert relay.chats == []
-    assert relay.page == "settings" and relay.settings_words == dict(app.PAGES)["Developer"]
+    checks = [c for r in results.values() for c in r.details["checks"]]
+    assert len(checks) > 60
+    assert all("ms" in c for c in checks if "one click" in c["what"])
+    # Settings are as they were, the test chats are gone, Relay restarted twice and
+    # ended on Settings > Developer.
+    assert json.loads(settings.read_text()) == START
+    assert relay.saved == [] and relay.restarts == 2
+    assert relay.view == "settings" and relay.page == "Developer"
+    assert relay.window == (1600, 1000, True)
+
+
+def test_a_delete_that_needs_two_clicks_fails(tmp_path: Path) -> None:
+    t, _, _ = app_tools(tmp_path, double_delete=True)
+    result = run(t, ["app-chats"], tmp_path)["app-chats"]
+    assert result.status == "failed"
+    assert any(c.startswith("Delete removes") for c in result.failed_checks)
 
 
 def test_a_picker_that_does_not_open_fails(tmp_path: Path) -> None:
     t, _, _ = app_tools(tmp_path, picker_works=False)
-    result = run(t, ["app-model-picker"], tmp_path)["app-model-picker"]
+    result = run(t, ["app-composer"], tmp_path)["app-composer"]
     assert result.status == "failed"
-    assert "the model and effort menu opens" in result.failed_checks
+    assert "The model and effort menu opens on one click" in result.failed_checks
 
 
 def test_app_tests_skip_without_the_window(tmp_path: Path) -> None:
     t, _, _ = app_tools(tmp_path)
     t.app = None
-    assert run(t, ["app-chat"], tmp_path)["app-chat"].status == "skipped"
+    assert run(t, ["app-chats"], tmp_path)["app-chats"].status == "skipped"
