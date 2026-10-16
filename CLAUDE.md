@@ -6,7 +6,7 @@ non-obvious choice is in `docs/decisions.md` (append-only, D-0xx).
 
 ## Conventions
 - The owner's local checkout lives at `C:\Projects\relay` (all their projects are under `C:\Projects`).
-- Branches: work on a feature branch, PR into `dev`, then `dev` into `main`. Claude opens PRs ready for review (not drafts) and merges them itself once the local checks pass, `dev` and `main` alike, closing linked issues (owner request, D-031, D-050).
+- Branches: commit straight to `dev` for almost everything (owner, 2026-10-16: no separate feature branches), run the local checks, then merge `dev` into `main` with a ready PR that Claude merges itself, closing linked issues (D-031, D-050). GitHub deletes `dev` on that merge, so recreate it from `main` right after.
 - No GitHub Actions: tests and checks run locally only. `uv run python scripts/check.py` (ruff, format, pyright, pytest) must pass before every push and merge (D-050). `--report` also posts the `local-checks` commit status that the `dev`/`main` ruleset requires, so "Auto-merge when ready" merges once it reports success (D-051). Checks that open windows on the owner's PC run only when they ask (D-049).
 - The app (Tauri + React) uses pnpm, never npm or yarn (D-050).
 - Small commits with clear messages. Add a `docs/session-log.md` entry at the end of a working session.

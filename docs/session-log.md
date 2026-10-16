@@ -2,6 +2,11 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
+## 2026-10-16 · Dependabot alerts, issue cleanup, work on dev
+- `postcss-selector-parser` (via `@tailwindcss/typography` 0.5.20, the latest, which pins 6.0.10) is forced to 7.1.6 with a pnpm override in `relay-ui/package.json`. The built CSS is byte-identical.
+- `glib` 0.18.5 in `Cargo.lock` comes only from Tauri's Linux GTK stack (`cargo tree -i glib --target x86_64-pc-windows-msvc` is empty), so Windows builds never compile it. No upgrade exists until Tauri moves to gtk-rs 0.20+; the alert needs dismissing as "vulnerable code is not actually used" (a cloud session gets 403 on the Dependabot API).
+- Owner rule: commit straight to `dev` for almost everything (no feature branches), run the checks, then merge `dev` into `main` and recreate `dev` from `main`.
+
 ## 2026-10-16 · Operator service and Holo3.1-9B (D-086..D-088)
 - Owner: one complete app, not pieces; at most 2-3 local AIs for the screen; no permissions or setup; Claude only for heavy thinking. They then chose "Full rebuild" on the redesign card (D-088).
 - Plan for the complete version: [complete-plan.md](complete-plan.md). Split agreed with the app thread through the coordinator: it builds the pill overlay, the zero-setup app and the one installer; this thread builds the operator, the models and the event interface.
