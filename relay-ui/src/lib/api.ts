@@ -4,402 +4,311 @@ import { invoke } from "@tauri-apps/api/core";
 export type CloseAction = "ask" | "tray" | "quit";
 
 export interface ActiveModel {
-  model_id: string;
-  quant: string;
+    model_id: string;
+    quant: string;
 }
 
 export interface PausedServer {
-  name: string;
-  config: unknown;
+    name: string;
+    config: unknown;
 }
 
 export interface Settings {
-  general: {
-    start_at_login: boolean;
-    close_action: CloseAction;
-    language: string;
-  };
-  claude: { model: string; effort: string };
-  local_ai: {
-    grounding: ActiveModel | null;
-    describe: ActiveModel | null;
-    /** The local operator for tasks Claude can't run (D-067); null picks one. */
-    agent: { model_id: string } | null;
-    idle_unload_secs: number;
-    models_dir: string | null;
-  };
-  connections: {
-    paused: PausedServer[];
-    secret_names: Record<string, string[]>;
-  };
-  browser: { preferred: string; lane_enabled: boolean; use_own: boolean };
-  safety: {
-    approval_mode: string;
-    always_ask: string[];
-    phone_approvals: boolean;
-    ntfy_topic: string;
-  };
-  privacy: { runs_dir: string | null; retention_days: number };
-  updates: { check_on_start: boolean };
-  setup: { completed: boolean };
+    general: { start_at_login: boolean; close_action: CloseAction; language: string };
+    claude: { model: string; effort: string };
+    local_ai: {
+        grounding: ActiveModel | null;
+        describe: ActiveModel | null;
+        /** The local operator for tasks Claude can't run (D-067); null picks one. */
+        agent: { model_id: string } | null;
+        idle_unload_secs: number;
+        models_dir: string | null;
+    };
+    connections: { paused: PausedServer[]; secret_names: Record<string, string[]> };
+    browser: { preferred: string; lane_enabled: boolean; use_own: boolean };
+    safety: { approval_mode: string; always_ask: string[]; phone_approvals: boolean; ntfy_topic: string };
+    privacy: { runs_dir: string | null; retention_days: number };
+    updates: { check_on_start: boolean };
+    setup: { completed: boolean };
 }
 
 export interface AppInfo {
-  version: string;
-  os: string;
-  settings_file: string;
-  config_dir: string;
-  data_dir: string;
-  logs_dir: string;
-  playbooks_dir: string;
-  default_models_dir: string;
-  default_runs_dir: string;
-  python: string | null;
-  python_present: boolean;
+    version: string;
+    os: string;
+    settings_file: string;
+    config_dir: string;
+    data_dir: string;
+    logs_dir: string;
+    playbooks_dir: string;
+    default_models_dir: string;
+    default_runs_dir: string;
+    python: string | null;
+    python_present: boolean;
 }
 
 export interface ClaudeState {
-  installed: boolean;
-  path: string | null;
-  version: string | null;
-  auth: {
-    loggedIn: boolean;
-    authMethod?: string | null;
-    email?: string | null;
-    subscriptionType?: string | null;
-  };
+    installed: boolean;
+    path: string | null;
+    version: string | null;
+    auth: { loggedIn: boolean; authMethod?: string | null; email?: string | null; subscriptionType?: string | null };
 }
 
 export interface Gpu {
-  name: string;
-  vram_total_mb: number;
-  vram_free_mb: number;
-  driver: string;
+    name: string;
+    vram_total_mb: number;
+    vram_free_mb: number;
+    driver: string;
 }
 
 export type Fit = "fits" | "tight" | "wont_fit" | "no_gpu";
 
 export interface QuantView {
-  quant: string;
-  download_bytes: number;
-  vram_bytes: number;
-  fit: Fit;
+    quant: string;
+    download_bytes: number;
+    vram_bytes: number;
+    fit: Fit;
 }
 
 /** A model in relay-screen's store (installed.json). */
 export interface InstalledModel {
-  id: string;
-  repo: string;
-  revision: string;
-  quant: string;
-  size: number;
-  ready: boolean;
+    id: string;
+    repo: string;
+    revision: string;
+    quant: string;
+    size: number;
+    ready: boolean;
 }
 
 export interface ModelView {
-  id: string;
-  name: string;
-  role: "grounding" | "describe" | "both";
-  summary: string;
-  license: string;
-  /** Hugging Face repo relay-screen downloads from; null until a trusted one is picked. */
-  source: string | null;
-  default_quant: string;
-  quants: QuantView[];
-  installed: InstalledModel | null;
-  recommended_quant: string | null;
-  active_as: string[];
-  benchmark: { score: number; latency_ms: number } | null;
+    id: string;
+    name: string;
+    role: "grounding" | "describe" | "both";
+    summary: string;
+    license: string;
+    /** Hugging Face repo relay-screen downloads from; null until a trusted one is picked. */
+    source: string | null;
+    default_quant: string;
+    quants: QuantView[];
+    installed: InstalledModel | null;
+    recommended_quant: string | null;
+    active_as: string[];
+    benchmark: { score: number; latency_ms: number } | null;
 }
 
 export interface CustomView {
-  model: InstalledModel;
-  fit: Fit;
-  active_as: string[];
+    model: InstalledModel;
+    fit: Fit;
+    active_as: string[];
 }
 
 export interface LocalAiState {
-  gpu: Gpu | null;
-  recommendation: {
-    picks: { model_id: string; quant: string; role: string }[];
-    reason: string;
-  };
-  models: ModelView[];
-  custom: CustomView[];
-  grounding: ActiveModel | null;
-  describe: ActiveModel | null;
-  runtime: { tag: string; cuda: string; server: string } | null;
-  error: string | null;
-  models_dir: string;
-  models_dir_bytes: number;
-  idle_unload_secs: number;
+    gpu: Gpu | null;
+    recommendation: { picks: { model_id: string; quant: string; role: string }[]; reason: string };
+    models: ModelView[];
+    custom: CustomView[];
+    grounding: ActiveModel | null;
+    describe: ActiveModel | null;
+    runtime: { tag: string; cuda: string; server: string } | null;
+    error: string | null;
+    models_dir: string;
+    models_dir_bytes: number;
+    idle_unload_secs: number;
 }
 
 export type McpKind = "builtin" | "claude_ai" | "plugin" | "local";
-export type McpStatus =
-  | "connected"
-  | "needs_auth"
-  | "failed"
-  | "disabled"
-  | "not_configured"
-  | "paused"
-  | "unknown";
+export type McpStatus = "connected" | "needs_auth" | "failed" | "disabled" | "not_configured" | "paused" | "unknown";
 
 export interface McpEntry {
-  name: string;
-  kind: McpKind;
-  target: string;
-  transport: string;
-  status: McpStatus;
-  status_text: string;
-  /** For plugin servers: the plugin that brings them, e.g. "productivity@synced". */
-  plugin: string | null;
+    name: string;
+    kind: McpKind;
+    target: string;
+    transport: string;
+    status: McpStatus;
+    status_text: string;
+    /** For plugin servers: the plugin that brings them, e.g. "productivity@synced". */
+    plugin: string | null;
 }
 
 export interface Plugin {
-  id: string;
-  version: string | null;
-  scope: string | null;
-  enabled: boolean;
+    id: string;
+    version: string | null;
+    scope: string | null;
+    enabled: boolean;
 }
 
 export interface BrowserInfo {
-  name: string;
-  path: string;
-  chromium: boolean;
+    name: string;
+    path: string;
+    chromium: boolean;
 }
 
 export interface CatalogServer {
-  id: string;
-  name: string;
-  description: string;
-  transport: string;
-  command: string;
-  args: string[];
-  url: string;
-  secret_env: string[];
+    id: string;
+    name: string;
+    description: string;
+    transport: string;
+    command: string;
+    args: string[];
+    url: string;
+    secret_env: string[];
 }
 
 export type ServerSpec =
-  | {
-      transport: "stdio";
-      name: string;
-      command: string;
-      args: string[];
-      env: Record<string, string>;
-    }
-  | {
-      transport: "http" | "sse";
-      name: string;
-      url: string;
-      headers: Record<string, string>;
-    };
+    | { transport: "stdio"; name: string; command: string; args: string[]; env: Record<string, string> }
+    | { transport: "http" | "sse"; name: string; url: string; headers: Record<string, string> };
 
 export type ChatEvent =
-  | {
-      type: "started";
-      session_id: string;
-      model: string;
-      mcp_servers: string[];
-    }
-  | { type: "text"; text: string }
-  | { type: "text_delta"; text: string }
-  | { type: "tool_use"; id: string; name: string; input: string }
-  | {
-      type: "tool_result";
-      tool_use_id: string;
-      is_error: boolean;
-      text: string;
-      image: string | null;
-    }
-  | {
-      type: "done";
-      is_error: boolean;
-      result: string;
-      cost_usd: number | null;
-      duration_ms: number | null;
-    }
-  | { type: "error"; message: string }
-  | { type: "fallback"; reason: string }
-  | { type: "local_note"; text: string }
-  | {
-      type: "local_step";
-      step: number;
-      thought: string;
-      action: string;
-      result: string;
-    }
-  | {
-      type: "local_plan";
-      goal: string;
-      app: string;
-      steps: string[];
-      done_when: string;
-    }
-  | { type: "local_question"; text: string; default: string };
+    | { type: "started"; session_id: string; model: string; mcp_servers: string[] }
+    | { type: "text"; text: string }
+    | { type: "text_delta"; text: string }
+    | { type: "tool_use"; id: string; name: string; input: string }
+    | { type: "tool_result"; tool_use_id: string; is_error: boolean; text: string; image: string | null }
+    | { type: "done"; is_error: boolean; result: string; cost_usd: number | null; duration_ms: number | null }
+    | { type: "error"; message: string }
+    | { type: "fallback"; reason: string }
+    | { type: "local_note"; text: string }
+    | { type: "local_step"; step: number; thought: string; action: string; result: string }
+    | { type: "local_plan"; goal: string; app: string; steps: string[]; done_when: string }
+    | { type: "local_question"; text: string; default: string };
 
 /** An approval relay-screen asks for in Relay's window. */
 export interface Approval {
-  id: number;
-  title: string;
-  detail: string;
-  step: number | null;
-  total: number | null;
-  image: string | null;
-  timeout: number;
-  approve_label: string;
-  allow_batch: boolean;
-  batch_label: string;
+    id: number;
+    title: string;
+    detail: string;
+    step: number | null;
+    total: number | null;
+    image: string | null;
+    timeout: number;
+    approve_label: string;
+    allow_batch: boolean;
+    batch_label: string;
 }
 
 export interface Check {
-  name: string;
-  ok: boolean;
-  detail: string;
+    name: string;
+    ok: boolean;
+    detail: string;
 }
 
 export interface UpdateInfo {
-  current: string;
-  latest: string;
-  available: boolean;
-  notes: string;
-  url: string;
-  asset_name: string;
-  asset_url: string;
-  asset_size: number;
+    current: string;
+    latest: string;
+    available: boolean;
+    notes: string;
+    url: string;
+    asset_name: string;
+    asset_url: string;
+    asset_size: number;
 }
 
 export interface Playbook {
-  name: string;
-  path: string;
-  bytes: number;
-  modified: number;
+    name: string;
+    path: string;
+    bytes: number;
+    modified: number;
 }
 
 /** A saved conversation in the sidebar (relay-core chats.rs). */
-export type ChatSummary = {
-  id: string;
-  title: string;
-  updated: number;
-  pinned: boolean;
-};
-export type SavedChat = ChatSummary & {
-  session: string | null;
-  items: unknown;
-};
+export type ChatSummary = { id: string; title: string; updated: number; pinned: boolean };
+export type SavedChat = ChatSummary & { session: string | null; items: unknown };
 
 export const api = {
-  appInfo: () => invoke<AppInfo>("app_info"),
-  getSettings: () => invoke<Settings>("get_settings"),
-  saveSettings: (settings: Settings) =>
-    invoke<Settings>("save_settings", { settings }),
-  closeChoice: (action: "tray" | "quit", remember: boolean) =>
-    invoke<void>("close_choice", { action, remember }),
-  quit: () => invoke<void>("quit_app"),
-  openPath: (path: string) => invoke<void>("open_path", { path }),
-  cancelJob: (job: string) => invoke<void>("job_cancel", { job }),
-  runningJobs: () => invoke<string[]>("jobs_running"),
-  setupComplete: () => invoke<Settings>("setup_complete"),
+    appInfo: () => invoke<AppInfo>("app_info"),
+    getSettings: () => invoke<Settings>("get_settings"),
+    saveSettings: (settings: Settings) => invoke<Settings>("save_settings", { settings }),
+    closeChoice: (action: "tray" | "quit", remember: boolean) => invoke<void>("close_choice", { action, remember }),
+    quit: () => invoke<void>("quit_app"),
+    openPath: (path: string) => invoke<void>("open_path", { path }),
+    cancelJob: (job: string) => invoke<void>("job_cancel", { job }),
+    runningJobs: () => invoke<string[]>("jobs_running"),
+    setupComplete: () => invoke<Settings>("setup_complete"),
 
-  claudeState: () => invoke<ClaudeState>("claude_state"),
-  claudeInstall: () => invoke<void>("claude_install"),
-  claudeUpdate: () => invoke<void>("claude_update"),
-  claudeVerify: () => invoke<string>("claude_verify"),
-  ptyStart: (kind: "login" | "login-console", cols: number, rows: number) =>
-    invoke<number>("pty_start", { kind, cols, rows }),
-  ptyWrite: (data: string) => invoke<void>("pty_write", { data }),
-  ptyResize: (cols: number, rows: number) =>
-    invoke<void>("pty_resize", { cols, rows }),
-  ptyKill: (id: number) => invoke<void>("pty_kill", { id }),
+    claudeState: () => invoke<ClaudeState>("claude_state"),
+    claudeInstall: () => invoke<void>("claude_install"),
+    claudeUpdate: () => invoke<void>("claude_update"),
+    claudeVerify: () => invoke<string>("claude_verify"),
+    ptyStart: (kind: "login" | "login-console", cols: number, rows: number) => invoke<number>("pty_start", { kind, cols, rows }),
+    ptyWrite: (data: string) => invoke<void>("pty_write", { data }),
+    ptyResize: (cols: number, rows: number) => invoke<void>("pty_resize", { cols, rows }),
+    ptyKill: (id: number) => invoke<void>("pty_kill", { id }),
 
-  localAi: () => invoke<LocalAiState>("local_ai_state"),
-  runtimeInstall: () => invoke<void>("runtime_install"),
-  modelInstall: (modelId: string, quant: string) =>
-    invoke<void>("model_install", { modelId, quant }),
-  modelActivate: (role: string, modelId: string) =>
-    invoke<Settings>("model_activate", { role, modelId }),
-  modelDelete: (modelId: string) =>
-    invoke<Settings>("model_delete", { modelId }),
-  customAdd: (repo: string, quant: string) =>
-    invoke<void>("custom_add", { repo, quant }),
+    localAi: () => invoke<LocalAiState>("local_ai_state"),
+    runtimeInstall: () => invoke<void>("runtime_install"),
+    modelInstall: (modelId: string, quant: string) => invoke<void>("model_install", { modelId, quant }),
+    modelActivate: (role: string, modelId: string) => invoke<Settings>("model_activate", { role, modelId }),
+    modelDelete: (modelId: string) => invoke<Settings>("model_delete", { modelId }),
+    customAdd: (repo: string, quant: string) => invoke<void>("custom_add", { repo, quant }),
 
-  mcpList: () => invoke<McpEntry[]>("mcp_list"),
-  mcpGet: (name: string) => invoke<string>("mcp_get", { name }),
-  mcpCatalog: () => invoke<CatalogServer[]>("mcp_catalog"),
-  mcpAdd: (spec: ServerSpec, secrets: { key: string; value: string }[]) =>
-    invoke<void>("mcp_add", { spec, secrets }),
-  mcpRemove: (name: string) => invoke<void>("mcp_remove", { name }),
-  mcpPause: (name: string) => invoke<void>("mcp_pause", { name }),
-  mcpResume: (name: string) => invoke<void>("mcp_resume", { name }),
-  mcpLogin: (name: string) => invoke<void>("mcp_login", { name }),
-  mcpLogout: (name: string) => invoke<void>("mcp_logout", { name }),
-  plugins: () => invoke<Plugin[]>("plugins_list"),
-  pluginSetEnabled: (id: string, enabled: boolean) =>
-    invoke<void>("plugin_set_enabled", { id, enabled }),
+    mcpList: () => invoke<McpEntry[]>("mcp_list"),
+    mcpGet: (name: string) => invoke<string>("mcp_get", { name }),
+    mcpCatalog: () => invoke<CatalogServer[]>("mcp_catalog"),
+    mcpAdd: (spec: ServerSpec, secrets: { key: string; value: string }[]) => invoke<void>("mcp_add", { spec, secrets }),
+    mcpRemove: (name: string) => invoke<void>("mcp_remove", { name }),
+    mcpPause: (name: string) => invoke<void>("mcp_pause", { name }),
+    mcpResume: (name: string) => invoke<void>("mcp_resume", { name }),
+    mcpLogin: (name: string) => invoke<void>("mcp_login", { name }),
+    mcpLogout: (name: string) => invoke<void>("mcp_logout", { name }),
+    plugins: () => invoke<Plugin[]>("plugins_list"),
+    pluginSetEnabled: (id: string, enabled: boolean) => invoke<void>("plugin_set_enabled", { id, enabled }),
 
-  chatSend: (prompt: string) => invoke<void>("chat_send", { prompt }),
-  chatStop: () => invoke<void>("chat_stop"),
-  chatSay: (text: string) => invoke<void>("chat_say", { text }),
-  chatNew: () => invoke<void>("chat_new"),
-  chatsList: () => invoke<ChatSummary[]>("chats_list"),
-  chatOpen: (id: string) => invoke<SavedChat>("chat_open", { id }),
-  chatSave: (id: string, title: string, items: unknown) =>
-    invoke<ChatSummary>("chat_save", { id, title, items }),
-  chatDelete: (id: string) => invoke<void>("chat_delete", { id }),
-  chatRename: (id: string, title: string) =>
-    invoke<ChatSummary>("chat_rename", { id, title }),
-  chatPin: (id: string, pinned: boolean) =>
-    invoke<ChatSummary>("chat_pin", { id, pinned }),
+    chatSend: (prompt: string) => invoke<void>("chat_send", { prompt }),
+    chatStop: () => invoke<void>("chat_stop"),
+    chatSay: (text: string) => invoke<void>("chat_say", { text }),
+    chatNew: () => invoke<void>("chat_new"),
+    chatsList: () => invoke<ChatSummary[]>("chats_list"),
+    chatOpen: (id: string) => invoke<SavedChat>("chat_open", { id }),
+    chatSave: (id: string, title: string, items: unknown) => invoke<ChatSummary>("chat_save", { id, title, items }),
+    chatDelete: (id: string) => invoke<void>("chat_delete", { id }),
+    chatRename: (id: string, title: string) => invoke<ChatSummary>("chat_rename", { id, title }),
+    chatPin: (id: string, pinned: boolean) => invoke<ChatSummary>("chat_pin", { id, pinned }),
 
-  browsers: () => invoke<BrowserInfo[]>("browsers"),
-  approvalAnswer: (id: number, decision: string) =>
-    invoke<boolean>("approval_answer", { id, decision }),
-  playbooks: () => invoke<Playbook[]>("playbooks_list"),
-  playbookDelete: (name: string) => invoke<void>("playbook_delete", { name }),
-  doctor: () => invoke<{ checks: Check[]; report: string }>("doctor_run"),
-  diagnosticsRun: (only?: string[]) =>
-    invoke<string>("diagnostics_run", { only: only ?? null }),
-  diagnosticsStop: () => invoke<void>("diagnostics_stop"),
-  diagnosticsLatest: () =>
-    invoke<DiagnosticsSummary | null>("diagnostics_latest"),
-  updateCheck: () => invoke<UpdateInfo>("update_check"),
-  updateInstall: (info: UpdateInfo) => invoke<void>("update_install", { info }),
+    browsers: () => invoke<BrowserInfo[]>("browsers"),
+    approvalAnswer: (id: number, decision: string) => invoke<boolean>("approval_answer", { id, decision }),
+    playbooks: () => invoke<Playbook[]>("playbooks_list"),
+    playbookDelete: (name: string) => invoke<void>("playbook_delete", { name }),
+    doctor: () => invoke<{ checks: Check[]; report: string }>("doctor_run"),
+    diagnosticsRun: (only?: string[]) => invoke<string>("diagnostics_run", { only: only ?? null }),
+    diagnosticsStop: () => invoke<void>("diagnostics_stop"),
+    diagnosticsLatest: () => invoke<DiagnosticsSummary | null>("diagnostics_latest"),
+    updateCheck: () => invoke<UpdateInfo>("update_check"),
+    updateInstall: (info: UpdateInfo) => invoke<void>("update_install", { info }),
 };
 
 /** One scenario of a full test run (relay-screen diagnostics, D-096). */
 export interface DiagnosticsResult {
-  id: string;
-  title: string;
-  kind: string;
-  /** Relay app, Real-world tasks, Claude and signed out, System. */
-  area?: string;
-  status: "passed" | "failed" | "skipped";
-  message: string;
-  seconds: number;
-  steps: number;
-  model: string | null;
-  failed_checks: string[];
-  timings: Record<string, unknown>;
-  screenshots: string[];
-  folder: string;
+    id: string;
+    title: string;
+    kind: string;
+    /** Relay app, Real-world tasks, Claude and signed out, System. */
+    area?: string;
+    status: "passed" | "failed" | "skipped";
+    message: string;
+    seconds: number;
+    steps: number;
+    model: string | null;
+    failed_checks: string[];
+    timings: Record<string, unknown>;
+    screenshots: string[];
+    folder: string;
 }
 
 export interface DiagnosticsSummary {
-  started: string;
-  seconds: number;
-  folder: string;
-  report: string;
-  passed: number;
-  failed: number;
-  skipped: number;
-  problems: string[];
-  results: DiagnosticsResult[];
-  resources?: { peak_relay_ram_mb: number; over_budget: string[] };
-  areas?: { area: string; passed: number; failed: number; skipped: number }[];
+    started: string;
+    seconds: number;
+    folder: string;
+    report: string;
+    passed: number;
+    failed: number;
+    skipped: number;
+    problems: string[];
+    results: DiagnosticsResult[];
+    resources?: { peak_relay_ram_mb: number; over_budget: string[] };
+    areas?: { area: string; passed: number; failed: number; skipped: number }[];
 }
 
 export function errorText(e: unknown): string {
-  if (typeof e === "string") return e;
-  if (e instanceof Error) return e.message;
-  return String(e);
+    if (typeof e === "string") return e;
+    if (e instanceof Error) return e.message;
+    return String(e);
 }
