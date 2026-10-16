@@ -49,7 +49,7 @@ SCHEMA = 1
 FINAL = ("done", "failed", "stopped", "unavailable")
 ANSWER = "Use your default choice. This is Relay's diagnostics run and nobody is watching."
 CLOUD_TIMEOUT = 420.0
-TASK_TIMEOUT = 900.0
+TASK_TIMEOUT = 300.0
 EXPLORER_TEST = "relay-explorer-test"  # a folder the other-monitor scenario opens
 SHOT_WIDTH = 1600  # recorded screenshots are scaled down to this width
 LOG_TAIL = 4_000_000  # bytes of a log copied into the run at most
@@ -1386,19 +1386,28 @@ class ServiceLink:
             self.port, self.token = fresh.port, fresh.token
         command = {"op": "task", "text": task, "source": "diagnostics", "offline": offline}
         command["max_steps"] = max_steps
-        with self._send(command) as conn, conn.makefile("rb") as stream:
-            for raw in stream:  # until the service closes it, after the "model" line
-                try:
-                    event = json.loads(raw)
-                except ValueError:
-                    continue
-                if not isinstance(event, dict):
-                    continue
-                if event.get("event") == "question":
-                    say = {"op": "say", "id": event.get("id"), "text": answer}
-                    with contextlib.suppress(OSError):
-                        self._send(say).close()
-                on_event(event)
+        task_id: Any = None
+        try:
+            with self._send(command) as conn, conn.makefile("rb") as stream:
+                for raw in stream:  # until the service closes it, after the "model" line
+                    try:
+                        event = json.loads(raw)
+                    except ValueError:
+                        continue
+                    if not isinstance(event, dict):
+                        continue
+                    task_id = event.get("id", task_id)
+                    if event.get("event") == "question":
+                        say = {"op": "say", "id": event.get("id"), "text": answer}
+                        with contextlib.suppress(OSError):
+                            self._send(say).close()
+                    on_event(event)
+        except TimeoutError:
+            # A task that never ends kept every later scenario from starting: "Relay is
+            # already doing a task" eight times in round 15 (D-112).
+            with contextlib.suppress(OSError):
+                self._send({"op": "stop", "id": task_id}).close()
+            raise
 
 
 class LocalLink:

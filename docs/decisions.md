@@ -1920,3 +1920,9 @@ any program, so the fixes are general:
   as stuck.
 - File Explorer and file dialogs: the prompt says to press ctrl+l and type the
   folder.
+- **A hung task can't block the rest.** A UI Automation call gets 30 s; after that
+  Relay leaves the stuck thread and carries on with a fresh one. Diagnostics stops a
+  task after 5 minutes, and a running task writes every thread's stack to
+  `logs/operator-hangs.log` every 2 minutes while it runs that long. Round 15 hung
+  after one step of compare-and-copy, and the eight scenarios after it found Relay
+  "already doing a task".
