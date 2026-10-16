@@ -337,7 +337,8 @@ const CustomModels = ({ state, onChange }: { state: LocalAiState; onChange: () =
 /** Which downloaded model runs tasks on its own when Claude can't (D-067). */
 const OperatorPicker = ({ state, settings, save }: { state: LocalAiState; settings: Settings; save: (s: Settings) => Promise<void> }) => {
     const options = [
-        ...state.models.filter((m) => m.installed?.ready).map((m) => ({ id: m.id, label: m.name })),
+        // Only models that can plan run tasks; "check" or "find" models can't (D-100).
+        ...state.models.filter((m) => m.installed?.ready && m.role === "both").map((m) => ({ id: m.id, label: m.name })),
         ...state.custom.filter((c) => c.model.ready).map((c) => ({ id: c.model.id, label: c.model.repo })),
     ];
     const current = settings.local_ai.agent?.model_id;
@@ -356,10 +357,9 @@ const OperatorPicker = ({ state, settings, save }: { state: LocalAiState; settin
                 {(item) => <Select.Item id={item.id} label={item.label} />}
             </Select>
             <p className="text-sm text-tertiary">
-                When Claude can't run (signed out or offline), this model does the task on its own: it looks at the screen, clicks and types, and Relay
-                still asks you before each action. "Pick for me" uses the checking model first, then the finding model.
+                This model plans and does screen tasks on its own, and does every task when Claude is signed out or offline. "Pick for me" uses Holo3.1-9B.
             </p>
-            {options.length === 0 && <Notice tone="warning">No model is downloaded yet. Download Qwen3-VL-8B above so Relay can work without Claude.</Notice>}
+            {options.length === 0 && <Notice tone="warning">No model is downloaded yet. Download Holo3.1-9B above so Relay can work on screen.</Notice>}
         </Card>
     );
 };
