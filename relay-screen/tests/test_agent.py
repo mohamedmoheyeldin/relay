@@ -1506,3 +1506,20 @@ def test_the_thought_is_capped_so_a_reply_always_closes() -> None:
 
     for shape in REPLY_SCHEMA["anyOf"]:
         assert shape["properties"]["thought"]["maxLength"] == THOUGHT_MAX
+
+
+def test_a_checked_box_is_not_pressed_again() -> None:
+    # Round 21: the confirm box was ticked, then pressed again and unticked (D-112).
+    tree = 'Elements:\n[e1] CheckBox "I confirm" checked {toggle} center (5, 5)'
+    hands = FakeHands({"uia_tree": tree})
+    _, events = run(hands, Script({"action": "invoke", "element": "e1"}, done()))
+    assert not any(a[0] == "uia_invoke" for a in hands.acts())
+    step = next(e for e in events if e["event"] == "step")
+    assert step["result"] == "already checked, so Relay left it as it is"
+
+
+def test_an_unchecked_box_is_pressed() -> None:
+    tree = 'Elements:\n[e1] CheckBox "I confirm" unchecked {toggle} center (5, 5)'
+    hands = FakeHands({"uia_tree": tree})
+    run(hands, Script({"action": "invoke", "element": "e1"}, done()))
+    assert ("uia_invoke", {"element": "e1"}) in hands.acts()
