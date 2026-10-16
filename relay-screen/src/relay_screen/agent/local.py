@@ -25,6 +25,7 @@ from PIL import Image
 from relay_screen.actions import ActionResult
 from relay_screen.apps import ADDRESS_BAR, BROWSERS
 from relay_screen.errors import ActionError
+from relay_screen.input.activity import seconds_since_input
 from relay_screen.runtime.catalog import Coords
 from relay_screen.safety.approval import ApprovalDeniedError, PromptUnavailableError
 from relay_screen.safety.killswitch import KillSwitchError
@@ -44,6 +45,8 @@ MAX_APPS_CHARS = 2500
 MAX_WINDOWS_CHARS = 1500
 MAX_BATCH = 6  # actions the model may plan in one reply (D-084)
 RICH_ELEMENTS = 8  # with this many element lines, skip the screenshot unless asked
+OWNER_QUIET = 0.8  # s without the owner's own input before Relay uses the real mouse/keys
+OWNER_PATIENCE = 20.0  # s Relay waits for that pause before acting anyway
 CANCEL_POLL = 0.05  # s between stop checks while the model, Claude or a wait runs
 # Members that send real input to whatever is in front; the target goes in front again
 # first, in case the owner clicked elsewhere meanwhile (D-093).
@@ -132,6 +135,11 @@ check it is empty.
 - To save a file where the owner said, set_value the full path into the File name box \
 of the Save dialog, then invoke its Save button.
 - Follow your plan, and reply done only when its done-check holds.
+- In a calculator, type the whole sum with type (for example 12*56=) instead of \
+pressing its buttons, then read the result.
+- Tick every checkbox the task needs (an "I agree" box too); the element list marks \
+each one checked or unchecked.
+- If the same actions did not finish the task once, do something different.
 """
 
 PLAN_PROMPT = """You are Relay's local AI on a Windows PC. Before doing a task on the \
@@ -142,13 +150,14 @@ screen, make a short plan. Reply with exactly one JSON object and nothing else:
 "question": "<one short question for the owner, or empty>", \
 "default": "<what you will do if they don't answer>"}
 
-Keep steps to at most 6 short lines. Ask a question only when the task leaves out \
-something only the owner can decide and that matters: where to save a file, which \
-account, which file or person, whether to send. Never ask about small details you can \
-choose well yourself (wording, a file name, which search engine). Writing new text means \
-a new document or tab, never typing over one that is open. Use what is already open: \
-a program in the windows list is switched to, not started again, and open_url opens \
-pages in a new tab of the browser that is open.
+Keep steps to at most 6 short lines. The done-check names everything that must be true \
+at the end: each field filled, each box ticked, the result shown. Ask a question only \
+when the task leaves out something only the owner can decide and that matters: where \
+to save a file, which account, which file or person, whether to send. Never ask about \
+small details you can choose well yourself (wording, a file name, which search \
+engine). Writing new text means a new document or tab, never typing over one that is \
+open. Use what is already open: a program in the windows list is switched to, not \
+started again, and open_url opens pages in a new tab of the browser that is open.
 """
 QUESTION_WAIT = 300  # s Relay waits for the owner's answer to the plan's question
 
@@ -662,6 +671,7 @@ class LocalAgent:
         inbox: Callable[[], list[str]] | None = None,
         cancelled: Callable[[], bool] | None = None,
         ask: Callable[[str], str] | None = None,
+        idle: Callable[[], float | None] | None = None,
     ) -> None:
         self.instant = instant
         self.inbox = inbox or (lambda: [])
@@ -669,7 +679,11 @@ class LocalAgent:
         self.ask = ask
         self.notes: list[str] = []  # what the owner added while the task ran
         self.target = ""  # the program the task works in (its exe stem), once known
+        self.idle = idle if idle is not None else seconds_since_input
+        self.last_input = 0.0  # monotonic time Relay last sent real input
         self.plan = ""  # the plan made before the first step (D-094)
+        self.done_when = ""  # the plan's done-when, checked once before finishing (D-098)
+        self.done_checked = False
         self.typed: dict[str, int] = {}  # text typed so far -> the step that typed it
         self.new_doc = False  # a writing task: editors get a new tab first
         self.fresh: set[str] = set()  # editors that already got their new tab
@@ -687,6 +701,7 @@ class LocalAgent:
                 return done
         steps: list[Step] = []
         bad_replies = 0
+        last_batch, repeats = "", 0
         note = ""
         look = True  # the first decision sees the screen
         apps = self._apps()
@@ -746,10 +761,37 @@ class LocalAgent:
                 continue
             bad_replies = 0
             thought, actions = plan
+            batch = json.dumps([[m, p] for _, m, p in actions], sort_keys=True)
+            if len(actions) > 1 and batch == last_batch:
+                # The Calculator run repeated one 6-action batch to the step limit (D-100).
+                repeats += 1
+                if repeats >= MAX_BAD_REPLIES:
+                    message = "The local model kept repeating the same actions, so Relay stopped."
+                    return self._finish("failed", message, steps)
+                note = (
+                    "You planned exactly the same actions as last time, and they did not "
+                    "finish the task. Look at the screen and do something different."
+                )
+                look = True
+                continue
+            last_batch, repeats = batch, 0
             for action, member, params in actions:
                 if self.cancelled():
                     return self._finish("stopped", "Stopped by the owner.", steps)
                 if action["action"] == "done":
+                    if self.done_when and not self.done_checked:
+                        # One look against the plan's done-when before finishing: the
+                        # model stopped after a search page in the owner's flight task
+                        # (D-098).
+                        self.done_checked = True
+                        self.emit({"event": "note", "text": "Checking that it is really done…"})
+                        note = (
+                            f"Before you finish, look at the screen and check the plan: done "
+                            f"when {self.done_when}. Reply done only if that is true now; "
+                            "otherwise keep going."
+                        )
+                        look = True
+                        break
                     return self._finish("done", str(action.get("summary") or "Done."), steps)
                 if action["action"] == "fail":
                     reason = str(action.get("reason") or "The local model gave up.")
@@ -974,6 +1016,7 @@ class LocalAgent:
                 result = self._pause(float(params.get("duration", 1)))
             else:
                 if member in INPUT_MEMBERS:
+                    self._wait_for_owner()
                     self._bring_back()
                 if member in ("type", "uia_set_value"):
                     self._not_twice(n, str(params.get("text", params.get("value", ""))))
@@ -984,10 +1027,17 @@ class LocalAgent:
                 else:
                     result = self.hands.run(member, params)
             text, error = result.text or "done", result.is_error
+            if member in INPUT_MEMBERS:
+                self.last_input = time.monotonic()
             if not error and member in ("focus_window", "open_url", "launch_app"):
                 self._remember_front()
             if not error and member in ("type", "uia_set_value"):
                 self.typed.setdefault(_typed_key(params), n)
+            if not error and member == "uia_set_value" and self._address_bar(params):
+                # A search or address in the browser's bar does nothing until Enter,
+                # and models kept pressing the search icon instead (D-097).
+                self.hands.run("key", {"text": "enter"})
+                text = f"{text} · Enter pressed"
         except Cancelled:
             text, error = "STOP: Stopped by the owner.", True
         except (KillSwitchError, ApprovalDeniedError, PromptUnavailableError) as exc:
@@ -1006,6 +1056,10 @@ class LocalAgent:
             }
         )
         return step
+
+    def _address_bar(self, params: Mapping[str, Any]) -> bool:
+        label = _element_label(self.elements, str(params.get("element", "")))
+        return label.strip('"') == ADDRESS_BAR
 
     def _ask_claude(self, question: str) -> ActionResult:
         """Claude's answer, or an error the model can work around: the local AI keeps going
@@ -1065,6 +1119,7 @@ class LocalAgent:
         text += [f"{i}. {x}" for i, x in enumerate(steps, 1)]
         if done_when:
             text.append(f"Done when: {done_when}")
+            self.done_when = done_when
         if question:
             answer = self._ask_owner(question, str(plan.get("default") or "").strip())
             text.append(f"You asked the owner: {question} {answer}")
@@ -1129,6 +1184,27 @@ class LocalAgent:
                 raise
         self._bring_back()
         return self.hands.run("left_click", {"coordinate": point})
+
+    def _wait_for_owner(self) -> None:
+        """Let the owner finish what they are doing before Relay moves the real mouse
+        or types (D-100). UIA invoke and set_value never come here: they need neither."""
+        told = False
+        until = time.monotonic() + OWNER_PATIENCE
+        while time.monotonic() < until:
+            quiet = self.idle()
+            if quiet is None:
+                return
+            since_relay = time.monotonic() - self.last_input
+            if quiet >= OWNER_QUIET or quiet >= since_relay - 0.05:
+                return  # nobody but Relay touched the input lately
+            if not told:
+                told = True
+                self.emit(
+                    {"event": "note", "text": "Waiting for you to pause before typing or clicking."}
+                )
+            if self.cancelled():
+                raise Cancelled
+            time.sleep(CANCEL_POLL * 2)
 
     def _front_line(self) -> str:
         for line in self._windows().splitlines():

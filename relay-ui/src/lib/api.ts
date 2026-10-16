@@ -268,9 +268,41 @@ export const api = {
     playbooks: () => invoke<Playbook[]>("playbooks_list"),
     playbookDelete: (name: string) => invoke<void>("playbook_delete", { name }),
     doctor: () => invoke<{ checks: Check[]; report: string }>("doctor_run"),
+    diagnosticsRun: (only?: string[]) => invoke<string>("diagnostics_run", { only: only ?? null }),
+    diagnosticsStop: () => invoke<void>("diagnostics_stop"),
+    diagnosticsLatest: () => invoke<DiagnosticsSummary | null>("diagnostics_latest"),
     updateCheck: () => invoke<UpdateInfo>("update_check"),
     updateInstall: (info: UpdateInfo) => invoke<void>("update_install", { info }),
 };
+
+/** One scenario of a full test run (relay-screen diagnostics, D-096). */
+export interface DiagnosticsResult {
+    id: string;
+    title: string;
+    kind: string;
+    status: "passed" | "failed" | "skipped";
+    message: string;
+    seconds: number;
+    steps: number;
+    model: string | null;
+    failed_checks: string[];
+    timings: Record<string, unknown>;
+    screenshots: string[];
+    folder: string;
+}
+
+export interface DiagnosticsSummary {
+    started: string;
+    seconds: number;
+    folder: string;
+    report: string;
+    passed: number;
+    failed: number;
+    skipped: number;
+    problems: string[];
+    results: DiagnosticsResult[];
+    resources?: { peak_relay_ram_mb: number; over_budget: string[] };
+}
 
 export function errorText(e: unknown): string {
     if (typeof e === "string") return e;

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import subprocess
 import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -211,7 +212,11 @@ def test_ui_task_hands_off_to_the_service_over_localhost(tmp_path: Path) -> None
     assert handed is not None
     model, outcome, lines = handed
     assert (model, outcome.status, lines) == ("m", "done", ["Step 1: Opened Notepad"])
-    # The app sees Claude's hand-off too.
+    # The app sees Claude's hand-off too (its last line can land just after hand_off).
+    for _ in range(100):
+        if len(app.items) >= 4:
+            break
+        time.sleep(0.01)
     assert [e.get("source") for e in app.items] == ["claude"] * 4
 
 
@@ -314,3 +319,20 @@ def test_claude_signed_out_routes_everything_to_the_local_ai() -> None:
     service.claude_ok = False  # an ask_claude call failed earlier
     service.handle({"op": "route", "id": "r2", "text": "why is the sky blue?"})
     assert events.items[1]["to"] == "operator"
+
+
+def test_a_diagnostics_hand_off_stays_out_of_the_chat(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("RELAY_DIAGNOSTICS", "1")
+    app = Events()
+    runner = FakeRunner()
+    runner.go.set()
+    service = OperatorService(runner, None, app)
+    sock = serve_port(service, tmp_path)
+    try:
+        handed = hand_off(tmp_path, "open Notepad", 10, timeout=5)
+    finally:
+        service.stopping.set()
+        sock.close()
+    assert handed is not None and app.items == []

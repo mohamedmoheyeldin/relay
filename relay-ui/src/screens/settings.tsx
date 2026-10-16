@@ -28,6 +28,7 @@ import { cx } from "@/utils/cx";
 import { ClaudeChecks } from "./claude-setup";
 import { useTheme } from "@/providers/theme-provider";
 import { ConnectionsPage } from "./connections";
+import { DiagnosticsRuns } from "./diagnostics-runs";
 import { LocalAiPage } from "./local-ai";
 
 type Save = (s: Settings) => Promise<void>;
@@ -397,6 +398,7 @@ const DiagnosticsPage = ({ info }: PageProps) => {
                     </Button>
                 </div>
             </Section>
+            <DiagnosticsRuns />
             <Section title="Folders" description="Where Relay keeps its files.">
                 <Card className="flex flex-col gap-2">
                     <KeyValue label="Settings" value={info.settings_file} />
@@ -425,7 +427,7 @@ const PAGES: { id: string; label: string; icon: FC<{ className?: string }>; desc
     { id: "playbooks", label: "Playbooks", icon: BookOpen01, description: "Tasks Relay has learned to repeat." },
     { id: "privacy", label: "Privacy", icon: Lock01, description: "Activity logs and screenshots." },
     { id: "updates", label: "Updates", icon: Download01, description: "Relay's version and updates." },
-    { id: "diagnostics", label: "Developer", icon: Activity, description: "Health checks and a report to share." },
+    { id: "diagnostics", label: "Developer", icon: Activity, description: "Health checks, full test runs and a report to share." },
 ];
 
 export const SettingsScreen = ({

@@ -2,6 +2,23 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
+## 2026-10-16 · Diagnostics findings, the owner's input, RAM (D-100)
+- Holo3.1-9B now runs even when Settings still names Qwen3-VL as the operator.
+- Before real input the operator waits for the owner to pause, then brings its window back. Each step re-reads the screen, so the task carries on.
+- Repeated batches are sent back. Checkboxes show checked or unchecked. Calculator sums are typed.
+- llama-server: `--no-mmap --cache-ram 0`. The RAM numbers before and after need a run on the PC (Diagnostics thread).
+
+## 2026-10-16 · 0.1.12 app: closer to the Claude app
+- Sidebar rebuilt to the Claude app's shape: top icon row (close sidebar, back, forward), New chat and Search rows, Pinned and day-grouped chats, Settings alone at the bottom. Account and plan now live only in Settings > Account.
+- The three-dots chat menu works (react-aria trigger button); Pin, Rename (inline) and Delete. The chat title in the header opens the same menu.
+- Composer restyled: rounded box with send/stop, then attach, approval note and the model/effort picker below; greeting in serif on an empty chat.
+- The app only shows operator events from its own Claude turn, so diagnostics runs no longer appear inside a chat.
+
+## 2026-10-16 · Full test runs and the dev loop (D-096)
+- `relay-screen diagnostics` runs 10 real scenarios and records everything under Downloads\Relay-diagnostics; Settings > Developer runs it and shows the results.
+- Claude's loop on the PC: `scripts/build_dev_copy.py` (or `--code`), deliver to Downloads\Relay-dev\incoming, then `dev_loop.ps1 -Package <zip>` in the owner's session (Windows PowerShell tool). No admin prompt.
+- First real run (dev copy of 0.1.11, qwen3-vl-8b-instruct picked as the operator in the owner's Settings): 9/10 passed in 107 s. Calculator with Claude off failed: the model pressed the wrong digit buttons (12×56, 12×98) and repeated 6-action batches until the step limit. Holo3.1-9B is downloaded but not used, because Settings pins the agent to qwen3-vl.
+
 ## 2026-10-16 · 0.1.11 app: chat history, Claude-app layout, new mark
 - Owner feedback on 0.1.10, all fixed in the app:
   - The floating popup and its shortcut are gone.

@@ -254,6 +254,10 @@ def test_pick_model_prefers_the_flag_then_settings_then_a_planner() -> None:
     assert pick_model(installed("holo-3.1-9b", "qwen3-vl-8b-instruct"), {}, None) == "holo-3.1-9b"
     assert pick_model(have, {"agent": {"model_id": "gone"}}, None) == "qwen3-vl-8b-instruct"
     assert pick_model(installed("mine"), {}, None) == "mine"
+    # An older Setup saved Qwen3-VL ("check") as the operator; Holo3.1 plans (D-100).
+    old_pin = {"agent": {"model_id": "qwen3-vl-8b-instruct"}}
+    both = installed("holo-3.1-9b", "qwen3-vl-8b-instruct")
+    assert pick_model(both, old_pin, None) == "holo-3.1-9b"
     with pytest.raises(RuntimeUnavailable, match="not downloaded"):
         pick_model(have, {}, "gone")
     with pytest.raises(RuntimeUnavailable, match="No local model"):
@@ -687,6 +691,35 @@ def test_invoke_on_an_address_bar_clicks_its_center_instead() -> None:
     assert ("left_click", {"coordinate": [640, 52]}) in hands.calls
 
 
+def test_done_is_checked_once_against_the_plans_done_when() -> None:
+    plan = {
+        "goal": "find a flight",
+        "app": "Brave",
+        "steps": ["search"],
+        "done_when": "prices show",
+    }
+    done = {"thought": "", "action": "done", "summary": "ok"}
+    model = Script(done, done, plan=plan)
+    outcome = LocalAgent(FakeHands(), model, instant=False).run("find a cheap flight to Cairo")
+    assert outcome.status == "done" and len(model.seen) == 2
+    assert "done when prices show" in model.prompt(1)
+    unplanned = Script(done)
+    LocalAgent(FakeHands(), unplanned, instant=False).run("find a cheap flight to Cairo")
+    assert len(unplanned.seen) == 1  # no done-when, nothing to check
+
+
+def test_a_search_set_in_the_address_bar_is_sent_with_enter() -> None:
+    hands = FakeHands({"uia_set_value": "OK · target changed"})
+    agent = LocalAgent(hands, Script())
+    agent.elements = 'Elements\n[e7] Edit "Address and search bar" {value}\n[e8] Edit "Name"'
+    params = {"element": "e7", "value": "relay diagnostics"}
+    step = agent._act(1, "", {"action": "set_value", **params}, "uia_set_value", params)
+    assert hands.calls[-1] == ("key", {"text": "enter"}) and "Enter pressed" in step.result
+    other = {"element": "e8", "value": "Relay Test"}
+    agent._act(2, "", {"action": "set_value", **other}, "uia_set_value", other)
+    assert hands.calls[-1][0] == "uia_set_value"
+
+
 def test_real_input_brings_the_task_program_back_first() -> None:
     front = {"line": '"Cairo flights - Brave" · brave.exe · in front'}
 
@@ -758,7 +791,8 @@ def test_plans_first_and_asks_the_owner_before_acting() -> None:
         "question": "Where should I save the list?",
         "default": "Documents",
     }
-    model = Script({"thought": "", "action": "done", "summary": "ok"}, plan=plan)
+    done = {"thought": "", "action": "done", "summary": "ok"}
+    model = Script(done, done, plan=plan)  # the second done follows the done-when check
     events: list[dict[str, Any]] = []
     answers = [[], ["on my desktop"]]
     agent = LocalAgent(
@@ -796,3 +830,32 @@ def test_a_writing_task_opens_a_new_tab_before_typing() -> None:
         ("type", {"text": "Shopping List\n- Milk\n- Eggs\n- Bread"})
     ]  # typed once
     assert "already typed in step 1" in outcome.steps[1].result
+
+
+def test_the_same_batch_twice_is_sent_back_not_run() -> None:
+    """Calculator: one 6-action batch repeated until the step limit (D-100)."""
+    hands = FakeHands()
+    batch = {
+        "thought": "",
+        "actions": [{"action": "key", "keys": "1"}, {"action": "key", "keys": "2"}],
+    }
+    model = Script(batch, batch, {"thought": "", "action": "done", "summary": "ok"})
+    events: list[dict[str, Any]] = []
+    outcome = LocalAgent(hands, model, on_event=events.append, instant=False).run("add 1 and 2")
+    assert outcome.status == "done"
+    assert [a for a in hands.acts() if a[0] == "key"] == [
+        ("key", {"text": "1"}),
+        ("key", {"text": "2"}),
+    ]
+    assert "exactly the same actions" in model.prompt(2)
+
+
+def test_waits_for_the_owner_to_pause_before_real_input() -> None:
+    quiet = iter([0.1, 0.2, 0.9])  # the owner is typing, then stops
+
+    events: list[dict[str, Any]] = []
+    agent = LocalAgent(FakeHands(), Script(), on_event=events.append, idle=lambda: next(quiet))
+    agent.last_input = -1000.0  # Relay itself hasn't typed lately
+    step = agent._act(1, "", {"action": "type", "text": "hi"}, "type", {"text": "hi"})
+    assert not step.error
+    assert any("Waiting for you to pause" in e.get("text", "") for e in events)
