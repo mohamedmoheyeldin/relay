@@ -434,3 +434,12 @@ def test_resources_are_grouped_by_role_and_checked_against_the_budget(tmp_path: 
     assert found["relay-screen for Claude"] == {
         "processes": 1, "ram_mb": 60, "private_mb": 0, "vram_mb": 0,
     }  # fmt: skip
+
+
+def test_an_unanswered_approval_fails_one_scenario_not_the_run(tmp_path: Path) -> None:
+    message = "No answer from the owner within 120 s, so this action was not run."
+    link = FakeLink({"event": "stopped", "message": message, "steps": 2})
+    chosen = [diag.Scenario("a", "A", "operator", "t"), diag.Scenario("b", "B", "operator", "t")]
+    results = diag.run_all(chosen, tools(link), tmp_path, lambda e: None)
+    assert [r.id for r in results] == ["a", "b"]
+    assert all(r.status == "failed" for r in results)

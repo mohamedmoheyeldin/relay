@@ -54,6 +54,7 @@ CANCEL_POLL = 0.05  # s between stop checks while the model, Claude or a wait ru
 INPUT_MEMBERS = frozenset(
     {"left_click", "double_click", "right_click", "type", "key", "scroll", "click_text"}
 )
+POINT_CLICKS = frozenset({"left_click", "double_click", "right_click"})
 MAX_PAGE_CHARS = 8000  # a web page's controls, ~2.5k tokens
 PAGE_DEPTH = 40
 
@@ -355,6 +356,24 @@ class Frame:
             min(max(round(px), 0), self.width - 1),
             min(max(round(py), 0), self.height - 1),
         ]
+
+
+CLICK_NAMES = frozenset({"click", "left_click", "double_click", "right_click"})
+LISTED_CENTER = re.compile(r"center \((\d+), (\d+)\)")
+SNAP_PX = 3
+
+
+def _listed_point(elements: str, action: Mapping[str, Any]) -> list[int] | None:
+    """The element-list centre a click names, within a few pixels (D-106)."""
+    try:
+        x, y = float(action["x"]), float(action["y"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    for found in LISTED_CENTER.finditer(elements):
+        cx, cy = int(found.group(1)), int(found.group(2))
+        if abs(cx - x) <= SNAP_PX and abs(cy - y) <= SNAP_PX:
+            return [cx, cy]
+    return None
 
 
 def _align(length: float) -> int:
@@ -919,7 +938,15 @@ class LocalAgent:
                 action = {**action, "action": "ask_claude", "question": question.strip()}
                 planned.append((action, "ask_claude", {"question": question.strip()[:MAX_TEXT]}))
                 break  # the answer changes what comes next
-            member, params = to_member(action, frame, self.coords)
+            hit = _listed_point(elements, action) if action["action"] in CLICK_NAMES else None
+            if hit is not None:
+                # The model copied an element's centre from the list: those are already
+                # screenshot pixels, not pixels of the smaller image it was sent (D-106).
+                name = action["action"]
+                member = "left_click" if name in ("click", "left_click") else name
+                params: dict[str, Any] = {"coordinate": hit}
+            else:
+                member, params = to_member(action, frame, self.coords)
             element = params.get("element")
             if isinstance(element, str) and f"[{element}]" not in elements:
                 raise ReplyError(f"{element} is not in the element list")
@@ -1088,6 +1115,8 @@ class LocalAgent:
                     self._bring_back()
                 if member in ("type", "uia_set_value"):
                     self._not_twice(n, str(params.get("text", params.get("value", ""))))
+                if member in POINT_CLICKS:
+                    self._inside_front(params)
                 if member == "click_text":
                     result = self._click_text(str(params["text"]))
                 elif member == "uia_invoke":
@@ -1124,6 +1153,20 @@ class LocalAgent:
             }
         )
         return step
+
+    def _inside_front(self, params: Mapping[str, Any]) -> None:
+        """Refuse a click that would land outside the window the task works in (D-106)."""
+        check = getattr(self.hands, "outside_front", None)
+        point = params.get("coordinate")
+        if not callable(check) or not isinstance(point, (list, tuple)):
+            return
+        title = check(point)
+        if title:
+            raise ActionError(
+                f"({point[0]}, {point[1]}) is outside {json.dumps(title, ensure_ascii=False)}, "
+                "the window in front, so it was not clicked; use an element id from the "
+                "list, or look at the screen again"
+            )
 
     def _address_bar(self, params: Mapping[str, Any]) -> bool:
         label = _element_label(self.elements, str(params.get("element", "")))

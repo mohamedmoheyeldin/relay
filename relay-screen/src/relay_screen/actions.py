@@ -255,6 +255,25 @@ class Computer:
                 points.append((point[0], point[1]))
         return points
 
+    def outside_front(self, coordinate: Sequence[int]) -> str | None:
+        """The front window's title when a screenshot point lies outside it (D-106).
+
+        The local operator's click on a job form landed in another program beside the
+        browser; it asks this first so a stray point is refused, not clicked.
+        """
+        if self.apps is None:
+            return None
+        try:
+            x, y = self._geometry().to_physical(coordinate[0], coordinate[1])
+            backend = self.apps.backend
+            front = backend.foreground()
+            window = next((w for w in backend.windows() if w.handle == front), None)
+        except Exception:  # a check, not an action: never block on it failing
+            return None
+        if window is None or window.rect.contains(x, y):
+            return None
+        return window.title
+
     def _summary(self, name: str, params: Mapping[str, Any]) -> str | None:
         """Plain words for acts the approval gate cannot describe from params alone."""
         if name == "launch_app":

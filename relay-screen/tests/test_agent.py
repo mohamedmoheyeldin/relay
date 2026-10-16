@@ -916,3 +916,40 @@ def test_folder_answers_get_their_full_path() -> None:
     text = with_paths("The owner answered: my Downloads folder", home)
     assert str(home / "Downloads") in text
     assert with_paths("anywhere", home) == "anywhere"
+
+
+def test_a_click_on_a_listed_centre_is_taken_as_screen_pixels() -> None:
+    # The web-form run: the model copied the Colour box's centre from the list, and
+    # Relay scaled it as if it were a pixel of the smaller image (D-106).
+    tree = 'Elements (ids ...):\n[e1] Window "Form"\n  [e7] ComboBox "Colour" center (857, 142)'
+    hands = FakeHands({"uia_tree": tree})
+    hands.shot = png(1568, 656)
+    model = Script(
+        {"action": "click", "x": 856, "y": 142},
+        {"action": "click", "x": 640, "y": 300},
+        {"action": "done", "summary": "ok"},
+    )
+    outcome, _ = run(hands, model)
+    assert outcome.status == "done"
+    first, second = hands.acts()
+    assert first == ("left_click", {"coordinate": [857, 142]})
+    assert second[1]["coordinate"] != [640, 300]  # a point of the image is still scaled
+
+
+def test_a_click_outside_the_window_in_front_is_refused() -> None:
+    class Hands(FakeHands):
+        def outside_front(self, coordinate: Any) -> str | None:
+            return "Job application - Brave" if coordinate[0] < 800 else None
+
+    hands = Hands()
+    model = Script(
+        {"action": "click", "x": 100, "y": 100},
+        {"action": "click", "x": 1000, "y": 100},
+        {"action": "done", "summary": "ok"},
+    )
+    outcome, events = run(hands, model)
+    assert outcome.status == "done"
+    clicks = [a for a in hands.acts() if a[0] == "left_click"]
+    assert len(clicks) == 1 and clicks[0][1]["coordinate"][0] >= 800
+    refused = next(e for e in events if e["event"] == "step")
+    assert "outside" in refused["result"] and '"Job application - Brave"' in refused["result"]

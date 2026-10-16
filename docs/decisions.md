@@ -1710,3 +1710,22 @@ From round 5 of the full test (D-103):
   soon as stdin closes instead of waiting for worker threads. (Most of the 11
   "relay-screen for Claude" processes in round 5 were the Claude desktop app's own
   MCP servers, which the diagnostics count no longer includes.)
+
+## D-106 Operator clicks: listed centres, the window in front, honest status
+*2026-10-16 · accepted · from round 6 of the full test (D-103)*
+
+- **Listed centres are screen pixels.** The element list gives centres in
+  screenshot pixels, but the image sent to the model is smaller (1280 px), and
+  a click was always scaled from that image. When a click names a listed centre
+  (within 3 px), it is used as is. On the web form the model copied the Colour
+  box's centre and the click landed 20% off.
+- **Clicks stay in the window in front.** Before a coordinate click the
+  operator asks `Computer.outside_front`; a point outside the front window is
+  refused with a note to use an element id or look again. The job-application
+  click landed on another program beside the browser, on text with "delete" in
+  it, and waited 120 s on an approval nobody could answer.
+- **An approval prompt doesn't end the full test.** An unanswered or refused
+  prompt fails its own scenario; only Stop or the kill switch end the run.
+- **"Not finished" is a failure.** A scenario whose operator status is
+  failed now fails even when the outside checks pass: Notepad got the line, but
+  the operator ran 25 steps without saying it was done.
