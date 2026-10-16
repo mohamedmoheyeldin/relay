@@ -1957,10 +1957,9 @@ any program, so the fixes are general:
   capped at 600 characters in the reply schema, so a rambling thought can't run
   past the reply's token limit and leave cut-off JSON.
 
-## D-113 · Commits go through GitHub's API so they show as Verified
+## D-113 · Main's commits show as Verified
 - Owner, 2026-10-16: the dev commits showed "Unverified" (signed, but by an email no
-  GitHub account owns). Commits now land through GitHub's API (the connector's
-  push-files call) instead of `git push`; GitHub signs them and no tool or vendor
-  name appears. Merges are done on
-  GitHub, which signs them too. Commits already on main stay as they were (history is
-  not rewritten).
+  GitHub account owns). Commits made through GitHub's API with the owner's token are
+  not signed either, so `dev` is merged into `main` as a squash merge on GitHub, which
+  GitHub signs: every commit on `main` shows as Verified. The old history's cleanup and
+  a signing key for `dev` commits wait on the owner's choice.
