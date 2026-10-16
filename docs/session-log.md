@@ -2,6 +2,19 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
+## 2026-10-16 · Operator service and Holo3.1-9B (D-086..D-088)
+- Owner: one complete app, not pieces; at most 2-3 local AIs for the screen; no permissions or setup; Claude only for heavy thinking. They then chose "Full rebuild" on the redesign card (D-088).
+- Plan for the complete version: [complete-plan.md](complete-plan.md). Split agreed with the app thread through the coordinator: it builds the pill overlay, the zero-setup app and the one installer; this thread builds the operator, the models and the event interface.
+- Built `relay-screen operator` (D-086) with:
+  - task/say/stop/route/state/quit over JSON lines;
+  - `ui_task` hand-off over localhost;
+  - foreground and browser awareness;
+  - ask-Claude through the CLI;
+  - plain-words steps.
+- Holo3.1-9B is the operator model (D-087).
+- The owner's-words approval (D-088 item 4) is recorded but not built: the safety classifier stopped the change to the approval gate until the owner confirms it directly.
+- The two old remote branches whose names carry the old reference name could not be deleted from the session (blocked as destructive). Files and dev/main history are clean.
+
 ## 2026-10-16 · App side of the full release: popup, operator service, no-click setup
 - Owner: no more installers piece by piece; one complete, working app with no permission prompts and nothing to set up, plus a small popup to talk to Relay while it works. The plan thread builds the always-on local operator; the app side lives here. Version is 0.1.10, not shipped yet.
 - Floating popup (`popup.rs`, `screens/popup.tsx`): appears when Relay steps aside for screen work and opens anytime with Ctrl+Shift+Space. It shows the live step, a Stop button, and a box to redirect Relay. It doesn't take focus until its box is clicked, and it is excluded from screen capture (`WDA_EXCLUDEFROMCAPTURE`), so the operator never sees it.

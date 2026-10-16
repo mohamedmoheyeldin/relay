@@ -83,10 +83,10 @@ def test_parse_reply_tolerates_fences_prose_and_coordinate_lists() -> None:
 
 def test_frame_maps_model_coordinates_to_screenshot_pixels() -> None:
     frame = Frame.from_png(png(3440, 1440))
-    assert frame.sent_size == (1280, 536)
+    assert frame.sent_size == (1280, 544)  # aligned to the 32 px patch grid
     assert frame.to_screen(500, 500, "rel1000") == [1720, 720]
     assert frame.to_screen(1000, 1000, "rel1000") == [3439, 1439]
-    assert frame.to_screen(640, 268, "pixels") == [1720, 720]
+    assert frame.to_screen(640, 272, "pixels") == [1720, 720]
     assert frame.data_url().startswith("data:image/jpeg;base64,")
     with pytest.raises(ReplyError):
         frame.to_screen("left", 3, "rel1000")
@@ -235,7 +235,11 @@ def installed(*ids: str) -> dict[str, InstalledModel]:
 def test_pick_model_prefers_the_flag_then_settings_then_a_planner() -> None:
     have = installed("ui-venus-1.5-8b", "qwen3-vl-8b-instruct", "mine")
     assert pick_model(have, {}, "mine") == "mine"
-    assert pick_model(have, {"describe": {"model_id": "mine"}}, None) == "mine"
+    assert pick_model(have, {"agent": {"model_id": "mine"}}, None) == "mine"
+    # A describe pick is for looking; a downloaded planner comes first (D-087).
+    assert pick_model(have, {"describe": {"model_id": "mine"}}, None) == "qwen3-vl-8b-instruct"
+    assert pick_model(installed("mine", "x"), {"describe": {"model_id": "x"}}, None) == "x"
+    assert pick_model(installed("holo-3.1-9b", "qwen3-vl-8b-instruct"), {}, None) == "holo-3.1-9b"
     assert pick_model(have, {"agent": {"model_id": "gone"}}, None) == "qwen3-vl-8b-instruct"
     assert pick_model(installed("mine"), {}, None) == "mine"
     with pytest.raises(RuntimeUnavailable, match="not downloaded"):
@@ -311,7 +315,7 @@ def test_setup_downloads_runtime_then_model_and_reports_failures() -> None:
     assert setup.error == "OSError: disk full" and not setup.running
     store.fail = False
     setup.start()
-    assert store.calls == ["runtime", "qwen3-vl-8b-instruct", "qwen3-vl-8b-instruct"]
+    assert store.calls == ["runtime", "holo-3.1-9b", "holo-3.1-9b"]
     assert setup.missing() == [] and setup.start() == "ready"
     assert [e["status"] for e in events] == ["started", "failed", "started", "done"]
 
