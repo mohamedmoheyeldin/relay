@@ -127,10 +127,3 @@ body {
         scroll-behavior: auto !important;
     }
 }
-
-/* The floating popup window is transparent around its card. */
-html.popup,
-html.popup body,
-html.popup #root {
-    background: transparent;
-}

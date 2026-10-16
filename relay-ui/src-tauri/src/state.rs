@@ -22,6 +22,8 @@ pub struct AppState {
     pub operator: tokio::sync::Mutex<Option<std::sync::Arc<relay_core::operator::Operator>>>,
     /// When the operator service last failed to start, so it isn't retried on every message.
     pub operator_failed: Mutex<Option<std::time::Instant>>,
+    /// Whether Claude Code was signed in, and when that was checked (`commands::claude_signed_in`).
+    pub claude_signed_in: Mutex<Option<(bool, std::time::Instant)>>,
 }
 
 impl AppState {
@@ -35,6 +37,7 @@ impl AppState {
             pty: Mutex::default(),
             operator: tokio::sync::Mutex::default(),
             operator_failed: Mutex::default(),
+            claude_signed_in: Mutex::default(),
         }
     }
 
@@ -141,9 +144,7 @@ pub fn on_start(app: AppHandle) {
             eprintln!("relay: could not remove relay-browser: {err:#}");
         }
         // Warm the local model and the screen state before the first message.
-        if s.setup.completed {
-            crate::commands::operator(&app).await;
-        }
+        crate::commands::operator(&app).await;
         if s.updates.check_on_start {
             let version = app.package_info().version.to_string();
             if let Ok(info) = updates::check(&version).await {

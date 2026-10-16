@@ -67,18 +67,13 @@ export const Wizard = ({ onFinish }: { settings: Settings; save: (s: Settings) =
             <footer className="border-t border-secondary bg-secondary">
                 <div className="mx-auto flex w-full max-w-3xl flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-8">
                     <p className="text-sm text-tertiary">
-                        {ready ? "Claude is connected. Opening Relay; downloads keep going in the background." : "Relay needs Claude before it can do tasks."}
+                        {ready
+                            ? "Claude is connected. Opening Relay; downloads keep going in the background."
+                            : "Relay works without Claude: the local AI does screen tasks. Sign in any time for writing and judgment."}
                     </p>
-                    <div className="flex gap-3">
-                        {!ready && (
-                            <Button color="link-gray" onClick={finish}>
-                                Finish later
-                            </Button>
-                        )}
-                        <Button iconTrailing={ArrowRight} onClick={finish} isDisabled={!ready}>
-                            Start using Relay
-                        </Button>
-                    </div>
+                    <Button iconTrailing={ArrowRight} onClick={finish}>
+                        Start using Relay
+                    </Button>
                 </div>
             </footer>
         </div>

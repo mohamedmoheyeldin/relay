@@ -57,7 +57,7 @@ fn is_final(event: &str) -> bool {
     matches!(event, "done" | "failed" | "stopped" | "unavailable")
 }
 
-/// One event line as chat events for the chat and the popup.
+/// One event line as chat events for the chat.
 pub fn to_chat(v: &Value) -> Vec<ChatEvent> {
     let s = |k: &str| {
         v.get(k)
@@ -77,7 +77,7 @@ pub fn to_chat(v: &Value) -> Vec<ChatEvent> {
             }]
         }
         Some("note") => vec![ChatEvent::LocalNote { text: s("text") }],
-        Some("accepted" | "timing" | "route" | "state") | None => vec![],
+        Some("accepted" | "timing" | "route" | "state" | "ready") | None => vec![],
         // done, failed, stopped and unavailable read like the one-shot agent's.
         Some(_) => local_agent::parse_line(&v.to_string()),
     }
@@ -321,6 +321,7 @@ mod tests {
         assert!(matches!(&failed[0], ChatEvent::Done { is_error: true, .. }));
         assert!(to_chat(&json!({"id": "t1", "event": "timing", "load_ms": 900})).is_empty());
         assert!(to_chat(&json!({"id": "t1", "event": "accepted", "text": "x"})).is_empty());
+        assert!(to_chat(&json!({"event": "ready"})).is_empty());
         assert!(is_final("stopped") && is_final("unavailable") && !is_final("step"));
     }
 }
