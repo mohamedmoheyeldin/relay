@@ -5,11 +5,20 @@ call) and its process stops 60 s after the task ends, which frees all of its VRA
 Before a load, NVML must report enough free VRAM; Relay never lets a model spill into
 system RAM, so with no NVIDIA GPU or too little VRAM it refuses and Claude does the
 looking instead. D-036: several models can be resident at once.
+
+D-084: the local operator runs inside relay-screen, and Claude starts a new
+relay-screen for every chat turn, so a model owned by one process reloaded on each
+turn. With `shared` set, the server is started outside the process's job, its port
+and pid go in a small record file, and later processes adopt the running server
+instead of loading the model again. Whoever finds it idle past `idle` stops it.
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
+import os
+import signal
 import socket
 import subprocess
 import sys
@@ -32,6 +41,8 @@ REAP_EVERY = 5.0
 # KV cache, CUDA context and compute buffers on top of the weights.
 VRAM_MARGIN = int(1.5 * gpu.GIB)
 CREATE_NO_WINDOW = 0x08000000
+CREATE_NEW_PROCESS_GROUP = 0x00000200
+CREATE_BREAKAWAY_FROM_JOB = 0x01000000
 
 
 class RuntimeUnavailable(RuntimeError):
@@ -68,6 +79,40 @@ def popen(command: list[str], log: Path) -> Process:
         out.close()
 
 
+def popen_detached(command: list[str], log: Path) -> Process:
+    """Like `popen`, but the server outlives the relay-screen process that started it.
+
+    On Windows it leaves the caller's job object when the job allows that, so closing
+    a chat turn's relay-screen doesn't take the loaded model with it (D-084).
+    """
+    if sys.platform != "win32":
+        return popen(command, log)
+    log.parent.mkdir(parents=True, exist_ok=True)
+    out = log.open("wb")
+    base = CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP
+    try:
+        for flags in (base | CREATE_BREAKAWAY_FROM_JOB, base):
+            try:
+                return subprocess.Popen(
+                    command,
+                    stdout=out,
+                    stderr=subprocess.STDOUT,
+                    stdin=subprocess.DEVNULL,
+                    creationflags=flags,
+                )
+            except OSError:  # the job doesn't allow breakaway
+                if flags == base:
+                    raise
+        raise AssertionError("unreachable")
+    finally:
+        out.close()
+
+
+def kill_pid(pid: int) -> None:
+    with contextlib.suppress(OSError):
+        os.kill(pid, signal.SIGTERM)  # TerminateProcess on Windows
+
+
 def http_health(port: int) -> bool:
     try:
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=2) as r:
@@ -95,6 +140,32 @@ class Server:
         return f"http://127.0.0.1:{self.port}"
 
 
+class Adopted:
+    """A llama-server another relay-screen process started, reached by its port (D-084)."""
+
+    def __init__(
+        self, pid: int, port: int, health: Callable[[int], bool], kill: Callable[[int], None]
+    ) -> None:
+        self.pid = pid
+        self.port = port
+        self._health = health
+        self._kill = kill
+        self._gone = False
+
+    def poll(self) -> int | None:
+        return 0 if self._gone or not self._health(self.port) else None
+
+    def terminate(self) -> None:
+        self._kill(self.pid)
+        self._gone = True
+
+    def kill(self) -> None:
+        self.terminate()
+
+    def wait(self, timeout: float | None = None) -> int:
+        return 0
+
+
 @dataclass(frozen=True)
 class Endpoint:
     model_id: str
@@ -117,8 +188,14 @@ class Supervisor:
         idle: float = IDLE_SECONDS,
         load_timeout: float = LOAD_TIMEOUT,
         record: Callable[[dict[str, Any]], None] | None = None,
+        shared: Path | None = None,
+        wall: Callable[[], float] = time.time,
+        kill: Callable[[int], None] = kill_pid,
     ) -> None:
         self.store = store
+        self.shared = shared
+        self.wall = wall
+        self.kill = kill
         self.launch = launch
         self.health = health
         self.vram = vram
@@ -141,14 +218,71 @@ class Supervisor:
             server = self.servers.get(model_id)
             if server is not None and server.process.poll() is None:
                 server.last_used = self.clock()
+                self._touch(server)
                 return Endpoint(model_id, server.url, None)
             self.servers.pop(model_id, None)
+            server = self._adopt(model_id)
+            if server is not None:
+                self.servers[model_id] = server
+                self._touch(server)
+                self.record({"event": "adopt", "model": model_id, "port": server.port})
+                return Endpoint(model_id, server.url, None)
             start = self.clock()
             server = self._load(model_id)
             self.servers[model_id] = server
+            self._touch(server)
             took = self.clock() - start
             self.record({"event": "load", "model": model_id, "seconds": round(took, 2)})
             return Endpoint(model_id, server.url, took)
+
+    def _record_file(self, model_id: str) -> Path | None:
+        if self.shared is None:
+            return None
+        return self.shared / f"{model_id}.json"
+
+    def _read_record(self, model_id: str) -> dict[str, Any] | None:
+        path = self._record_file(model_id)
+        if path is None:
+            return None
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        return data if isinstance(data, dict) else None
+
+    def _adopt(self, model_id: str) -> Server | None:
+        """The server another process left running for `model_id`, if it still answers."""
+        data = self._read_record(model_id)
+        if data is None:
+            return None
+        port, pid = data.get("port"), data.get("pid")
+        if not isinstance(port, int) or not isinstance(pid, int) or not self.health(port):
+            self._forget(model_id)
+            return None
+        now = self.clock()
+        return Server(model_id, port, Adopted(pid, port, self.health, self.kill), now, now)
+
+    def _touch(self, server: Server) -> None:
+        path = self._record_file(server.model_id)
+        pid = getattr(server.process, "pid", None)
+        if path is None or not isinstance(pid, int):
+            return
+        record = {"model": server.model_id, "port": server.port, "pid": pid, "used": self.wall()}
+        with contextlib.suppress(OSError):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(record), encoding="utf-8")
+
+    def _forget(self, model_id: str) -> None:
+        path = self._record_file(model_id)
+        if path is not None:
+            with contextlib.suppress(OSError):
+                path.unlink()
+
+    def _shared_idle(self, model_id: str) -> bool:
+        """With a shared server, idle means no process used it for `idle` seconds."""
+        data = self._read_record(model_id)
+        used = data.get("used") if data else None
+        return not isinstance(used, int | float) or self.wall() - used >= self.idle
 
     @contextmanager
     def task(self, *model_ids: str) -> Iterator[None]:
@@ -163,6 +297,9 @@ class Supervisor:
             with self._lock:
                 self.tasks -= 1
                 self.task_ended = self.clock()
+                for model_id in model_ids:
+                    if model_id in self.servers:
+                        self._touch(self.servers[model_id])
 
     def reap(self) -> list[str]:
         """Stop servers that have been idle long enough, or that died; returns their ids."""
@@ -172,11 +309,32 @@ class Supervisor:
             for model_id, server in list(self.servers.items()):
                 died = server.process.poll() is not None
                 idle = self.tasks == 0 and now - max(server.last_used, self.task_ended) >= self.idle
+                if idle and self.shared is not None:
+                    idle = self._shared_idle(model_id)
                 if died or idle:
                     self._stop(server)
                     del self.servers[model_id]
+                    self._forget(model_id)
                     stopped.append(model_id)
                     self.record({"event": "exited" if died else "unload", "model": model_id})
+            stopped.extend(self._reap_left_behind())
+        return stopped
+
+    def _reap_left_behind(self) -> list[str]:
+        """Stop shared servers no running process holds once they are idle (D-084)."""
+        if self.shared is None or self.tasks or not self.shared.is_dir():
+            return []
+        stopped: list[str] = []
+        for path in sorted(self.shared.glob("*.json")):
+            model_id = path.stem
+            if model_id in self.servers or not self._shared_idle(model_id):
+                continue
+            data = self._read_record(model_id) or {}
+            if isinstance(data.get("pid"), int):
+                self.kill(data["pid"])
+            self._forget(model_id)
+            stopped.append(model_id)
+            self.record({"event": "unload", "model": model_id})
         return stopped
 
     def stop_all(self) -> None:
@@ -184,6 +342,7 @@ class Supervisor:
         with self._lock:
             for server in self.servers.values():
                 self._stop(server)
+                self._forget(server.model_id)
                 self.record({"event": "unload", "model": server.model_id})
             self.servers.clear()
 
