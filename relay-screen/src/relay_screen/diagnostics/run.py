@@ -229,6 +229,26 @@ def _scenarios(stamp: str, site: str) -> list[Scenario]:
             max_steps=20,
             interfere=True,
         ),
+        # Never tuned on: a program and a site no fix was made for, to show the local AI
+        # carries over to new work rather than learning the other scenarios (D-109).
+        Scenario(
+            "settings-about",
+            "New program: Windows Settings, find the About page",
+            "operator",
+            "Open Windows Settings and show the About page for this PC.",
+            ({"uia_text": {"window": "Settings", "contains": "Device specifications"}},),
+            max_steps=15,
+        ),
+        Scenario(
+            "library-reserve",
+            "New site: search a catalogue and pick the right copy",
+            "operator",
+            f"Go to {site}/library, search the catalogue for Dune and reserve the paperback "
+            "copy of Dune.",
+            ({"form": {"book": "dune-paperback"}, "path": "/reserved"},),
+            max_steps=20,
+            close_tab="library",
+        ),
         Scenario("claude-text", "Claude round trip", "claude-text"),
         Scenario(
             "claude-ui",
@@ -453,7 +473,43 @@ def site_page(path: str, fields: Mapping[str, str]) -> str:
         )
     if path == "/applied":
         return _page("Application received", "<p>Thank you.</p>")
+    if path == "/library":
+        return library_page(fields.get("q", ""))
+    if path == "/reserved":
+        book = next((b for b in BOOKS if b[0] == fields.get("book")), None)
+        return _page("City library: reserved", f"<p>Reserved: {book[1] if book else 'nothing'}</p>")
     return FORM_PAGE
+
+
+BOOKS = (
+    ("dune-hardback", "Dune", "Hardback", "Frank Herbert"),
+    ("messiah-paperback", "Dune Messiah", "Paperback", "Frank Herbert"),
+    ("dune-paperback", "Dune", "Paperback", "Frank Herbert"),
+    ("foundation-paperback", "Foundation", "Paperback", "Isaac Asimov"),
+)
+
+
+def library_page(query: str) -> str:
+    """A catalogue: a search box, then one Reserve button per matching copy."""
+    found = [b for b in BOOKS if query and query.casefold() in b[1].casefold()]
+    rows = "".join(
+        f"<tr><td>{title}</td><td>{kind}</td><td>{author}</td><td>"
+        f'<form action="/reserved" method="get"><input type="hidden" name="book" '
+        f'value="{book}"><button type="submit">Reserve</button></form></td></tr>'
+        for book, title, kind, author in found
+    )
+    table = (
+        f"<p>{len(found)} copies found.</p><table border=1 cellpadding=6>"
+        f"<tr><th>Title</th><th>Format</th><th>Author</th><th></th></tr>{rows}</table>"
+        if query
+        else ""
+    )
+    return _page(
+        "City library catalogue",
+        '<form action="/library" method="get"><label>Search the catalogue '
+        f'<input name="q" aria-label="Search the catalogue" value="{html.escape(query)}">'
+        f'</label><button type="submit">Search</button></form>{table}',
+    )
 
 
 def _same(got: str, want: str) -> bool:
@@ -472,7 +528,7 @@ class FormServer:
             def do_GET(self) -> None:
                 url = urllib.parse.urlparse(self.path)
                 fields = {k: v[-1] for k, v in urllib.parse.parse_qs(url.query).items()}
-                if url.path in ("/sent", "/job2", "/job3", "/applied"):
+                if url.path in ("/sent", "/job2", "/job3", "/applied", "/reserved"):
                     server.received.append((url.path, fields))
                 data = site_page(url.path, fields).encode("utf-8")
                 self.send_response(200)

@@ -478,3 +478,14 @@ def test_notepad_tabs_from_test_runs_are_closed_without_saving(tmp_path: Path) -
     assert diag.close_test_docs(tools(FakeLink(), hands, desktop=desktop)) == 2
     assert sorted(desktop.open) == [1, 4, 5]  # the owner's own tab and other windows stay
     assert hands.calls.count(("uia_invoke", {"element": "e9"})) == 2
+
+
+def test_library_lists_one_reserve_button_per_matching_copy() -> None:
+    from relay_screen.diagnostics.run import site_page
+
+    empty = site_page("/library", {})
+    assert "Search the catalogue" in empty and "Reserve" not in empty
+    found = site_page("/library", {"q": "dune"})
+    assert found.count(">Reserve<") == 3 and 'value="dune-paperback"' in found
+    assert "Foundation" not in found
+    assert "Reserved: Dune" in site_page("/reserved", {"book": "dune-paperback"})

@@ -1839,3 +1839,16 @@ Round 11 added:
   over it.** explorer.exe owns the taskbar and every folder window, so they no
   longer show up as popups of the window in front.
 - Diagnostics closes up to 40 leftover test tabs in Notepad before a run.
+
+## D-109 Diagnostics includes tasks the operator was never tuned on
+*2026-10-16 · accepted · from the D-106 test loop*
+
+The D-106 rounds fixed the operator against the same scenarios each time, which
+can reward fixes that pass one test rather than help the same kind of task in
+other programs. Two scenarios that no fix was made for now run in every full
+test: showing the About page in Windows Settings, and searching a library
+catalogue on the test site and reserving the right copy of a book among
+similar ones. Their results show whether the operator handles new work.
+Operator fixes stay general: a rule may name a kind of program (a calculator
+takes a typed sum) but never a scenario's own text or numbers, so the prompt's
+Calculator example no longer uses the test's sum.

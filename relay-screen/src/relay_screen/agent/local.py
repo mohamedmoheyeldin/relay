@@ -135,7 +135,7 @@ task, reply with fail and the reason "sign-in needed".
 the owner before such steps either way.
 - If an action did not change the screen, try something different.
 - Calculator and other apps that take keys: type the whole entry at once, for \
-example type 12*34= in Calculator, instead of pressing its buttons one by one.
+example type 25*4= in Calculator, instead of pressing its buttons one by one.
 - To go to a website, use open_url instead of typing in the address bar.
 - When the owner adds a note while you work, follow it from then on.
 - Never click taskbar buttons to switch programs (that minimizes them); use \
