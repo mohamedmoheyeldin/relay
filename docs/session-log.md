@@ -2,6 +2,9 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
+## 2026-10-16 · Release 0.1.14
+- One installer with Projects, Tasks, a thread per task and the Cloud AI naming. Checked that the projects and tasks work survived the rename merge; no product name left in relay-ui or the installer UI outside `cli-names.ts`.
+
 ## 2026-10-16 · The cloud AI's vendor and product names removed (D-111)
 - Owner: nothing in the project may name the cloud AI or its app. Every file, identifier, UI label, setting key, diagnostics scenario and doc now says "Cloud AI" ("the reference chat app" for the UI Relay copies; `cloud-cli` for the CLI in docs). Renamed files: relay-core `cloud.rs`, relay-ui `lib/cloud.ts`, `screens/cloud-setup.tsx`, `docs/research/cloud-integration.md`.
 - The real CLI names live only in `cli_names.rs`, `cli_names.py`, `cli-names.ts` and the uninstaller line; `CLAUDE.md` and `.claude/` keep their names because the CLI looks for them. Protocol keys changed together on both sides (`"cloud"` route flag and route target, `"source": "cloud"`, settings key `cloud`, connector kind `cloud_ai`, Tauri commands `cloud_*`, jobs `cloud-install`/`cloud-update`, scenarios `cloud-text`/`cloud-ui`, `RELAY_CLOUD_CLI`).
