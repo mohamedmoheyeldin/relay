@@ -33,6 +33,7 @@ def enable_screen_reader_flag() -> None:
     atexit.register(user32.SystemParametersInfoW, SPI_SETSCREENREADER, 0, None, SPIF_SENDCHANGE)
 
 
+CHOSEN_BY_SELECT = frozenset({"RadioButton", "TabItem"})
 PRESSABLE_DEPTH = 4  # ancestors to look through for the button a click lands on
 
 
@@ -101,8 +102,16 @@ class WinElement:
 
     def invoke(self) -> str:
         patterns = self.patterns()
+        if self.role in CHOSEN_BY_SELECT and "select" in patterns:
+            self._pattern("SelectionItemPattern").Select(waitTime=0)
+            return "selected"
         if "invoke" in patterns:
             self._pattern("InvokePattern").Invoke(waitTime=0)
+            if self.role == "ListItem" and "select" in patterns and self._unpicked():
+                # A web page's <select> option says Invoked but stays unpicked; Select
+                # picks it and fires the page's change event (D-106).
+                self._pattern("SelectionItemPattern").Select(waitTime=0)
+                return "selected"
             return "invoked"
         if "toggle" in patterns:
             self._pattern("TogglePattern").Toggle(waitTime=0)
@@ -116,6 +125,13 @@ class WinElement:
             return "expanded"
         self._pattern("SelectionItemPattern").Select(waitTime=0)
         return "selected"
+
+    def _unpicked(self) -> bool:
+        """Still not selected after Invoke; False when the element went away (it opened)."""
+        try:
+            return not self._pattern("SelectionItemPattern").IsSelected
+        except Exception:
+            return False
 
     def set_value(self, value: str) -> None:
         self._pattern("ValuePattern").SetValue(value, waitTime=0)

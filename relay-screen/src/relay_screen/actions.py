@@ -255,6 +255,24 @@ class Computer:
                 points.append((point[0], point[1]))
         return points
 
+    def front_handle(self) -> int:
+        """The window in front, so the operator can come back to exactly it (D-106)."""
+        return self.apps.backend.foreground() if self.apps is not None else 0
+
+    def bring_back(self, handle: int) -> bool:
+        """Put that window in front again; False when it's gone or Windows refused."""
+        if self.apps is None or not handle:
+            return False
+        backend = self.apps.backend
+        if backend.foreground() == handle:
+            return True
+        if not any(w.handle == handle for w in backend.windows()):
+            return False
+        ok = backend.bring_to_front(handle)
+        if ok:
+            self.sleep(app_launch.WINDOW_SETTLE)
+        return ok
+
     def outside_front(self, coordinate: Sequence[int]) -> str | None:
         """The front window's title when a screenshot point lies outside it (D-106).
 

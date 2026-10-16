@@ -1729,3 +1729,23 @@ From round 5 of the full test (D-103):
 - **"Not finished" is a failure.** A scenario whose operator status is
   failed now fails even when the outside checks pass: Notepad got the line, but
   the operator ran 25 steps without saying it was done.
+
+Round 7 added, under the same decision:
+- **Raw numbers that land on a control win.** When the scaled click lands on
+  no listed element but the model's raw numbers do, the raw point is used.
+  Holo answered Calculator's Multiply in the list's pixels, and the scaled
+  point fell below the window twenty times.
+- **Repeats are stuck.** The same failing action three times, the same option
+  (list item, radio, tab, menu or tree item) picked three times under new ids,
+  or focusing the same window three times ends the task as stuck.
+- **Dropdown options are selected.** A web `<select>` option says Invoked but
+  stays unpicked; when it's still unselected after Invoke, Relay uses
+  SelectionItem.Select. Radio buttons and tabs are selected directly.
+- **The task's own window.** The operator remembers the exact window it works
+  in (its handle). Bringing it back, or a focus_window naming the same program,
+  returns to that window, not the owner's other Notepad document.
+- **click_text stays in the window in front.** Matches outside it are skipped.
+- **Save dialogs get the full path.** When the task names a file and a folder
+  (or the owner answers where), Ctrl+S or Save after typing fills the dialog's
+  File name box with the full path and presses Enter. Models clicked
+  Downloads in the side pane until they were stuck.

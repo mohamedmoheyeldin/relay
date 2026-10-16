@@ -247,6 +247,7 @@ class Step:
     action: dict[str, Any]
     result: str
     error: bool = False
+    target: str = ""  # the listed element it acted on; ids change with every listing
 
     def line(self) -> str:
         return f"Step {self.n}: {describe(self.action)} -> {self.result}"
@@ -376,6 +377,34 @@ def _listed_point(elements: str, action: Mapping[str, Any]) -> list[int] | None:
         if abs(cx - x) <= SNAP_PX and abs(cy - y) <= SNAP_PX:
             return [cx, cy]
     return None
+
+
+LISTED_BOX = re.compile(r"box \[(\d+), (\d+), (\d+), (\d+)\]")
+
+
+def _in_listed_box(elements: str, point: list[int]) -> bool:
+    x, y = point
+    for found in LISTED_BOX.finditer(elements):
+        x0, y0, x1, y1 = (int(v) for v in found.groups())
+        if x0 <= x <= x1 and y0 <= y <= y1:
+            return True
+    return False
+
+
+def _likely_point(elements: str, action: Mapping[str, Any], scaled: list[int]) -> list[int]:
+    """The scaled point, unless only the model's raw numbers land on a listed control.
+
+    Holo sometimes answers in the element list's screenshot pixels rather than the
+    smaller image's: Calculator's Multiply at (270, 495) was scaled to a point below
+    the window twenty times in a row (D-106).
+    """
+    if not elements or _in_listed_box(elements, scaled):
+        return scaled
+    try:
+        raw = [round(float(action["x"])), round(float(action["y"]))]
+    except (KeyError, TypeError, ValueError):
+        return scaled
+    return raw if _in_listed_box(elements, raw) else scaled
 
 
 def _align(length: float) -> int:
@@ -610,6 +639,45 @@ KNOWN_FOLDERS = ("Downloads", "Documents", "Desktop", "Pictures", "Music", "Vide
 REPEAT_MIN = 20  # characters; short text ("Enter", a name) may well be typed twice
 
 
+FILE_NAME = re.compile(
+    r"(?:[a-z]:\\[^\s\"']*\\)?[\w.-]+\.(?:txt|md|csv|json|log|html?|docx?|xlsx?|rtf)\b",
+    re.IGNORECASE,
+)
+SAVE_KEYS = re.compile(r"\bctrl\+(?:shift\+)?s\b", re.IGNORECASE)
+SAVE_DIALOG_TRIES = 4
+SAVE_DIALOG_WAIT = 0.5  # s between looks for the dialog
+
+
+def save_target(task: str, answer: str = "", home: Path | None = None) -> str:
+    """The full path a save task means: 'relay.txt' plus Downloads from the task or the
+    owner's answer to "Where should I save it?" (D-106). "" when either is missing."""
+    name = FILE_NAME.search(task)
+    if name is None:
+        return ""
+    if re.match(r"[a-z]:\\", name.group(0), re.IGNORECASE):
+        return name.group(0)
+    for text in (task, answer):
+        folder = next(
+            (n for n in KNOWN_FOLDERS if re.search(rf"\b{n}\b", text, re.IGNORECASE)), None
+        )
+        if folder:
+            return str((home or Path.home()) / folder / name.group(0))
+    return ""
+
+
+def _opens_save(member: str, params: Mapping[str, Any], elements: str) -> bool:
+    """Ctrl+S, or a press of a Save / Save as control, which may open the Save dialog."""
+    if member == "key":
+        return bool(SAVE_KEYS.search(str(params.get("text", ""))))
+    if member == "click_text":
+        label = str(params.get("text", ""))
+    elif member == "uia_invoke":
+        label = _element_label(elements, str(params.get("element", ""))).strip('"')
+    else:
+        return False
+    return label.strip().casefold() in ("save", "save as", "save as…", "save as...")
+
+
 def _typed_key(params: Mapping[str, Any]) -> str:
     return " ".join(str(params.get("text", params.get("value", ""))).split()).casefold()
 
@@ -648,6 +716,18 @@ def web_search_url(task: str, windows: str = "") -> str | None:
         if len(parts) > 1 and parts[1].casefold().removesuffix(".exe") in words - {"find"}:
             return None  # "find the invoice in Outlook": work in that program
     return SEARCH_URL + urllib.parse.quote_plus(found.group(1))
+
+
+PICK_ROLES = ("ListItem", "RadioButton", "TabItem", "MenuItem", "TreeItem")
+
+
+def _picked(elements: str, element_id: str) -> str:
+    """'ListItem "Blue"' when the element is an option to pick; picking the same one
+    again and again means it isn't taking (D-106). "" for buttons, which can repeat."""
+    found = re.search(rf"\[{re.escape(element_id)}\] (\w+) \"([^\"]+)\"", elements)
+    if found is None or found.group(1) not in PICK_ROLES:
+        return ""
+    return f'{found.group(1)} "{found.group(2)}"'
 
 
 def _element_label(elements: str, element_id: str) -> str:
@@ -766,12 +846,14 @@ class LocalAgent:
         self.ask = ask
         self.notes: list[str] = []  # what the owner added while the task ran
         self.target = ""  # the program the task works in (its exe stem), once known
+        self.target_handle = 0  # and its exact window: a second Notepad isn't it (D-106)
         self.idle = idle if idle is not None else seconds_since_input
         self.last_input = 0.0  # monotonic time Relay last sent real input
         self.plan = ""  # the plan made before the first step (D-094)
         self.done_when = ""  # the plan's done-when, checked once before finishing (D-098)
         self.done_checked = False
         self.typed: dict[str, int] = {}  # text typed so far -> the step that typed it
+        self.save_to = ""  # full path for the Save dialog, once the task and owner name it
         self.new_doc = False  # a writing task: editors get a new tab first
         self.fresh: set[str] = set()  # editors that already got their new tab
         self.elements = ""
@@ -796,6 +878,7 @@ class LocalAgent:
         self.new_doc = bool(NEW_TEXT.search(task) or TYPE_IN_EDITOR.search(task)) and not (
             EDIT_TEXT.search(task)
         )
+        self.save_to = save_target(task)
         try:
             self.plan = self._make_plan(task, apps)
         except Cancelled:
@@ -949,6 +1032,8 @@ class LocalAgent:
                 params: dict[str, Any] = {"coordinate": hit}
             else:
                 member, params = to_member(action, frame, self.coords)
+                if member in POINT_CLICKS:
+                    params = {"coordinate": _likely_point(elements, action, params["coordinate"])}
             element = params.get("element")
             if isinstance(element, str) and f"[{element}]" not in elements:
                 raise ReplyError(f"{element} is not in the element list")
@@ -1121,6 +1206,12 @@ class LocalAgent:
                     self._inside_front(params)
                 if member == "click_text":
                     result = self._click_text(str(params["text"]))
+                elif (
+                    member == "focus_window"
+                    and self._same_program(params)
+                    and (self._back_to_handle())
+                ):
+                    result = ActionResult(f"{self._front_line().split(' · ')[0]} is in front")
                 elif member == "uia_invoke":
                     result = self._invoke(str(params["element"]))
                 else:
@@ -1143,7 +1234,11 @@ class LocalAgent:
             text, error = f"STOP: {exc}", True
         except ActionError as exc:
             text, error = f"failed: {exc}", True
-        step = Step(n, thought, action, text, error)
+        element = params.get("element")
+        target = _picked(self.elements, element) if isinstance(element, str) else ""
+        if not error and self.save_to and self.typed and _opens_save(member, params, self.elements):
+            text = f"{text} · {self._fill_save_dialog()}"
+        step = Step(n, thought, action, text, error, target)
         self.emit(
             {
                 "event": "step",
@@ -1239,6 +1334,7 @@ class LocalAgent:
             self.done_when = done_when
         if question:
             answer = with_paths(self._ask_owner(question, default))
+            self.save_to = self.save_to or save_target(task, answer)
             text.append(f"You asked the owner: {question} {answer}")
         return "\n".join(text)
 
@@ -1340,6 +1436,8 @@ class LocalAgent:
         parts = self._front_line().split(" · ")
         if len(parts) > 2 and not any(p.startswith("Relay itself") for p in parts):
             self.target = parts[1].casefold().removesuffix(".exe")
+            front = getattr(self.hands, "front_handle", None)
+            self.target_handle = front() if callable(front) else 0
             if self.new_doc and self.target in EDITORS and self.target not in self.fresh:
                 self.fresh.add(self.target)
                 with contextlib.suppress(ActionError):
@@ -1365,6 +1463,8 @@ class LocalAgent:
         clicked or typed somewhere else in between (D-093)."""
         if not self.target:
             return
+        if self._back_to_handle():
+            return
         parts = self._front_line().split(" · ")
         stem = parts[1].casefold().removesuffix(".exe") if len(parts) > 1 else ""
         if stem == self.target and not any(p.startswith("Relay itself") for p in parts):
@@ -1372,21 +1472,72 @@ class LocalAgent:
         with contextlib.suppress(ActionError):
             self.hands.run("focus_window", {"window": self.target})
 
+    def _same_program(self, params: Mapping[str, Any]) -> bool:
+        """focus_window names the program the task already works in, not a title."""
+        name = str(params.get("window", "")).casefold().removesuffix(".exe").strip()
+        return bool(self.target) and name in (self.target, self.target.replace("_", " "))
+
+    def _back_to_handle(self) -> bool:
+        """The exact window the task works in, in front again (D-106). With two Notepad
+        windows open, focusing "Notepad" brought the owner's other document."""
+        back = getattr(self.hands, "bring_back", None)
+        if not self.target_handle or not callable(back):
+            return False
+        with contextlib.suppress(Exception):
+            return bool(back(self.target_handle))
+        return False
+
     def _click_text(self, text: str) -> ActionResult:
         found = self.hands.run("find_text", {"text": text}).text or ""
-        match = re.search(r"center \((\d+), (\d+)\)", found)
-        if match is None:
+        points = [[int(x), int(y)] for x, y in re.findall(r"center \((\d+), (\d+)\)", found)]
+        if not points:
             raise ActionError(f"no text like {text!r} on the screen")
-        point = [int(match.group(1)), int(match.group(2))]
-        return self.hands.run("left_click", {"coordinate": point})
+        check = getattr(self.hands, "outside_front", None)
+        inside = [p for p in points if not (callable(check) and check(p))]
+        if not inside:
+            # Text in another program, like "Notepad" in a chat beside the browser (D-106).
+            raise ActionError(
+                f"{text!r} is only outside the window in front; open or focus the right "
+                "program first (launch_app or focus_window)"
+            )
+        return self.hands.run("left_click", {"coordinate": inside[0]})
+
+    def _fill_save_dialog(self) -> str:
+        """Type the full path into the Save dialog's File name box and press Enter (D-106).
+
+        Models clicked folders in the dialog's side pane again and again; the path the
+        task and the owner gave is enough on its own.
+        """
+        for _ in range(SAVE_DIALOG_TRIES):
+            self._pause(SAVE_DIALOG_WAIT)
+            try:
+                found = self.hands.run("uia_find", {"query": "File name", "role": "Edit"}).text
+            except ActionError:
+                continue
+            box = re.search(r"^\[(e\d+)\] Edit", found or "", re.M)
+            if box is None:
+                continue
+            self.hands.run("uia_set_value", {"element": box.group(1), "value": self.save_to})
+            self.hands.run("key", {"text": "enter"})
+            self.typed.setdefault(_typed_key({"text": self.save_to}), 0)
+            saved, self.save_to = self.save_to, ""
+            return f"Saved as {saved}"
+        return "no Save dialog came up"
 
     @staticmethod
     def _stuck(steps: list[Step]) -> bool:
         last = steps[-STUCK_REPEATS:]
         if len(last) < STUCK_REPEATS:
             return False
-        same = all(s.action == last[0].action for s in last)
-        if same and last[0].action.get("action") in REPEAT_IS_STUCK:
+        first = last[0]
+        if first.target and all(
+            s.target == first.target and s.action["action"] == first.action["action"] for s in last
+        ):
+            return True  # "Backend developer" invoked under a new id each step (D-106)
+        same = all(s.action == first.action for s in last)
+        if same and all(s.error for s in last):
+            return True  # the same refused click, twenty times in round 7 (D-106)
+        if same and first.action.get("action") in REPEAT_IS_STUCK:
             return True  # focusing the window it is in, again and again (D-106)
         return same and all("no visible change" in s.result for s in last)
 
