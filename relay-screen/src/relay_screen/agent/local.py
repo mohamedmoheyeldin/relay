@@ -162,6 +162,7 @@ class ReplyError(ValueError):
 
 def parse_reply(text: str) -> dict[str, Any]:
     """The action object in a model reply, tolerating code fences and stray prose."""
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
     text = re.sub(r"```(?:json)?", "", text)
     start = text.find("{")
     if start < 0:

@@ -391,6 +391,7 @@ class Supervisor:
             "--host", "127.0.0.1",
             "--port", str(port),
             "--alias", model_id,
+            "--jinja",  # the model's own chat template, so enable_thinking applies
         ]  # fmt: skip
         process = self.launch(command, self.store.paths.home / "logs" / f"llama-{model_id}.log")
         started = self.clock()

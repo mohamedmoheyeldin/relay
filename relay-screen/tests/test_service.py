@@ -230,3 +230,21 @@ def test_steps_read_as_plain_words() -> None:
     assert plain({"action": "key", "keys": "Return"}, "failed: no window", True, "") == (
         "Pressed Return (didn't work: no window)"
     )
+
+
+def test_a_new_task_from_the_app_re_arms_the_kill_switch(tmp_path: Path) -> None:
+    rearmed: list[str] = []
+    runner = FakeRunner()
+    runner.go.set()
+    service = OperatorService(runner, None, Events(), lambda: rearmed.append("app"))
+    thread = service.handle({"op": "task", "id": "t1", "text": "open Notepad"})
+    assert thread is not None
+    thread.join(5)
+    assert rearmed == ["app"]
+    sock = serve_port(service, tmp_path)
+    try:
+        hand_off(tmp_path, "open Notepad", 10, timeout=5)  # Claude's hand-off: no re-arm
+    finally:
+        service.stopping.set()
+        sock.close()
+    assert rearmed == ["app"]

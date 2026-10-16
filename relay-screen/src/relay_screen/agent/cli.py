@@ -48,7 +48,7 @@ PLANNER_ORDER = (
     "holo2-4b",
     "ui-venus-1.5-8b",
 )
-REPLY_TOKENS = 400
+REPLY_TOKENS = 700  # a batch of 6 actions with its thought fits (D-084)
 REPLY_TIMEOUT = 180.0
 
 
@@ -94,7 +94,16 @@ def llama_model(url: str) -> Model:
 
     def ask(messages: list[dict[str, Any]]) -> str:
         body = json.dumps(
-            {"messages": messages, "max_tokens": REPLY_TOKENS, "temperature": 0}
+            {
+                "messages": messages,
+                "max_tokens": REPLY_TOKENS,
+                "temperature": 0,
+                # One JSON object, no thinking pass: Qwen3.5-based models like Holo3.1
+                # think first by default, which costs seconds per step (D-087).
+                "response_format": {"type": "json_object"},
+                "chat_template_kwargs": {"enable_thinking": False},
+                "cache_prompt": True,
+            }
         ).encode()
         request = urllib.request.Request(
             f"{url}/v1/chat/completions", body, {"Content-Type": "application/json"}

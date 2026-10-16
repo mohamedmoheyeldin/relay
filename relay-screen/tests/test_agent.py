@@ -567,3 +567,8 @@ def test_a_browser_in_front_is_read_from_its_page() -> None:
     assert "[e41] Edit \"Address and search bar\" value='dice.com'" in prompt
     assert '[e42] Edit "Search jobs"' in prompt
     assert calls[0][1] == {"root": "e40", "depth": 40, "interactive": True}
+
+
+def test_a_thinking_block_before_the_json_is_ignored() -> None:
+    reply = '<think>The button {maybe} is here</think>{"action": "key", "keys": "Return"}'
+    assert parse_reply(reply) == {"action": "key", "keys": "Return"}

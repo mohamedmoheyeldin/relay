@@ -240,8 +240,18 @@ def ask_claude(question: str, task: str, run: Callable[..., Any] = subprocess.ru
 class OperatorService:
     """Runs one task at a time (there is one mouse) and answers the other ops at once."""
 
-    def __init__(self, runner: Runner, awareness: Awareness | None, write: Write) -> None:
+    def __init__(
+        self,
+        runner: Runner,
+        awareness: Awareness | None,
+        write: Write,
+        rearm: Callable[[], None] | None = None,
+    ) -> None:
         self.runner = runner
+        # The kill switch stops the task in progress. The service lives for the whole
+        # session, so a new task the owner sends from the app re-arms it; Claude's
+        # hand-offs never do (D-086).
+        self.rearm = rearm or (lambda: None)
         self.awareness = awareness
         self.write = write
         self.running: Running | None = None
@@ -300,6 +310,8 @@ class OperatorService:
             message = "Relay is already doing a task. Stop it first, or add to it."
             write({"id": cid, "event": "failed", "message": message, "steps": 0})
             return None
+        if source == "app":
+            self.rearm()
         thread = threading.Thread(target=self._run, name=f"relay-task-{cid}", daemon=True)
         thread.start()
         return thread
@@ -514,7 +526,8 @@ def main(argv: list[str]) -> int:
         )
 
     awareness = Awareness(hands)
-    service = OperatorService(runner, awareness, write)
+    switch = services.killswitch
+    service = OperatorService(runner, awareness, write, switch.rearm if switch else None)
     awareness.poll()
     awareness.start(service.stopping)
     sock = serve_port(service, operator.paths.home)
