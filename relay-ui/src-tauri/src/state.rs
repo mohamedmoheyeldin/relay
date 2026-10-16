@@ -18,6 +18,10 @@ pub struct AppState {
     /// The owner pressed Stop, so a failed Claude turn must not fall back to the local AI.
     pub stopped: std::sync::atomic::AtomicBool,
     pub pty: Mutex<Option<crate::pty::Session>>,
+    /// The operator service (`commands::operator`), once started.
+    pub operator: tokio::sync::Mutex<Option<std::sync::Arc<relay_core::operator::Operator>>>,
+    /// When the operator service last failed to start, so it isn't retried on every message.
+    pub operator_failed: Mutex<Option<std::time::Instant>>,
 }
 
 impl AppState {
@@ -29,6 +33,8 @@ impl AppState {
             session: Mutex::default(),
             stopped: Default::default(),
             pty: Mutex::default(),
+            operator: tokio::sync::Mutex::default(),
+            operator_failed: Mutex::default(),
         }
     }
 
@@ -146,6 +152,10 @@ pub fn on_start(app: AppHandle) {
         }
         if let Err(err) = ensure_relay_browser(&app).await {
             eprintln!("relay: could not register relay-browser: {err:#}");
+        }
+        // Warm the local model and the screen state before the first message.
+        if s.setup.completed {
+            crate::commands::operator(&app).await;
         }
         if s.updates.check_on_start {
             let version = app.package_info().version.to_string();

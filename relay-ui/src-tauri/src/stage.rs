@@ -1,6 +1,7 @@
 //! Keeps Relay's window out of the way while Claude or the local operator works on the
 //! screen: minimized when the first on-screen step starts, back when the run ends. Only
-//! a window Relay itself minimized is brought back.
+//! a window Relay itself minimized is brought back. While it is away the floating
+//! popup (`popup.rs`) shows what Relay is doing.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -41,9 +42,11 @@ pub fn on_chat(app: &AppHandle, event: Option<&ChatEvent>) {
                 window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(true);
             if showing && !ASIDE.swap(true, Ordering::SeqCst) {
                 let _ = window.minimize();
+                crate::popup::show(app);
             }
         }
         None if ASIDE.swap(false, Ordering::SeqCst) => {
+            crate::popup::hide(app);
             let _ = window.unminimize();
             let _ = window.set_focus();
         }

@@ -2,6 +2,12 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
+## 2026-10-16 · App side of the full release: popup, operator service, no-click setup
+- Owner: no more installers piece by piece; one complete, working app with no permission prompts and nothing to set up, plus a small popup to talk to Relay while it works. The plan thread builds the always-on local operator; the app side lives here. Version is 0.1.10, not shipped yet.
+- Floating popup (`popup.rs`, `screens/popup.tsx`): appears when Relay steps aside for screen work and opens anytime with Ctrl+Shift+Space. It shows the live step, a Stop button, and a box to redirect Relay. It doesn't take focus until its box is clicked, and it is excluded from screen capture (`WDA_EXCLUDEFROMCAPTURE`), so the operator never sees it.
+- Operator service client (`relay-core/src/operator.rs`): one warm `relay_screen.server operator` process over JSON lines. Chat messages are routed first: screen tasks go to the operator and the rest to Claude. Popup follow-ups go into the running task with `say`, Claude's forwarded `ui_task` steps show in chat, and the app quits the service with Relay. Without the service, chat works as before.
+- The wizard opens the chat by itself once Claude is connected.
+
 ## 2026-10-16 · Fast local operator, slice 1 (D-084, D-085)
 - Owner: stop adding documents and make the app work, with millisecond actions driven by the local AI. Built the first slice of the redesign (`/mnt/project-files/relay/redesign/ui-automation-redesign.md` §5 step 2) in relay-screen.
 - One-move tasks (open a site, open or switch to a program) run instantly with no model, even before the model has downloaded. Other tasks get text-only steps when UI Automation covers the window, batches of up to 6 actions per reply, and a `timing` event per step.

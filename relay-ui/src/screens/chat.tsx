@@ -230,6 +230,17 @@ export const ChatScreen = ({
         };
     }, []);
 
+    // A message typed in the floating popup joins this conversation.
+    useEffect(() => {
+        const un = listen<string>("chat-user", ({ payload }) => {
+            setItems((p) => [...p, { kind: "user", text: payload }]);
+            setBusy(true);
+        });
+        return () => {
+            un.then((f) => f());
+        };
+    }, []);
+
     useEffect(() => {
         bottom.current?.scrollIntoView({ behavior: "smooth" });
     }, [items]);
