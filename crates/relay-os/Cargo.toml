@@ -1,0 +1,19 @@
+[package]
+name = "relay-os"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+image = { version = "0.25.6", default-features = false, features = ["png"] }
+thiserror = "2.0.21"
+
+[lints]
+workspace = true
+
+[target."cfg(windows)".dependencies]
+windows = { version = "0.61.3", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_HiDpi", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging", "Win32_System_Threading"] }
+
+[features]
+testing = []

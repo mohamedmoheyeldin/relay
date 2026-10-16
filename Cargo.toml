@@ -1,15 +1,32 @@
 [workspace]
 resolver = "2"
-members = ["relay-core", "relay-setup", "relay-ui/src-tauri"]
+members = [
+    "crates/relay-protocol",
+    "crates/relay-os",
+    "crates/relay-ai",
+    "crates/relay-mcp",
+    "crates/relay-agent",
+    "crates/relay-ui",
+    "src-tauri",
+]
 
 [workspace.package]
-version = "0.1.15"
+version = "0.2.0"
 edition = "2021"
 license = "MIT"
+rust-version = "1.80"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "warn"
 
 [profile.release]
 codegen-units = 1
 lto = true
-opt-level = 3
+opt-level = "s"
 panic = "abort"
 strip = true

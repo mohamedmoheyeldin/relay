@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "relay-screen": {
-      "command": "uv",
-      "args": ["run", "--quiet", "relay-screen"]
-    }
-  }
-}
