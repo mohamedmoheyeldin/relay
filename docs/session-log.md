@@ -262,3 +262,7 @@ Short entries so later sessions can pick up where earlier ones stopped. Newest f
 - Researched local GUI-grounding models and runtimes: [research/local-models.md](research/local-models.md).
 - Wrote architecture, decisions D-001..D-016, roadmap, M1 plan; created `dev` from `main`.
 - Next: M1-01 scaffolding (in progress on branch `claude/relay-m1-plan-6zr3a1` -> PR into `dev`).
+
+## 2026-10-16 04:40 - RAM (D-105)
+- llama-server: `--load-mode dio` (else `mmap`), never `none`, with an env override to compare on the PC.
+- relay-screen MCP server exits with its parent and on stdin close (`relay_screen/lifetime.py`).

@@ -379,7 +379,7 @@ class Harness:
             idle=60,
             load_timeout=30,
             record=self.events.append,
-            help=lambda exe: "--load-mode MODE ... -cram, --cache-ram N",
+            help=lambda exe: "--load-mode MODE ... - dio: use DirectIO ... -cram, --cache-ram N",
         )
 
     def launch(self, command: list[str], log: Path) -> FakeProcess:
@@ -399,7 +399,7 @@ def test_ensure_starts_llama_server_on_the_gpu(tmp_path: Path) -> None:
     assert command[0].endswith("llama-server.exe")
     assert command[command.index("--n-gpu-layers") + 1] == "999"
     # RAM (D-100): no mapped copy of the weights and no host prompt cache
-    assert command[command.index("--load-mode") + 1] == "none"
+    assert command[command.index("--load-mode") + 1] == "dio"
     assert command[command.index("--cache-ram") + 1] == "0"
     assert command[command.index("--host") + 1] == "127.0.0.1"
     assert "--mmproj" in command
@@ -642,10 +642,15 @@ def test_chat_turns_thinking_off_and_drops_think_blocks(monkeypatch: pytest.Monk
     assert sent[0]["chat_template_kwargs"] == {"enable_thinking": False}
 
 
-def test_ram_flags_follow_the_llama_build() -> None:
+def test_ram_flags_follow_the_llama_build(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("RELAY_LLAMA_LOAD_MODE", raising=False)
     # Build 11630 dropped --no-mmap for --load-mode and exits on the old flag (D-102).
-    assert ram_flags("-lm, --load-mode MODE\n-cram, --cache-ram N") == [
-        "--load-mode", "none", "--cache-ram", "0",
+    assert ram_flags("-lm, --load-mode MODE\n- dio: use DirectIO\n-cram, --cache-ram N") == [
+        "--load-mode", "dio", "--cache-ram", "0",
     ]  # fmt: skip
     assert ram_flags("--no-mmap  do not memory-map model") == ["--no-mmap"]
     assert ram_flags("") == []
+    # No DirectIO in this build: mmap, never "none" (a full heap copy of the weights).
+    assert ram_flags("--load-mode MODE") == ["--load-mode", "mmap"]
+    monkeypatch.setenv("RELAY_LLAMA_LOAD_MODE", "none")  # a PC run comparing modes
+    assert ram_flags("--load-mode MODE\n- dio: use DirectIO") == ["--load-mode", "none"]

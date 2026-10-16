@@ -199,6 +199,10 @@ class UiaService:
         state = toggled() if callable(toggled) else None
         if state is not None:  # a checkbox the model must see is still unticked (D-100)
             parts.append("checked" if state else "unchecked")
+        selected = getattr(e, "selected", None)
+        chosen = selected() if callable(selected) else None
+        if chosen is not None:  # which option of a radio group is picked (D-104)
+            parts.append("selected" if chosen else "not selected")
         actions = sorted(e.patterns() & ACTIONS)
         if actions:
             parts.append("{" + ",".join(actions) + "}")

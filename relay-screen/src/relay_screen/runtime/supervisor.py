@@ -96,10 +96,16 @@ def server_help(exe: str) -> str:
 
 def ram_flags(help_text: str) -> list[str]:
     """Keep the weights out of RAM and the host prompt cache off (D-100), in the words
-    of this llama.cpp build: newer ones replaced --no-mmap with --load-mode."""
+    of this llama.cpp build: newer ones replaced --no-mmap with --load-mode.
+
+    On --load-mode builds "none" reads the whole file into a heap buffer first, which
+    the round-5 run measured at 9.8 GB private; DirectIO ("dio") streams it to the GPU
+    without that copy or the file cache (D-105). RELAY_LLAMA_LOAD_MODE overrides it so
+    a run on the PC can compare modes without a new build."""
     flags: list[str] = []
     if "--load-mode" in help_text:
-        flags += ["--load-mode", "none"]
+        mode = os.environ.get("RELAY_LLAMA_LOAD_MODE") or ("dio" if "dio:" in help_text else "mmap")
+        flags += ["--load-mode", mode]
     elif "--no-mmap" in help_text:
         flags.append("--no-mmap")
     if "--cache-ram" in help_text:

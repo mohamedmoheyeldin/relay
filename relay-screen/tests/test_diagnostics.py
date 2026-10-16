@@ -422,3 +422,15 @@ def test_resources_are_grouped_by_role_and_checked_against_the_budget(tmp_path: 
     assert out["peak_relay_ram_mb"] == 1600 and out["over_budget"][0].startswith("Relay used 1600")
     summary = diag.summarize([], {}, tmp_path, "now", 1.0, out)
     assert summary["problems"] == out["over_budget"]
+    # Another program's Python under the Claude desktop app is not Relay's.
+    relay_py = "C:\\Program Files\\Relay\\python\\python.exe"
+    other_py = "C:\\Users\\me\\uv\\python.exe"
+    mixed = [
+        {"pid": 40, "parent": 1, "name": "claude.exe", "ram": 0, "private": 0},
+        {"pid": 41, "parent": 40, "name": "python.exe", "ram": 70 * mb, "path": other_py},
+        {"pid": 42, "parent": 40, "name": "python.exe", "ram": 60 * mb, "path": relay_py},
+    ]
+    found = diag.group_processes(mixed, {}, me=99, python_dir="C:\\Program Files\\Relay\\python")
+    assert found["relay-screen for Claude"] == {
+        "processes": 1, "ram_mb": 60, "private_mb": 0, "vram_mb": 0,
+    }  # fmt: skip

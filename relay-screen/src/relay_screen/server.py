@@ -733,7 +733,14 @@ def main() -> None:
     from relay_screen.dpi import set_dpi_awareness
 
     set_dpi_awareness()
+    from relay_screen.lifetime import exit_with_parent
+
+    exit_with_parent()  # a stopped `claude -p` must not leave this process behind (D-105)
     build_server().run(transport="stdio")
+    # stdin closed: Claude is done with us. Leave now instead of waiting on worker
+    # threads (UIA, the model's warm-up), which kept old servers alive.
+    sys.stdout.flush()
+    os._exit(0)
 
 
 if __name__ == "__main__":

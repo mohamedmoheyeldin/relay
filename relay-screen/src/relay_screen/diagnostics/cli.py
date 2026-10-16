@@ -177,7 +177,12 @@ def main(argv: list[str]) -> int:
         return f"unknown setup {s.setup!r}"
 
     def sample() -> dict[str, dict[str, int]]:
-        return diag.group_processes(desktop.processes(), desktop.gpu_processes(), os.getpid())
+        return diag.group_processes(
+            desktop.processes(),
+            desktop.gpu_processes(),
+            os.getpid(),
+            str(Path(sys.executable).parent),
+        )
 
     watch = diag.ResourceWatch(sample, folder / "resources.jsonl")
     tools = diag.Tools(

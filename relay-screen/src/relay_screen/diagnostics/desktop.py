@@ -125,6 +125,9 @@ def processes() -> list[dict[str, int | str]]:
     kernel32.OpenProcess.restype = wintypes.HANDLE
     kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
     kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    kernel32.QueryFullProcessImageNameW.argtypes = (
+        wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD),
+    )  # fmt: skip
     psapi = ctypes.WinDLL("psapi", use_last_error=True)
     psapi.GetProcessMemoryInfo.argtypes = (
         wintypes.HANDLE, ctypes.POINTER(_Counters), wintypes.DWORD,
@@ -142,6 +145,7 @@ def processes() -> list[dict[str, int | str]]:
                 "name": entry.szExeFile.lower(),
                 "ram": 0,
                 "private": 0,
+                "path": "",
             }
             access = PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ
             handle = kernel32.OpenProcess(access, False, entry.th32ProcessID)
@@ -151,6 +155,10 @@ def processes() -> list[dict[str, int | str]]:
                 if psapi.GetProcessMemoryInfo(handle, ctypes.byref(counters), counters.cb):
                     item["ram"] = int(counters.WorkingSetSize)
                     item["private"] = int(counters.PrivateUsage)
+                size = wintypes.DWORD(1024)
+                buffer = ctypes.create_unicode_buffer(size.value)
+                if kernel32.QueryFullProcessImageNameW(handle, 0, buffer, ctypes.byref(size)):
+                    item["path"] = buffer.value
                 kernel32.CloseHandle(handle)
             found.append(item)
             ok = kernel32.Process32NextW(snap, ctypes.byref(entry))

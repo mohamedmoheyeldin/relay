@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -15,8 +16,10 @@ from relay_screen.agent.local import (
     Frame,
     LocalAgent,
     ReplyError,
+    _prioritize,
     parse_reply,
     to_member,
+    with_paths,
 )
 from relay_screen.errors import ActionError
 from relay_screen.runtime.store import InstalledFile, InstalledModel
@@ -859,3 +862,57 @@ def test_waits_for_the_owner_to_pause_before_real_input() -> None:
     step = agent._act(1, "", {"action": "type", "text": "hi"}, "type", {"text": "hi"})
     assert not step.error
     assert any("Waiting for you to pause" in e.get("text", "") for e in events)
+
+
+def test_a_save_with_no_place_asks_the_owner_where() -> None:
+    """The model's plan forgot to ask; Relay asks itself and gives the full path (D-104)."""
+    hands = FakeHands()
+    plan = {"action": "plan", "goal": "save a note", "app": "Notepad", "steps": ["Save it"]}
+    done = {"thought": "", "action": "done", "summary": "ok"}
+    model = Script(done, done, plan=plan)
+    events: list[dict[str, Any]] = []
+    answers = [["Save it in my Downloads folder."]]
+    agent = LocalAgent(
+        hands,
+        model,
+        on_event=events.append,
+        inbox=lambda: answers.pop(0) if answers else [],
+        instant=False,
+    )
+    agent.run("Open Notepad, type hello, and save it as hello.txt")
+    assert [e["text"] for e in events if e["event"] == "question"] == ["Where should I save it?"]
+    assert str(Path.home() / "Downloads") in model.prompt(0)
+    # A place in the task, or nobody to answer: no question.
+    for task, inbox in (("save it to my Desktop as a.txt", lambda: []), ("save it", None)):
+        events.clear()
+        LocalAgent(hands, Script(done, done, plan=plan), on_event=events.append,
+                   inbox=inbox, instant=False).run(task)  # fmt: skip
+        assert not [e for e in events if e["event"] == "question"]
+
+
+def test_typing_into_notepad_gets_a_new_tab_but_editing_does_not() -> None:
+    windows = '1 open window(s), topmost first:\n"notes - Notepad" · notepad.exe · in front'
+    done = {"thought": "", "action": "done", "summary": "ok"}
+    for task, new in (
+        ("Open Notepad and type: First line 1. Then press Enter", True),
+        ("Open Notepad, type Relay saved this 1, and save it as a.txt", True),
+        ("In the open document in Notepad, change the title", False),
+    ):
+        hands = FakeHands({"list_windows": windows})
+        LocalAgent(hands, Script(done, done), instant=False).run(task)
+        assert (("key", {"text": "ctrl+n"}) in hands.acts()) is new, task
+
+
+def test_long_element_lists_put_content_first() -> None:
+    nav = "\n".join(f'  [e{i}] TreeItem "Folder {i}" {{select}}' for i in range(400))
+    listing = f'Elements (ids):\n[e1] Window "x"\n{nav}\n    [e999] ListItem "incoming" {{select}}'
+    cut = _prioritize(listing, 2000)
+    assert cut.splitlines()[1].startswith('[e999] ListItem "incoming"')
+    assert len(cut) <= 2000 + 20 and _prioritize("short", 2000) == "short"
+
+
+def test_folder_answers_get_their_full_path() -> None:
+    home = Path("C:/Users/me")
+    text = with_paths("The owner answered: my Downloads folder", home)
+    assert str(home / "Downloads") in text
+    assert with_paths("anywhere", home) == "anywhere"
