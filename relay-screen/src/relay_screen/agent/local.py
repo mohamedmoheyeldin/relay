@@ -212,18 +212,22 @@ _ACTION = {
     "required": ["action"],
     "additionalProperties": True,
 }
+# A capped thought: Settings in round 20 rambled past the reply's token limit, and the
+# cut-off JSON came back three times the same (D-112).
+THOUGHT_MAX = 600
+_THOUGHT = {"type": "string", "maxLength": THOUGHT_MAX}
 REPLY_SCHEMA: dict[str, Any] = {
     "anyOf": [
         {
             "type": "object",
-            "properties": {"thought": {"type": "string"}, "action": {"enum": list(ACTION_NAMES)}},
+            "properties": {"thought": _THOUGHT, "action": {"enum": list(ACTION_NAMES)}},
             "required": ["thought", "action"],
             "additionalProperties": True,
         },
         {
             "type": "object",
             "properties": {
-                "thought": {"type": "string"},
+                "thought": _THOUGHT,
                 "actions": {
                     "type": "array",
                     "items": _ACTION,
@@ -782,6 +786,7 @@ def _front_document_empty(elements: str) -> bool:
 
 
 OPEN_MENU = re.compile(r"^\s*\[e\d+\] Menu\b(?!Bar|Item)", re.M)
+UNTICK = re.compile(r"\b(untick|uncheck|clear|turn off|switch off|disable)\b", re.IGNORECASE)
 SUBMITS = re.compile(r"(next|submit|continue|apply|send|finish|save)\b", re.IGNORECASE)
 EMPTY_FIELD = re.compile(r'^\s*\[e\d+\] (?:Edit|Spinner) "([^"]+)"(?![^\n]*value=)', re.M)
 
@@ -906,7 +911,15 @@ def _clicked_again(steps: list[Step]) -> bool:
 
 
 FIELD_ROLES = ("Edit", "Spinner", "ComboBox", "Document")
-TARGET_ROLES = (*FIELD_ROLES, "Button", "CheckBox", "RadioButton", "Hyperlink", "ListItem")
+TARGET_ROLES = (
+    *FIELD_ROLES,
+    "Button",
+    "CheckBox",
+    "RadioButton",
+    "Hyperlink",
+    "ListItem",
+    "TreeItem",
+)
 NAMED_LINE = re.compile(r'^\s*\[(e\d+)\] (\w+) "([^"]{3,})"[^\n]*?center \((\d+), (\d+)\)', re.M)
 
 
@@ -1955,6 +1968,11 @@ class LocalAgent:
         option = _dropdown_option(self.elements, element)
         if option is not None:
             return self._pick_option(*option)
+        line = re.search(rf"^\s*\[{re.escape(element)}\] CheckBox\b[^\n]*", self.elements, re.M)
+        if line and " checked " in f"{line.group(0)} " and not UNTICK.search(self.task):
+            # The job form's "I confirm" box was ticked, then pressed again under a new
+            # id, which unticked it before Submit (D-112).
+            return ActionResult("already checked, so Relay left it as it is")
         try:
             return self.hands.run("uia_invoke", {"element": element})
         except ActionError as exc:
@@ -2126,6 +2144,15 @@ class LocalAgent:
                 f"id: {rows}"
             )
         listed = alike[0] if alike else None
+        field = _listed_named(self.elements, text, FIELD_ROLES)
+        centre = _center(self.elements, field) if listed is None and field else None
+        if centre is not None and field is not None:
+            # "Full name" is the box's own name: click into the box, not its label,
+            # and say it has the focus. The job form clicked the label five times
+            # (D-112).
+            result = self.hands.run("left_click", {"coordinate": centre})
+            label = _element_label(self.elements, field)
+            return ActionResult(f"{result.text or 'OK'}; {label} now has the focus: type")
         if listed is not None:
             # The element list names the control exactly; OCR's first "Search" was a
             # text box's label (D-112).

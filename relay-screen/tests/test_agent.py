@@ -1489,3 +1489,37 @@ def test_an_empty_document_is_not_saved_after_typing() -> None:
     _, events = run(hands, model, task="type hi and save it as a.txt in Downloads")
     saves = [e for e in events if e["event"] == "step" and "ctrl+s" in e["action"]]
     assert saves and saves[0]["result"].startswith("failed: the document in front is empty")
+
+
+def test_click_text_on_a_box_name_clicks_into_the_box() -> None:
+    # Round 20: "Full name" clicked five times on its label, never typed (D-112).
+    tree = 'Elements:\n[e1] Edit "Full name" center (40, 60)'
+    hands = FakeHands({"uia_tree": tree, "left_click": "OK · no visible change"})
+    _, events = run(hands, Script({"action": "click_text", "text": "Full name"}, done()))
+    assert ("left_click", {"coordinate": [40, 60]}) in hands.acts()
+    step = next(e for e in events if e["event"] == "step")
+    assert step["result"].endswith('"Full name" now has the focus: type')
+
+
+def test_the_thought_is_capped_so_a_reply_always_closes() -> None:
+    from relay_screen.agent.local import REPLY_SCHEMA, THOUGHT_MAX
+
+    for shape in REPLY_SCHEMA["anyOf"]:
+        assert shape["properties"]["thought"]["maxLength"] == THOUGHT_MAX
+
+
+def test_a_checked_box_is_not_pressed_again() -> None:
+    # Round 21: the confirm box was ticked, then pressed again and unticked (D-112).
+    tree = 'Elements:\n[e1] CheckBox "I confirm" checked {toggle} center (5, 5)'
+    hands = FakeHands({"uia_tree": tree})
+    _, events = run(hands, Script({"action": "invoke", "element": "e1"}, done()))
+    assert not any(a[0] == "uia_invoke" for a in hands.acts())
+    step = next(e for e in events if e["event"] == "step")
+    assert step["result"] == "already checked, so Relay left it as it is"
+
+
+def test_an_unchecked_box_is_pressed() -> None:
+    tree = 'Elements:\n[e1] CheckBox "I confirm" unchecked {toggle} center (5, 5)'
+    hands = FakeHands({"uia_tree": tree})
+    run(hands, Script({"action": "invoke", "element": "e1"}, done()))
+    assert ("uia_invoke", {"element": "e1"}) in hands.acts()

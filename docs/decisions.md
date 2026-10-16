@@ -1952,3 +1952,19 @@ any program, so the fixes are general:
   controls share refuses and lists their ids and rows, unless the thought names one
   of them. Typing while a menu is open is refused (keys pick menu items), and saving
   is refused when the text area in front is empty after the task typed something.
+- Round 20 (22/24): click_text on a text box's own name clicks into the box and
+  says it has the focus, instead of clicking its label. The model's thought is
+  capped at 600 characters in the reply schema, so a rambling thought can't run
+  past the reply's token limit and leave cut-off JSON.
+- Round 21 (18/24; the app checks were disturbed by the PC being in use): a ticked
+  checkbox is not pressed again unless the task says to untick it (the job form's
+  confirm box was ticked, then unticked under a new id), and a click outside the
+  window can fall back to a listed tree item the thought names (File Explorer's
+  Downloads in the side pane).
+
+## D-113 · Main's commits show as Verified
+- Owner, 2026-10-16: the dev commits showed "Unverified" (signed, but by an email no
+  GitHub account owns). Commits made through GitHub's API with the owner's token are
+  not signed either, so `dev` is merged into `main` as a squash merge on GitHub, which
+  GitHub signs: every commit on `main` shows as Verified. The old history's cleanup and
+  a signing key for `dev` commits wait on the owner's choice.
