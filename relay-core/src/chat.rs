@@ -146,6 +146,18 @@ pub enum ChatEvent {
         action: String,
         result: String,
     },
+    /// The operator's plan before it starts.
+    LocalPlan {
+        goal: String,
+        app: String,
+        steps: Vec<String>,
+        done_when: String,
+    },
+    /// The operator asks the owner something; their next chat message answers it.
+    LocalQuestion {
+        text: String,
+        default: String,
+    },
 }
 
 fn truncate(text: &str, max: usize) -> String {

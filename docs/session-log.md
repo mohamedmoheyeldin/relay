@@ -2,6 +2,19 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
+## 2026-10-16 · 0.1.11 app: chat history, Claude-app layout, new mark
+- Owner feedback on 0.1.10, all fixed in the app:
+  - The floating popup and its shortcut are gone.
+  - Relay no longer minimizes when a run starts.
+  - Stop returns at once.
+  - Relay works fully when Claude is signed out: the operator takes everything (`route` with `"claude": false`), and setup never blocks on sign-in.
+- Chats are saved in `%LOCALAPPDATA%\Relay\chats` (relay-core `chats.rs`), with pin, rename and delete. Opening a chat resumes its Claude session.
+- The sidebar follows the Claude desktop app: New chat, search, Pinned, recents by day, and the account row.
+- The composer has an attach button (files go along as paths) and a model and effort picker.
+- Settings pages are renamed Account, Connectors and Developer.
+- Operator steps show their plain words. `plan` and `question` events show as a plan card and a question; a message sent while a task runs goes to it as `say`.
+- New mark: a lowercase r made of two linked nodes, a dot for the local hands and a ring for the cloud brain. Master in `relay-ui/src/assets/relay-mark.svg`; the Tauri icons were regenerated from it.
+
 ## 2026-10-16 · Fixes from the owner's first PC runs (D-093..D-095)
 - Dice: the URL opens as step 1. The model can't invent select_display any more (JSON schema), and windows follow their monitor. focus_window finds windows by looser names.
 - Cairo flights: "find X" opens a web search first. Address-bar presses fall back to a click, and labels the model copied ("Brave Origin \u00b7 browser") are cleaned.

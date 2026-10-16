@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="156 154 712 712" fill="none" aria-hidden="true">
+  <!-- Relay glyph without the tile; inherits the text colour. -->
+  <g stroke="currentColor" stroke-width="116" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M312 742V478a140 140 0 0 1 140-140H512"/>
+    <circle cx="652" cy="338" r="130" stroke-width="108"/>
+  </g>
+  <circle cx="312" cy="742" r="124" fill="currentColor"/>
+</svg>

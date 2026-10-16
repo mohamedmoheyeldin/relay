@@ -418,14 +418,14 @@ const DiagnosticsPage = ({ info }: PageProps) => {
 
 const PAGES: { id: string; label: string; icon: FC<{ className?: string }>; description: string }[] = [
     { id: "general", label: "General", icon: Settings01, description: "Startup, the tray and language." },
-    { id: "claude", label: "Claude", icon: Stars01, description: "Claude Code, your sign-in, and the model Relay asks for." },
+    { id: "claude", label: "Account", icon: Stars01, description: "Your Claude sign-in, Claude Code, and the model Relay asks for." },
     { id: "local-ai", label: "Local AI", icon: CpuChip01, description: "The models that run on your GPU to find and check things on screen." },
-    { id: "connections", label: "Connections", icon: Link01, description: "MCP servers and connectors, shared with Claude Code." },
+    { id: "connections", label: "Connectors", icon: Link01, description: "MCP servers and connectors, shared with Claude Code." },
     { id: "safety", label: "Safety", icon: Shield01, description: "Approvals, the kill switch and phone approvals." },
     { id: "playbooks", label: "Playbooks", icon: BookOpen01, description: "Tasks Relay has learned to repeat." },
     { id: "privacy", label: "Privacy", icon: Lock01, description: "Activity logs and screenshots." },
     { id: "updates", label: "Updates", icon: Download01, description: "Relay's version and updates." },
-    { id: "diagnostics", label: "Diagnostics", icon: Activity, description: "Health checks and a report to share." },
+    { id: "diagnostics", label: "Developer", icon: Activity, description: "Health checks and a report to share." },
 ];
 
 export const SettingsScreen = ({

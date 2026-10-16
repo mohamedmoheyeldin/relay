@@ -22,6 +22,11 @@ pub struct Chat {
     /// What the chat screen shows, as it sent it.
     #[serde(default)]
     pub items: Value,
+    #[serde(default)]
+    pub pinned: bool,
+    /// The owner named it, so the first message no longer does.
+    #[serde(default)]
+    pub renamed: bool,
 }
 
 /// A chat in the sidebar list.
@@ -30,6 +35,18 @@ pub struct Summary {
     pub id: String,
     pub title: String,
     pub updated: u64,
+    pub pinned: bool,
+}
+
+impl From<&Chat> for Summary {
+    fn from(c: &Chat) -> Self {
+        Self {
+            id: c.id.clone(),
+            title: c.title.clone(),
+            updated: c.updated,
+            pinned: c.pinned,
+        }
+    }
 }
 
 pub fn dir() -> PathBuf {
@@ -64,11 +81,7 @@ pub fn list(dir: &Path) -> Vec<Summary> {
                 .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
                 .filter_map(|e| std::fs::read_to_string(e.path()).ok())
                 .filter_map(|t| serde_json::from_str::<Chat>(&t).ok())
-                .map(|c| Summary {
-                    id: c.id,
-                    title: c.title,
-                    updated: c.updated,
-                })
+                .map(|c| Summary::from(&c))
                 .collect()
         })
         .unwrap_or_default();
@@ -82,15 +95,45 @@ pub fn load(dir: &Path, id: &str) -> Result<Chat> {
     Ok(serde_json::from_str(&text)?)
 }
 
-/// Write a chat (through a temporary file, so a crash never leaves half of one).
+/// Save what the chat screen shows. A name the owner gave and the pin are kept.
 pub fn save(dir: &Path, mut chat: Chat) -> Result<Chat> {
+    if let Ok(old) = load(dir, &chat.id) {
+        chat.pinned = old.pinned;
+        if old.renamed {
+            chat.renamed = true;
+            chat.title = old.title;
+        }
+    }
+    chat.updated = now_ms().max(chat.updated);
+    write(dir, &chat)?;
+    Ok(chat)
+}
+
+pub fn rename(dir: &Path, id: &str, title: &str) -> Result<Chat> {
+    let title = title.trim();
+    ensure!(!title.is_empty(), "a chat needs a name");
+    let mut chat = load(dir, id)?;
+    chat.title = title.to_string();
+    chat.renamed = true;
+    write(dir, &chat)?;
+    Ok(chat)
+}
+
+pub fn pin(dir: &Path, id: &str, pinned: bool) -> Result<Chat> {
+    let mut chat = load(dir, id)?;
+    chat.pinned = pinned;
+    write(dir, &chat)?;
+    Ok(chat)
+}
+
+/// Write through a temporary file, so a crash never leaves half a chat.
+fn write(dir: &Path, chat: &Chat) -> Result<()> {
     let path = file(dir, &chat.id)?;
     std::fs::create_dir_all(dir)?;
-    chat.updated = now_ms().max(chat.updated);
     let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, serde_json::to_vec(&chat)?)?;
+    std::fs::write(&tmp, serde_json::to_vec(chat)?)?;
     std::fs::rename(&tmp, &path)?;
-    Ok(chat)
+    Ok(())
 }
 
 pub fn delete(dir: &Path, id: &str) -> Result<()> {
@@ -112,6 +155,8 @@ mod tests {
             updated: 0,
             session: Some("s-1".into()),
             items: json!([{"kind": "user", "text": title}]),
+            pinned: false,
+            renamed: false,
         }
     }
 
@@ -130,6 +175,12 @@ mod tests {
         let a = load(&dir, "a").unwrap();
         assert_eq!(a.session.as_deref(), Some("s-1"));
         assert_eq!(a.items[0]["text"], "First");
+        rename(&dir, "a", " Trip plans ").unwrap();
+        pin(&dir, "a", true).unwrap();
+        // A later save from the chat screen keeps both.
+        let a = save(&dir, chat("a", "First")).unwrap();
+        assert_eq!((a.title.as_str(), a.pinned), ("Trip plans", true));
+        assert!(rename(&dir, "a", "  ").is_err());
         delete(&dir, "a").unwrap();
         delete(&dir, "a").unwrap();
         assert_eq!(list(&dir).len(), 1);

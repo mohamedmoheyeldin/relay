@@ -167,7 +167,9 @@ export type ChatEvent =
     | { type: "error"; message: string }
     | { type: "fallback"; reason: string }
     | { type: "local_note"; text: string }
-    | { type: "local_step"; step: number; thought: string; action: string; result: string };
+    | { type: "local_step"; step: number; thought: string; action: string; result: string }
+    | { type: "local_plan"; goal: string; app: string; steps: string[]; done_when: string }
+    | { type: "local_question"; text: string; default: string };
 
 /** An approval relay-screen asks for in Relay's window. */
 export interface Approval {
@@ -208,7 +210,7 @@ export interface Playbook {
 }
 
 /** A saved conversation in the sidebar (relay-core chats.rs). */
-export type ChatSummary = { id: string; title: string; updated: number };
+export type ChatSummary = { id: string; title: string; updated: number; pinned: boolean };
 export type SavedChat = ChatSummary & { session: string | null; items: unknown };
 
 export const api = {
@@ -252,11 +254,14 @@ export const api = {
 
     chatSend: (prompt: string) => invoke<void>("chat_send", { prompt }),
     chatStop: () => invoke<void>("chat_stop"),
+    chatSay: (text: string) => invoke<void>("chat_say", { text }),
     chatNew: () => invoke<void>("chat_new"),
     chatsList: () => invoke<ChatSummary[]>("chats_list"),
     chatOpen: (id: string) => invoke<SavedChat>("chat_open", { id }),
     chatSave: (id: string, title: string, items: unknown) => invoke<ChatSummary>("chat_save", { id, title, items }),
     chatDelete: (id: string) => invoke<void>("chat_delete", { id }),
+    chatRename: (id: string, title: string) => invoke<ChatSummary>("chat_rename", { id, title }),
+    chatPin: (id: string, pinned: boolean) => invoke<ChatSummary>("chat_pin", { id, pinned }),
 
     browsers: () => invoke<BrowserInfo[]>("browsers"),
     approvalAnswer: (id: number, decision: string) => invoke<boolean>("approval_answer", { id, decision }),

@@ -1,25 +1,29 @@
 // The chat window: one conversation with Claude, with Relay's activity shown inline.
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { ArrowUp, CheckCircle, ChevronRight, CpuChip01, Stars02, StopSquare, Tool01, XCircle } from "@untitledui/icons";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { Header, Menu, MenuItem, MenuSection, MenuTrigger, Popover } from "react-aria-components";
+import { ArrowUp, Check, CheckCircle, ChevronDown, ChevronRight, CpuChip01, File06, Plus, Stars02, StopSquare, Tool01, XCircle, XClose } from "@untitledui/icons";
 import { TextAreaBase } from "@/components/base/textarea/textarea";
 import { Markdown } from "@/components/relay/markdown";
 import { Notice, Spinner } from "@/components/relay/ui";
-import { type ChatEvent, api, errorText } from "@/lib/api";
+import { type ChatEvent, type Settings, api, errorText } from "@/lib/api";
 import { describeTool, isHiddenTool } from "@/lib/describe-tool";
 import { isAuthError, refreshClaude, useClaude } from "@/lib/claude";
 import { SignIn } from "./sign-in";
 import { cx } from "@/utils/cx";
 
 type Item =
-    | { kind: "user"; text: string }
+    | { kind: "user"; text: string; files?: string[] }
     | { kind: "assistant"; text: string; streaming?: boolean }
     | { kind: "tool"; id: string; name: string; input: string; result?: { ok: boolean; text: string; image: string | null } }
     | { kind: "done"; ok: boolean; text: string; seconds: number | null }
     | { kind: "error"; text: string }
     | { kind: "fallback"; reason: string }
     | { kind: "note"; text: string }
-    | { kind: "step"; step: number; thought: string; action: string; result: string };
+    | { kind: "step"; step: number; thought: string; action: string; result: string }
+    | { kind: "plan"; goal: string; app: string; steps: string[]; doneWhen: string }
+    | { kind: "question"; text: string; fallback: string };
 
 const SUGGESTIONS = ["Summarise my unread email", "Open Notepad and write a shopping list", "Find a cheap flight to Cairo next month"];
 
@@ -141,6 +145,105 @@ const LocalStep = ({ item }: { item: Extract<Item, { kind: "step" }> }) => {
     );
 };
 
+type ClaudeSettings = Settings["claude"];
+
+const PlanCard = ({ item }: { item: Extract<Item, { kind: "plan" }> }) => (
+    <div className="rounded-xl bg-secondary px-4 py-3 text-sm ring-1 ring-secondary animate-in fade-in slide-in-from-bottom-1 duration-300">
+        <p className="font-medium text-primary">
+            {item.goal || "Plan"}
+            {item.app && <span className="font-normal text-tertiary"> · {item.app}</span>}
+        </p>
+        {item.steps.length > 0 && (
+            <ol className="mt-2 flex list-decimal flex-col gap-1 pl-5 text-secondary">
+                {item.steps.map((s, n) => (
+                    <li key={n}>{s}</li>
+                ))}
+            </ol>
+        )}
+        {item.doneWhen && <p className="mt-2 text-xs text-tertiary">Done when {item.doneWhen.replace(/^\w/, (c) => c.toLowerCase())}</p>}
+    </div>
+);
+
+const FileChip = ({ path, onRemove }: { path: string; onRemove?: () => void }) => (
+    <span title={path} className="inline-flex max-w-60 items-center gap-1.5 rounded-lg bg-secondary px-2 py-1 text-xs text-secondary ring-1 ring-secondary">
+        <File06 className="size-3.5 shrink-0 text-fg-quaternary" />
+        <span className="truncate">{path.split(/[\\/]/).pop()}</span>
+        {onRemove && (
+            <button aria-label="Remove" onClick={onRemove} className="cursor-pointer text-fg-quaternary hover:text-fg-secondary">
+                <XClose className="size-3" />
+            </button>
+        )}
+    </span>
+);
+
+// Claude Code takes these aliases for --model; empty means its own default.
+const MODELS = [
+    { id: "", label: "Default", hint: "Claude Code's choice" },
+    { id: "opus", label: "Opus", hint: "Most capable" },
+    { id: "sonnet", label: "Sonnet", hint: "Fast and smart" },
+    { id: "haiku", label: "Haiku", hint: "Fastest" },
+];
+const EFFORTS = [
+    { id: "", label: "Default" },
+    { id: "low", label: "Low" },
+    { id: "medium", label: "Medium" },
+    { id: "high", label: "High" },
+    { id: "max", label: "Max" },
+];
+const pickerItem =
+    "flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-secondary outline-hidden data-[focused]:bg-tertiary data-[focused]:text-primary";
+
+/** The model and effort picker next to Send, like the Claude app's. */
+const ModelPicker = ({ settings, onChange }: { settings: ClaudeSettings; onChange: (next: ClaudeSettings) => void }) => {
+    const model = MODELS.find((m) => m.id === settings.model)?.label ?? settings.model;
+    const effort = EFFORTS.find((e) => e.id === settings.effort)?.label ?? settings.effort;
+    return (
+        <MenuTrigger>
+            <button className="flex h-8 cursor-pointer items-center gap-1 rounded-lg px-2 text-sm text-tertiary transition duration-150 outline-focus-ring hover:bg-secondary hover:text-secondary focus-visible:outline-2">
+                {model}
+                {settings.effort && <span className="text-quaternary">· {effort}</span>}
+                <ChevronDown className="size-3.5" />
+            </button>
+            <Popover placement="top end" className="w-60 rounded-xl bg-primary p-1 shadow-lg ring-1 ring-secondary outline-hidden animate-in fade-in zoom-in-95 duration-150">
+                <Menu
+                    className="outline-hidden"
+                    onAction={(key) => {
+                        const [kind, id] = String(key).split(":");
+                        onChange(kind === "model" ? { ...settings, model: id } : { ...settings, effort: id });
+                    }}
+                >
+                    <MenuSection>
+                        <Header className="px-2.5 pt-1.5 pb-1 text-xs font-medium text-quaternary">Model</Header>
+                        {MODELS.map((m) => (
+                            <MenuItem key={m.id} id={`model:${m.id}`} className={pickerItem}>
+                                <span className="flex flex-1 flex-col leading-tight">
+                                    <span>{m.label}</span>
+                                    <span className="text-xs text-quaternary">{m.hint}</span>
+                                </span>
+                                {settings.model === m.id && <Check className="size-4 text-fg-brand-primary" />}
+                            </MenuItem>
+                        ))}
+                    </MenuSection>
+                    <MenuSection className="mt-1 border-t border-secondary pt-1">
+                        <Header className="px-2.5 pt-1.5 pb-1 text-xs font-medium text-quaternary">Effort</Header>
+                        {EFFORTS.map((e) => (
+                            <MenuItem key={e.id} id={`effort:${e.id}`} className={pickerItem}>
+                                <span className="flex-1">{e.label}</span>
+                                {settings.effort === e.id && <Check className="size-4 text-fg-brand-primary" />}
+                            </MenuItem>
+                        ))}
+                    </MenuSection>
+                </Menu>
+            </Popover>
+        </MenuTrigger>
+    );
+};
+
+const greeting = () => {
+    const h = new Date().getHours();
+    return h < 5 ? "Working late?" : h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+};
+
 const LOCAL_MODEL_MISSING = /Settings > Local AI/;
 
 const APPROVAL_NOTE: Record<string, string> = {
@@ -173,6 +276,8 @@ export const ChatScreen = ({
     onLocalAi,
     chat,
     onSaved,
+    claudeSettings,
+    onClaudeSettings,
     approvalMode = "risky",
 }: {
     ready: boolean;
@@ -183,7 +288,11 @@ export const ChatScreen = ({
     chat: OpenChat;
     /** A chat was saved, so the sidebar list may have changed. */
     onSaved: () => void;
+    /** Settings > Claude, for the model and effort picker in the composer. */
+    claudeSettings: ClaudeSettings;
+    onClaudeSettings: (next: ClaudeSettings) => void;
 }) => {
+    const [files, setFiles] = useState<string[]>([]);
     const [items, setItems] = useState<Item[]>([]);
     const [loadError, setLoadError] = useState("");
     const [input, setInput] = useState("");
@@ -238,8 +347,17 @@ export const ChatScreen = ({
                     case "fallback":
                         refreshClaude().catch(() => {});
                         return [...prev, { kind: "fallback", reason: e.reason }];
-                    case "local_note":
+                    case "local_note": {
+                        // The plan and the question also come as notes; they're shown once.
+                        const last = prev[prev.length - 1];
+                        if (last?.kind === "plan" && e.text.startsWith("Plan:")) return prev;
+                        if (last?.kind === "question" && e.text === last.text) return prev;
                         return [...prev, { kind: "note", text: e.text }];
+                    }
+                    case "local_plan":
+                        return [...prev, { kind: "plan", goal: e.goal, app: e.app, steps: e.steps, doneWhen: e.done_when }];
+                    case "local_question":
+                        return [...prev, { kind: "question", text: e.text, fallback: e.default }];
                     case "local_step":
                         return [...prev, { kind: "step", step: e.step, thought: e.thought, action: e.action, result: e.result }];
                     default:
@@ -263,14 +381,31 @@ export const ChatScreen = ({
         api.chatStop().catch(() => {});
     };
 
+    const attach = async () => {
+        const picked = await openDialog({ multiple: true, title: "Attach files" }).catch(() => null);
+        const list = Array.isArray(picked) ? picked : picked ? [picked] : [];
+        if (list.length) setFiles((f) => [...f, ...list.filter((p) => !f.includes(p))]);
+    };
+
     const send = async () => {
         const text = input.trim();
-        if (!text || busy) return;
-        setItems((p) => [...p, { kind: "user", text }]);
+        if (!text) return;
+        // While Relay works, a message answers its question or changes the plan.
+        if (busy) {
+            setItems((p) => [...p, { kind: "user", text }]);
+            setInput("");
+            api.chatSay(text).catch((e) => setItems((p) => [...p, { kind: "error", text: errorText(e) }]));
+            return;
+        }
+        const attached = files;
+        setItems((p) => [...p, { kind: "user", text, files: attached.length ? attached : undefined }]);
         setInput("");
+        setFiles([]);
         setBusy(true);
+        // Files go along as paths on this PC; Claude and the local AI open them from there.
+        const prompt = attached.length ? `${text}\n\nAttached files:\n${attached.map((f) => `- ${f}`).join("\n")}` : text;
         try {
-            await api.chatSend(text);
+            await api.chatSend(prompt);
         } catch (e) {
             setItems((p) => [...p, { kind: "error", text: errorText(e) }]);
             setBusy(false);
@@ -345,9 +480,25 @@ export const ChatScreen = ({
                 }}
                 className="max-h-60 min-h-11 resize-none rounded-none bg-transparent px-2.5 pt-2 pb-1 text-md shadow-none ring-0 focus:ring-0"
             />
-            <div className="flex items-center justify-between gap-3 pl-2.5">
-                <span className="truncate text-xs text-quaternary">{APPROVAL_NOTE[approvalMode] ?? APPROVAL_NOTE.risky}</span>
-                {busy ? (
+            {files.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 px-2 pb-1">
+                    {files.map((f) => (
+                        <FileChip key={f} path={f} onRemove={() => setFiles((all) => all.filter((x) => x !== f))} />
+                    ))}
+                </div>
+            )}
+            <div className="flex items-center gap-1">
+                <button
+                    aria-label="Attach files"
+                    title="Attach files"
+                    onClick={attach}
+                    className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-fg-tertiary ring-1 ring-secondary transition duration-150 outline-focus-ring hover:bg-secondary hover:text-fg-secondary focus-visible:outline-2"
+                >
+                    <Plus className="size-4" />
+                </button>
+                <span className="ml-auto" />
+                <ModelPicker settings={claudeSettings} onChange={onClaudeSettings} />
+                {busy && !input.trim() ? (
                     <button
                         aria-label="Stop"
                         title="Stop"
@@ -371,6 +522,8 @@ export const ChatScreen = ({
         </div>
     );
 
+    const composerNote = <p className="mt-2 text-center text-xs text-quaternary">{APPROVAL_NOTE[approvalMode] ?? APPROVAL_NOTE.risky}</p>;
+
     return (
         <div className="flex h-full min-h-0 flex-col">
             <div className="flex h-12 shrink-0 items-center gap-3 px-4 sm:px-6">
@@ -392,10 +545,13 @@ export const ChatScreen = ({
                         <div className="flex flex-col items-center text-center animate-in fade-in slide-in-from-bottom-3 duration-700">
                             <div className="flex items-center gap-3">
                                 <Stars02 className="size-7 shrink-0 text-fg-brand-primary" />
-                                <h2 className="font-serif text-display-sm font-normal tracking-tight text-primary sm:text-display-md">What should Relay do?</h2>
+                                <h2 className="font-serif text-display-sm font-normal tracking-tight text-primary sm:text-display-md">{greeting()}</h2>
                             </div>
                             <p className="mt-3 max-w-lg text-md text-tertiary">Ask for a task on this PC, and Relay works it through on screen.</p>
-                            <div className="mt-8 w-full text-left">{composer}</div>
+                            <div className="mt-8 w-full text-left">
+                                {composer}
+                                {composerNote}
+                            </div>
                             <div className="mt-4 flex max-w-2xl flex-wrap justify-center gap-2">
                                 {SUGGESTIONS.map((t, n) => (
                                     <button
@@ -418,6 +574,13 @@ export const ChatScreen = ({
                                     className="ml-auto max-w-[85%] rounded-2xl bg-tertiary px-4 py-2.5 text-md break-words whitespace-pre-wrap text-primary animate-in fade-in slide-in-from-bottom-2 duration-300 dark:bg-neutral-950"
                                 >
                                     {it.text}
+                                    {it.files && (
+                                        <div className="mt-2 flex flex-wrap gap-1.5">
+                                            {it.files.map((f) => (
+                                                <FileChip key={f} path={f} />
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
                             );
                         if (it.kind === "assistant" && isAuthError(it.text) && items[i + 1]?.kind === "done") return null;
@@ -444,6 +607,17 @@ export const ChatScreen = ({
                                 </div>
                             );
                         if (it.kind === "step") return <LocalStep key={i} item={it} />;
+                        if (it.kind === "plan") return <PlanCard key={i} item={it} />;
+                        if (it.kind === "question")
+                            return (
+                                <div key={i} className="rounded-xl bg-brand-primary px-4 py-3 text-sm text-primary ring-1 ring-brand animate-in fade-in slide-in-from-bottom-1 duration-300">
+                                    <p className="font-medium">{it.text}</p>
+                                    <p className="mt-1 text-xs text-tertiary">
+                                        {busy && i === items.length - 1 ? "Reply below; Relay waits for your answer" : "Asked while working"}
+                                        {it.fallback ? `, or goes with "${it.fallback}".` : "."}
+                                    </p>
+                                </div>
+                            );
                         if (it.kind === "done")
                             return (
                                 <div key={i} className={cx("text-xs animate-in fade-in duration-300", it.ok ? "text-quaternary" : "text-error-primary")}>
@@ -494,7 +668,10 @@ export const ChatScreen = ({
             </div>
             {!empty && (
                 <div className="px-4 pt-1 pb-4 sm:px-6">
-                    <div className="mx-auto max-w-3xl animate-in fade-in slide-in-from-bottom-2 duration-300">{composer}</div>
+                    <div className="mx-auto max-w-3xl animate-in fade-in slide-in-from-bottom-2 duration-300">
+                        {composer}
+                        {composerNote}
+                    </div>
                 </div>
             )}
         </div>

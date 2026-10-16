@@ -71,6 +71,25 @@ pub fn parse_line(line: &str) -> Vec<ChatEvent> {
             action: s("action"),
             result: s("result"),
         }],
+        Some("plan") => vec![ChatEvent::LocalPlan {
+            goal: s("goal"),
+            app: s("app"),
+            steps: v
+                .get("steps")
+                .and_then(Value::as_array)
+                .map(|a| {
+                    a.iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default(),
+            done_when: s("done_when"),
+        }],
+        Some("question") => vec![ChatEvent::LocalQuestion {
+            text: s("text"),
+            default: s("default"),
+        }],
         Some("bad_reply") => vec![ChatEvent::LocalNote {
             text: format!(
                 "The local model gave an unusable reply ({}); asking again.",
@@ -222,5 +241,17 @@ mod tests {
         let ready = parse_line(r#"{"event":"ready","model":"qwen3-vl-8b-instruct","seconds":4.2}"#);
         assert!(matches!(&ready[0], ChatEvent::LocalNote { text } if text.contains("4.2")));
         assert!(parse_line(r#"{"event":"ready"}"#).is_empty());
+        let plan = parse_line(
+            r#"{"event":"plan","goal":"Save a note","app":"Notepad","steps":["Open Notepad","Type it"],"done_when":"saved"}"#,
+        );
+        assert!(
+            matches!(&plan[0], ChatEvent::LocalPlan { steps, app, .. } if steps.len() == 2 && app == "Notepad")
+        );
+        let q = parse_line(
+            r#"{"event":"question","text":"Where should I save it?","default":"Documents"}"#,
+        );
+        assert!(
+            matches!(&q[0], ChatEvent::LocalQuestion { default, .. } if default == "Documents")
+        );
     }
 }
