@@ -2,7 +2,7 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
-## 2026-10-16 · Diagnostics green: 24/24 (D-112, D-113)
+## 2026-10-16 · Release 0.1.15: diagnostics green, 24/24 (D-112, D-113)
 - Rounds 19 to 22 on the owner's PC; round 22 passed all 24 (app, real tasks in Notepad, Explorer, Brave, Settings, a new library site, Cloud AI and signed-out, displays, routing).
 - Operator fixes, all general: repeats counted by control name, no relaunch of a program in front, same-named buttons need an id, no typing into open menus, no saving an empty document, click_text into named text boxes, thought capped at 600 characters, ticked boxes left ticked, tree items as click fallback.
 - main is merged as a squash on GitHub so its commits show as Verified (D-113). A cleaned, signed copy of the whole history waits for the owner to run `Downloads\relay-history\clean-history.ps1`.
