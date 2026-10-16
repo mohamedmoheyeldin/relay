@@ -2,6 +2,15 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
+## 2026-10-16 · Operator side complete for the first full build (D-089, D-090)
+- Working straight on `dev` now (owner rule, 00:49).
+- Browsers are read through UI Automation from the page's Document, with the address bar and usable controls only, so no extension is needed (D-089). UIA listings come from one CacheRequest per read.
+- The app list comes from the Shell's AppsFolder over COM. PowerShell is only a fallback (D-090).
+- A new task from the app re-arms the kill switch.
+- Model requests ask for one JSON object with thinking off.
+- The owner's-words approval waits on the owner's answer on a card in this thread.
+- The Rust move of the operator (D-088 item 1) comes after the owner has the first full build. The JSON-lines interface stays the same.
+
 ## 2026-10-16 · Operator service and Holo3.1-9B (D-086..D-088)
 - Owner: one complete app, not pieces; at most 2-3 local AIs for the screen; no permissions or setup; Claude only for heavy thinking. They then chose "Full rebuild" on the redesign card (D-088).
 - Plan for the complete version: [complete-plan.md](complete-plan.md). Split agreed with the app thread through the coordinator: it builds the pill overlay, the zero-setup app and the one installer; this thread builds the operator, the models and the event interface.
