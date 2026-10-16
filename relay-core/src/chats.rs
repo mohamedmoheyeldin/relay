@@ -2,7 +2,9 @@
 //! the sidebar can list them and the owner can go back to one. The chat screen owns
 //! what a conversation shows (`items`); Relay adds the Claude session it resumes.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{ensure, Context, Result};
@@ -65,6 +67,17 @@ fn file(dir: &Path, id: &str) -> Result<PathBuf> {
     Ok(dir.join(format!("{id}.json")))
 }
 
+/// Chats deleted since Relay started. A save already on its way when the owner
+/// deleted the chat must not bring it back.
+static DELETED: Mutex<Option<HashSet<PathBuf>>> = Mutex::new(None);
+
+fn was_deleted(path: &Path) -> bool {
+    DELETED
+        .lock()
+        .map(|d| d.as_ref().is_some_and(|d| d.contains(path)))
+        .unwrap_or(false)
+}
+
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -97,6 +110,7 @@ pub fn load(dir: &Path, id: &str) -> Result<Chat> {
 
 /// Save what the chat screen shows. A name the owner gave and the pin are kept.
 pub fn save(dir: &Path, mut chat: Chat) -> Result<Chat> {
+    ensure!(!was_deleted(&file(dir, &chat.id)?), "this chat was deleted");
     if let Ok(old) = load(dir, &chat.id) {
         chat.pinned = old.pinned;
         if old.renamed {
@@ -137,7 +151,11 @@ fn write(dir: &Path, chat: &Chat) -> Result<()> {
 }
 
 pub fn delete(dir: &Path, id: &str) -> Result<()> {
-    match std::fs::remove_file(file(dir, id)?) {
+    let path = file(dir, id)?;
+    if let Ok(mut d) = DELETED.lock() {
+        d.get_or_insert_with(HashSet::new).insert(path.clone());
+    }
+    match std::fs::remove_file(path) {
         Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.into()),
         _ => Ok(()),
     }
@@ -183,6 +201,9 @@ mod tests {
         assert!(rename(&dir, "a", "  ").is_err());
         delete(&dir, "a").unwrap();
         delete(&dir, "a").unwrap();
+        assert_eq!(list(&dir).len(), 1);
+        // A save that arrives after the delete does not bring the chat back.
+        assert!(save(&dir, chat("a", "First")).is_err());
         assert_eq!(list(&dir).len(), 1);
         let _ = std::fs::remove_dir_all(&dir);
     }

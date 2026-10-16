@@ -3,7 +3,7 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { Button as AriaButton, Header, Menu, MenuItem, MenuSection, MenuTrigger, Popover } from "react-aria-components";
-import { ArrowUp, Check, CheckCircle, ChevronDown, ChevronRight, CpuChip01, File06, Plus, StopSquare, Tool01, XCircle, XClose } from "@untitledui/icons";
+import { Check, CheckCircle, ChevronDown, ChevronRight, CornerDownLeft, CpuChip01, File06, Plus, StopSquare, Tool01, XCircle, XClose } from "@untitledui/icons";
 import { TextAreaBase } from "@/components/base/textarea/textarea";
 import { Markdown } from "@/components/relay/markdown";
 import { Notice, Spinner } from "@/components/relay/ui";
@@ -202,11 +202,10 @@ const ModelPicker = ({ settings, onChange }: { settings: ClaudeSettings; onChang
         <MenuTrigger>
             <AriaButton
                 aria-label="Model and effort"
-                className="flex h-8 cursor-pointer items-center gap-1 rounded-lg px-2 text-sm text-tertiary outline-hidden transition duration-150 hover:bg-secondary hover:text-secondary data-[focus-visible]:ring-2 data-[focus-visible]:ring-brand"
+                className="flex h-7 cursor-pointer items-center gap-3 rounded-md px-2 text-[13px] text-secondary outline-hidden transition duration-150 hover:bg-primary_hover hover:text-primary data-[focus-visible]:ring-2 data-[focus-visible]:ring-brand"
             >
-                {model}
-                {settings.effort && <span className="text-quaternary">· {effort}</span>}
-                <ChevronDown className="size-3.5" />
+                <span>{model}</span>
+                {settings.effort && <span>{effort}</span>}
             </AriaButton>
             <Popover placement="top end" className="max-h-[70vh] w-64 overflow-y-auto rounded-xl bg-primary p-1 shadow-lg ring-1 ring-secondary outline-hidden animate-in fade-in zoom-in-95 duration-150">
                 <Menu
@@ -253,6 +252,10 @@ const APPROVAL_NOTE: Record<string, string> = {
     ask: "Relay asks here before every click or keystroke.",
     off: "Relay acts without asking.",
 };
+
+/** Chats deleted while open: their last save must not bring them back. */
+const forgotten = new Set<string>();
+export const forgetChat = (id: string) => forgotten.add(id);
 
 /** Which conversation the screen shows; `fresh` ones have nothing saved yet. */
 export type OpenChat = { id: string; fresh: boolean };
@@ -426,6 +429,7 @@ export const ChatScreen = ({
     // Switching chats: a running task stops, then the chosen chat (or a fresh one) loads.
     // `shown` is the chat whose items are on screen, so saves never go to the wrong file.
     const shown = useRef<string | null>(null);
+    const lastSaved = useRef<Record<string, string>>({});
     const busyRef = useRef(busy);
     busyRef.current = busy;
     useEffect(() => {
@@ -443,7 +447,9 @@ export const ChatScreen = ({
                 try {
                     const saved = await api.chatOpen(chat.id);
                     if (cancelled) return;
-                    setItems(Array.isArray(saved.items) ? (saved.items as Item[]) : []);
+                    const loaded = Array.isArray(saved.items) ? (saved.items as Item[]) : [];
+                    lastSaved.current[chat.id] = JSON.stringify(forSaving(loaded));
+                    setItems(loaded);
                 } catch (e) {
                     if (cancelled) return;
                     await api.chatNew();
@@ -463,7 +469,12 @@ export const ChatScreen = ({
         const id = shown.current;
         if (!id || !items.some((it) => it.kind === "user")) return;
         const save = () => {
-            api.chatSave(id, titleOf(items), forSaving(items))
+            const kept = forSaving(items);
+            const json = JSON.stringify(kept);
+            // Opening a chat changes nothing, so it keeps its place in the list.
+            if (forgotten.has(id) || lastSaved.current[id] === json) return;
+            lastSaved.current[id] = json;
+            api.chatSave(id, titleOf(items), kept)
                 .then(onSaved)
                 .catch(() => {});
         };
@@ -478,7 +489,7 @@ export const ChatScreen = ({
     const sendable = !!input.trim();
     const composer = (
         <div>
-            <div className="rounded-2xl bg-primary_alt ring-1 ring-secondary transition duration-150 focus-within:ring-primary">
+            <div className="rounded-xl border border-primary bg-primary_alt transition duration-150 focus-within:border-[#5c5c5b]">
                 {files.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 px-3 pt-3">
                         {files.map((f) => (
@@ -486,11 +497,11 @@ export const ChatScreen = ({
                         ))}
                     </div>
                 )}
-                <div className="flex items-end gap-2 py-1.5 pr-2 pl-1">
+                <div className="flex items-end gap-2 py-2 pr-2.5 pl-1">
                     <TextAreaBase
                         aria-label="Message"
-                        placeholder={busy ? "Reply to Relay, or answer its question…" : empty ? "Ask Relay to do something on this PC…" : "Reply to Relay…"}
-                        rows={empty ? 2 : 1}
+                        placeholder={busy ? "Reply to Relay, or answer its question…" : empty ? "Ask Relay a question or start a task…" : "Reply to Relay…"}
+                        rows={empty ? 3 : 1}
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
                         onKeyDown={(e) => {
@@ -499,14 +510,14 @@ export const ChatScreen = ({
                                 send();
                             }
                         }}
-                        className="max-h-60 min-h-10 flex-1 resize-none rounded-none bg-transparent px-2.5 py-2 text-[15px] leading-6 shadow-none ring-0 focus:ring-0"
+                        className="max-h-60 min-h-9 flex-1 resize-none rounded-none bg-transparent px-2.5 py-1.5 text-[15px] leading-6 shadow-none ring-0 placeholder:text-placeholder focus:ring-0"
                     />
                     {busy && !sendable ? (
                         <button
                             aria-label="Stop"
                             title="Stop"
                             onClick={stop}
-                            className="mb-1 flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-primary-solid text-white transition duration-100 outline-focus-ring hover:opacity-85 focus-visible:outline-2 dark:bg-neutral-100 dark:text-neutral-900"
+                            className="mb-0.5 flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-primary-solid text-white transition duration-100 outline-focus-ring hover:opacity-85 focus-visible:outline-2 dark:bg-[#ececec] dark:text-[#151515]"
                         >
                             <StopSquare className="size-3.5" />
                         </button>
@@ -517,34 +528,35 @@ export const ChatScreen = ({
                             onClick={send}
                             disabled={!sendable}
                             className={cx(
-                                "mb-1 flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg transition duration-100 outline-focus-ring focus-visible:outline-2 disabled:cursor-default",
-                                sendable ? "bg-brand-solid text-white hover:bg-brand-solid_hover" : "text-fg-quaternary",
+                                "mb-0.5 flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg transition duration-100 outline-focus-ring focus-visible:outline-2 disabled:cursor-default",
+                                sendable ? "bg-brand-solid text-white hover:bg-brand-solid_hover" : "text-fg-tertiary",
                             )}
                         >
-                            <ArrowUp className="size-4" />
+                            <CornerDownLeft className="size-4" />
                         </button>
                     )}
                 </div>
             </div>
-            <div className="mt-1.5 flex items-center gap-1 px-1">
+            <div className="mt-1.5 flex items-center gap-1 px-0.5">
                 <button
                     aria-label="Attach files"
                     title="Attach files"
                     onClick={attach}
-                    className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-fg-tertiary transition duration-100 outline-focus-ring hover:bg-secondary hover:text-fg-secondary focus-visible:outline-2"
+                    className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-fg-tertiary transition duration-100 outline-focus-ring hover:bg-primary_hover hover:text-fg-secondary focus-visible:outline-2"
                 >
                     <Plus className="size-4" />
                 </button>
-                <span className="ml-1 truncate text-xs text-quaternary">{APPROVAL_NOTE[approvalMode] ?? APPROVAL_NOTE.risky}</span>
                 <span className="ml-auto" />
                 <ModelPicker settings={claudeSettings} onChange={onClaudeSettings} />
             </div>
+            <p className="mt-1 text-center text-[11px] text-quaternary">{APPROVAL_NOTE[approvalMode] ?? APPROVAL_NOTE.risky}</p>
         </div>
     );
 
     return (
         <div className="flex h-full min-h-0 flex-col">
-            <div className="flex h-11 shrink-0 items-center gap-2 px-4">
+            <div className="h-9 shrink-0" />
+            <div className="flex h-11 shrink-0 items-center gap-2 px-5">
                 {!empty &&
                     (saved ? (
                         <ChatMenu
@@ -553,13 +565,13 @@ export const ChatScreen = ({
                             onPin={onPin}
                             onRename={onRename}
                             onDelete={onDelete}
-                            className="flex h-7 max-w-[60%] cursor-pointer items-center gap-1 rounded-md px-2 text-sm text-secondary outline-hidden hover:bg-secondary hover:text-primary data-[focus-visible]:ring-2 data-[focus-visible]:ring-brand"
+                            className="relative z-40 flex h-7 max-w-[60%] cursor-pointer items-center gap-1 rounded-md px-2 text-sm font-medium text-primary outline-hidden hover:bg-primary_hover data-[focus-visible]:ring-2 data-[focus-visible]:ring-brand"
                         >
                             <span className="truncate">{saved.title}</span>
                             <ChevronDown className="size-3.5 shrink-0 text-fg-quaternary" />
                         </ChatMenu>
                     ) : (
-                        <span className="truncate px-2 text-sm text-secondary">{titleOf(items)}</span>
+                        <span className="truncate px-2 text-sm font-medium text-primary">{titleOf(items)}</span>
                     ))}
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6 sm:px-6">
@@ -600,7 +612,7 @@ export const ChatScreen = ({
                             return (
                                 <div
                                     key={i}
-                                    className="ml-auto max-w-[80%] rounded-xl bg-tertiary px-3.5 py-2 text-[15px] leading-6 break-words whitespace-pre-wrap text-primary animate-in fade-in duration-200 dark:bg-neutral-950/70"
+                                    className="ml-auto max-w-[80%] rounded-xl bg-tertiary px-4 py-2.5 text-[15px] leading-6 break-words whitespace-pre-wrap text-primary animate-in fade-in duration-200 dark:bg-[#212121]"
                                 >
                                     {it.text}
                                     {it.files && (
@@ -615,7 +627,7 @@ export const ChatScreen = ({
                         if (it.kind === "assistant" && isAuthError(it.text) && items[i + 1]?.kind === "done") return null;
                         if (it.kind === "assistant")
                             return (
-                                <div key={i} className="text-[15px] leading-7 break-words text-primary animate-in fade-in duration-300">
+                                <div key={i} className="text-[15px] leading-[1.7] break-words text-primary animate-in fade-in duration-300">
                                     <Markdown text={it.text} />
                                 </div>
                             );

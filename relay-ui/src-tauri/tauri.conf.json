@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Relay",
   "mainBinaryName": "relay",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "identifier": "com.relay.desktop",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -15,12 +15,13 @@
       {
         "label": "main",
         "title": "Relay",
-        "width": 1100,
-        "height": 760,
+        "width": 1280,
+        "height": 860,
         "minWidth": 520,
         "minHeight": 480,
         "visible": false,
-        "center": true
+        "center": true,
+        "decorations": false
       }
     ],
     "security": {
@@ -29,7 +30,9 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": [
+      "nsis"
+    ],
     "publisher": "Relay",
     "copyright": "MIT License",
     "category": "Productivity",
@@ -47,7 +50,10 @@
       "icons/icon.ico"
     ],
     "windows": {
-      "webviewInstallMode": { "type": "downloadBootstrapper", "silent": true },
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      },
       "nsis": {
         "installMode": "perMachine",
         "displayLanguageSelector": false,
