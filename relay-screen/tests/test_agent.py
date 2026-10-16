@@ -99,10 +99,13 @@ def test_parse_reply_tolerates_fences_prose_and_coordinate_lists() -> None:
 
 def test_frame_maps_model_coordinates_to_screenshot_pixels() -> None:
     frame = Frame.from_png(png(3440, 1440))
-    assert frame.sent_size == (1280, 544)  # aligned to the 32 px patch grid
+    # Aligned to the 32 px patch grid and grown to Qwen-VL's 1024 image tokens (D-108).
+    w, h = frame.sent_size
+    assert w % 32 == 0 and h % 32 == 0 and (w // 32) * (h // 32) >= 1024
+    assert frame.sent_size == (1568, 672)
     assert frame.to_screen(500, 500, "rel1000") == [1720, 720]
     assert frame.to_screen(1000, 1000, "rel1000") == [3439, 1439]
-    assert frame.to_screen(640, 272, "pixels") == [1720, 720]
+    assert frame.to_screen(784, 336, "pixels") == [1720, 720]
     assert frame.data_url().startswith("data:image/jpeg;base64,")
     with pytest.raises(ReplyError):
         frame.to_screen("left", 3, "rel1000")
@@ -1071,3 +1074,40 @@ def test_focusing_the_program_returns_to_its_exact_window() -> None:
     run(hands, model)
     assert hands.brought == [11]
     assert ("focus_window", {"window": "Notepad"}) not in hands.acts()
+
+
+def test_next_waits_once_for_fields_the_task_names() -> None:
+    # Round 8: the job form left "Years of experience" empty and pressed Next (D-106).
+    page = (
+        'Elements (ids ...):\n[e1] Document "Job" center (500, 300) box [0, 0, 1000, 600]\n'
+        '  [e5] Spinner "Years of experience" center (300, 200) box [250, 190, 350, 210]\n'
+        "  [e6] Edit \"Why this job?\" value='I like reliable tools' center (300, 250)\n"
+        '  [e7] Edit "Nickname" center (300, 280)\n'
+        '  [e8] Button "Next" {invoke} center (300, 320)'
+    )
+    hands = FakeHands({"uia_tree": page})
+    model = Script(
+        {"action": "invoke", "element": "e8"},
+        {"action": "invoke", "element": "e8"},
+        done(),
+    )
+    events: list[dict[str, Any]] = []
+    LocalAgent(hands, model, on_event=events.append, instant=False).run(
+        "choose 6 years of experience, for Why this job write: I like reliable tools, press Next"
+    )
+    steps = [e for e in events if e["event"] == "step"]
+    assert '"Years of experience"' in steps[0]["result"] and "Nickname" not in steps[0]["result"]
+    assert hands.acts() == [("uia_invoke", {"element": "e8"})]  # the second press runs
+
+
+def test_three_failed_steps_in_a_row_tell_the_model_to_change_approach() -> None:
+    hands = FakeHands({"left_click": ActionError("outside the window in front")})
+    model = Script(
+        {"action": "click", "x": 10, "y": 10},
+        {"action": "click", "x": 20, "y": 10},
+        {"action": "click", "x": 10, "y": 10},
+        done(),
+    )
+    run(hands, model)
+    assert "Stop clicking by position" in model.prompt(3)
+    assert "Stop clicking by position" not in model.prompt(2)

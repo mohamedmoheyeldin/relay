@@ -35,7 +35,12 @@ MAX_STEPS = 25
 HISTORY = 10  # earlier steps repeated to the model as text
 SEND_EDGE = 1280  # px, long edge of the screenshot sent to the model
 ALIGN = 32  # sent sizes are multiples of the vision patch grid, so pixel models see it as sent
+# Qwen-VL models (Holo3.1) need at least this many image tokens, one per 32 px cell; with
+# fewer, llama.cpp warns and grounding suffers (D-108). Frames are grown to reach it here,
+# so the model sees exactly the image whose pixels it answers in.
+MIN_IMAGE_TOKENS = 1024
 MAX_BAD_REPLIES = 3
+FAILS_IN_A_ROW = 3  # failed steps in a row before the model is told to change approach
 STUCK_REPEATS = 3  # the same action with no visible change this many times in a row
 MAX_TEXT = 2000
 MAX_UIA_CHARS = 5000  # the focused window's UI Automation list, ~1.5k tokens
@@ -127,6 +132,8 @@ task, reply with fail and the reason "sign-in needed".
 - Only buy, pay, send, submit or delete when the task clearly asks for it. Relay asks \
 the owner before such steps either way.
 - If an action did not change the screen, try something different.
+- Calculator and other apps that take keys: type the whole entry at once, for \
+example type 12*34= in Calculator, instead of pressing its buttons one by one.
 - To go to a website, use open_url instead of typing in the address bar.
 - When the owner adds a note while you work, follow it from then on.
 - Never click taskbar buttons to switch programs (that minimizes them); use \
@@ -335,6 +342,9 @@ class Frame:
         width, height = image.size
         scale = min(1.0, edge / max(width, height))
         size = (_align(width * scale), _align(height * scale))
+        while (size[0] // ALIGN) * (size[1] // ALIGN) < MIN_IMAGE_TOKENS:
+            scale *= 1.01
+            size = (_align(width * scale), _align(height * scale))
         if size != image.size:
             image = image.resize(size, Image.Resampling.LANCZOS)
         out = io.BytesIO()
@@ -453,6 +463,16 @@ def to_member(action: Mapping[str, Any], frame: Frame | None, coords: Coords) ->
             ),
             None,
         )
+        if not isinstance(app, str) or not app:
+            # Holo also wrote {"action": "launch_app", "app_name": "Notepad"} (D-106).
+            app = next(
+                (
+                    v
+                    for k, v in action.items()
+                    if k not in ("action", "thought", "args") and isinstance(v, str) and v.strip()
+                ),
+                None,
+            )
         if not isinstance(app, str) or not app:
             raise ReplyError("launch_app needs a name")
         args = action.get("args") or []
@@ -678,6 +698,21 @@ def _opens_save(member: str, params: Mapping[str, Any], elements: str) -> bool:
     return label.strip().casefold() in ("save", "save as", "save as…", "save as...")
 
 
+SUBMITS = re.compile(r"(next|submit|continue|apply|send|finish|save)\b", re.IGNORECASE)
+EMPTY_FIELD = re.compile(r'^\s*\[e\d+\] (?:Edit|Spinner) "([^"]+)"(?![^\n]*value=)', re.M)
+
+
+def empty_fields(elements: str, task: str) -> list[str]:
+    """Names of empty boxes on the page that the task mentions, e.g. "Years of experience"."""
+    wanted = " ".join(task.casefold().split())
+    found = []
+    for name in EMPTY_FIELD.findall(elements):
+        key = " ".join(name.casefold().rstrip("?:* ").split())
+        if len(key) >= 3 and key in wanted and name not in found:
+            found.append(name)
+    return found
+
+
 def _typed_key(params: Mapping[str, Any]) -> str:
     return " ".join(str(params.get("text", params.get("value", ""))).split()).casefold()
 
@@ -854,6 +889,8 @@ class LocalAgent:
         self.done_checked = False
         self.typed: dict[str, int] = {}  # text typed so far -> the step that typed it
         self.save_to = ""  # full path for the Save dialog, once the task and owner name it
+        self.task = ""
+        self.warned: set[str] = set()  # empty fields already pointed out (D-106)
         self.new_doc = False  # a writing task: editors get a new tab first
         self.fresh: set[str] = set()  # editors that already got their new tab
         self.elements = ""
@@ -879,6 +916,7 @@ class LocalAgent:
             EDIT_TEXT.search(task)
         )
         self.save_to = save_target(task)
+        self.task = task
         try:
             self.plan = self._make_plan(task, apps)
         except Cancelled:
@@ -981,6 +1019,15 @@ class LocalAgent:
                     return self._finish("failed", message, steps)
                 if step.error:
                     look = True  # see what went wrong before planning again
+                    if len(steps) >= FAILS_IN_A_ROW and all(
+                        s.error for s in steps[-FAILS_IN_A_ROW:]
+                    ):
+                        # Calculator: fourteen position clicks in a row missed (D-106).
+                        note = (
+                            f"Your last {FAILS_IN_A_ROW} actions all failed. Stop clicking by "
+                            "position: use invoke or set_value with an element id from the "
+                            "list, type with the keyboard, or try another way."
+                        )
                     break
                 if n >= self.max_steps:
                     break
@@ -1204,6 +1251,8 @@ class LocalAgent:
                     self._not_twice(n, str(params.get("text", params.get("value", ""))))
                 if member in POINT_CLICKS:
                     self._inside_front(params)
+                if member in ("click_text", "uia_invoke"):
+                    self._fields_first(params)
                 if member == "click_text":
                     result = self._click_text(str(params["text"]))
                 elif (
@@ -1471,6 +1520,26 @@ class LocalAgent:
             return
         with contextlib.suppress(ActionError):
             self.hands.run("focus_window", {"window": self.target})
+
+    def _fields_first(self, params: Mapping[str, Any]) -> None:
+        """Before Next or Submit, point out fields the task names that are still empty.
+
+        The job form went to its last page without "6 years of experience" (D-106).
+        Each field is pointed out once, so a field the model can't fill never blocks.
+        """
+        label = str(params.get("text", ""))
+        if "element" in params:
+            label = _element_label(self.elements, str(params["element"])).strip('"')
+        if not SUBMITS.match(label.strip()):
+            return
+        empty = [f for f in empty_fields(self.elements, self.task) if f not in self.warned]
+        if empty:
+            self.warned.update(empty)
+            names = ", ".join(f'"{f}"' for f in empty)
+            raise ActionError(
+                f"not pressed yet: the task gives a value for {names}, still empty on "
+                "this page; fill it first, then press it"
+            )
 
     def _same_program(self, params: Mapping[str, Any]) -> bool:
         """focus_window names the program the task already works in, not a title."""

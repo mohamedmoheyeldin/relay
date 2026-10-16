@@ -46,6 +46,11 @@ def test_checks_look_from_outside_the_agent(tmp_path: Path) -> None:
         {"window": "Calculator", "depth": 14, "filter": "Display is 408"},
     )
     assert "not found" in str(desktop.check({"uia_text": {**spec, "contains": "409"}}))
+    # Two Notepad windows: the text is looked for in each (D-106).
+    trees = {"A - Notepad": "Elements:\n[e1] Document", "B - Notepad": 'Elements:\n[e2] "x 1"'}
+    hands.results["uia_tree"] = lambda p: trees.get(p["window"], "No elements")
+    desktop = FakeDesktop(hands, {1: "A - Notepad", 2: "B - Notepad"})
+    assert desktop.check({"uia_text": {"window": "Notepad", "contains": "x 1"}}) is None
     file = tmp_path / "f.txt"
     assert "not created" in str(desktop.check({"file_contains": {"path": str(file), "text": "x"}}))
     file.write_text("hello x", encoding="utf-8")
