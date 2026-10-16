@@ -677,7 +677,7 @@ TEST_DOC = re.compile(
     r"^\*?(?:(?:Relay diagnostics|First line|Claude sent this|Relay saved this) \d{6}"
     r"|Nimbus 14\b|relay-diag-\d{6}\.txt)"
 )
-MAX_TEST_DOCS = 12
+MAX_TEST_DOCS = 40
 
 
 def close_test_docs(tools: Tools) -> int:

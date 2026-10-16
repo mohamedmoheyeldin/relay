@@ -580,6 +580,34 @@ def test_instant_tasks_need_no_model() -> None:
     assert events[-1]["event"] == "done" and "instant_ms" in events[-1]
 
 
+@pytest.mark.parametrize(
+    ("task", "entry"),
+    [
+        ("Open Calculator and work out 12 times 34.", "12*34="),
+        ("open calculator and calculate 1,200 divided by 4", "1200/4="),
+        ("work out 3 plus 4 in Calculator", "3+4="),
+        ("Open Calculator and work out the tip", None),
+        ("Open Notepad and work out 2 times 3", None),
+    ],
+)
+def test_calculator_sums_are_typed_whole(task: str, entry: str | None) -> None:
+    from relay_screen.agent.local import calc_entry
+
+    assert calc_entry(task) == entry
+
+
+def test_a_calculator_sum_needs_no_model() -> None:
+    hands = FakeHands({"focus_window": ActionError("no open window matches 'Calculator'")})
+    model = Script()
+    outcome = LocalAgent(hands, model).run("Open Calculator and work out 12 times 34.")
+    assert outcome.status == "done" and model.seen == []
+    assert hands.acts() == [
+        ("focus_window", {"window": "Calculator"}),
+        ("launch_app", {"name": "Calculator"}),
+        ("type", {"text": "12*34="}),
+    ]
+
+
 def test_an_instant_move_that_fails_goes_to_the_model() -> None:
     hands = FakeHands({"open_url": ActionError("no browser")})
     model = Script({"action": "fail", "reason": "no browser"})
@@ -1179,3 +1207,61 @@ def test_plans_lose_save_steps_the_task_never_asked_for() -> None:
     model = Script(done(), done(), plan=plan)
     LocalAgent(FakeHands(), model, instant=False).run("open Notepad and write the price")
     assert "Save the file" not in model.prompt(0) and "Type the price" in model.prompt(0)
+
+
+JOB_PAGE = (
+    'Elements (ids ...):\n[e1] Document "Job" center (1100, 300) box [800, 50, 1560, 650]\n'
+    "  [e5] Edit \"Email\" value='alex@example.com' center (895, 144) box [845, 136, 945, 153]\n"
+    '  [e6] Edit "Phone" center (898, 170) box [848, 162, 948, 179]\n'
+    '  [e7] Edit "Full name" center (911, 118) box [861, 110, 961, 127]'
+)
+
+
+def test_a_click_beside_the_window_goes_to_the_control_the_thought_names() -> None:
+    # Round 11: "click on the Full name field" landed at x=560, in another program.
+    class Hands(FakeHands):
+        def outside_front(self, coordinate: Any) -> str | None:
+            return "Job - Brave" if coordinate[0] < 800 else None
+
+    hands = Hands({"uia_tree": JOB_PAGE})
+    hands.shot = png(1280, 544)
+    model = Script(
+        {"thought": "I'll click on the Full name field.", "action": "click", "x": 560, "y": 178},
+        {"thought": "Click somewhere.", "action": "click", "x": 560, "y": 178},
+        done(),
+    )
+    run(hands, model)
+    clicks = [a for a in hands.acts() if a[0] == "left_click"]
+    assert clicks == [("left_click", {"coordinate": [911, 118]})]
+
+
+def test_typing_twice_in_a_row_goes_to_the_empty_field_the_thought_names() -> None:
+    # Round 11: the phone number was typed straight after the email, into Email.
+    hands = FakeHands({"uia_tree": JOB_PAGE})
+    model = Script(
+        {"thought": "Type the email.", "action": "type", "text": "alex@example.com"},
+        {"thought": "Now the Phone field, after Email.", "action": "type", "text": "555 0100"},
+        done(),
+    )
+    run(hands, model)
+    assert hands.acts()[-1] == ("uia_set_value", {"element": "e6", "value": "555 0100"})
+
+
+def test_click_text_falls_back_to_a_listed_control_ocr_cannot_see() -> None:
+    # Round 11: the Explorer window was on the other monitor, so OCR never saw it.
+    tree = (
+        'Elements (ids ...):\n[e1] Window "relay-explorer-test"\n  [e4] ListItem "incoming" center'
+    )
+    hands = FakeHands({"uia_tree": tree, "find_text": "No text like that."})
+    run(hands, Script({"action": "click_text", "text": "Incoming"}, done()))
+    assert ("uia_invoke", {"element": "e4"}) in hands.acts()
+
+
+def test_an_unexpected_error_fails_one_step_not_the_task() -> None:
+    class COMError(Exception):
+        pass
+
+    hands = FakeHands({"key": COMError("(-2146233079, None)")})
+    outcome, events = run(hands, Script({"action": "key", "keys": "ctrl+s"}, done()))
+    assert outcome.status == "done"
+    assert next(e for e in events if e["event"] == "step")["result"].startswith("failed: COMError")

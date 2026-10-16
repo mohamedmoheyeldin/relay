@@ -1820,3 +1820,22 @@ Round 10 added:
 - **Window ping-pong.** Four focus_window steps in a row get a note to act in
   the window in front; eight in a row end the task as stuck.
 - **Plans lose steps the task never asked for**: save, close, exit or quit.
+
+Round 11 added:
+- **Clicks outside the window are aimed at the control the model named.** A
+  position click outside the window in front is refused, unless the thought
+  names a listed control; then the click goes to that control's centre. The job
+  form's clicks landed at x≈560 on the ultrawide, outside the browser.
+- **A second type with no click between goes into the box the thought names**,
+  if that box is still empty, by set_value. The phone number had gone into Email.
+- **click_text falls back to the element list**: a control named exactly that
+  text is invoked even when OCR can't see it, for example on another display.
+- **Any error inside an action is reported to the model** as "failed: Type: msg"
+  instead of ending the task (save-where hit a COMError).
+- **Calculator sums are typed whole without the model**: "work out 12 times 34"
+  opens Calculator and types 12*34=. The model kept pressing buttons and ran out
+  of steps.
+- **A program's other windows are left out of its element list unless they sit
+  over it.** explorer.exe owns the taskbar and every folder window, so they no
+  longer show up as popups of the window in front.
+- Diagnostics closes up to 40 leftover test tabs in Notepad before a run.

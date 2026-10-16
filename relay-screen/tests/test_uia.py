@@ -336,3 +336,14 @@ def test_checkboxes_show_whether_they_are_ticked(owner_displays):
     text = UiaService(Backend({"foreground": [form]})).tree(geometry(owner_displays))
     assert 'CheckBox "I agree" unchecked {toggle}' in text
     assert 'CheckBox "Newsletter" checked {toggle}' in text
+
+
+def test_popups_must_sit_over_the_front_window() -> None:
+    from types import SimpleNamespace as Box
+
+    from relay_screen.uia_windows import _overlaps
+
+    front = Box(left=0, top=0, right=800, bottom=600)
+    assert _overlaps(Box(left=700, top=500, right=900, bottom=700), front)
+    assert not _overlaps(Box(left=0, top=1400, right=3440, bottom=1440), front)
+    assert not _overlaps(None, front)

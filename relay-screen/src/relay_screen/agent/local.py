@@ -640,6 +640,37 @@ def instant_plan(task: str) -> list[tuple[str, dict[str, Any]]] | None:
     return None
 
 
+CALC_TASK = re.compile(
+    _LEAD
+    + r"(?:(?:open|launch|start|use)\s+(?:the\s+)?calculator\s*(?:,|and|then)\s*(?:then\s+)?)?"
+    r"(?:in\s+(?:the\s+)?calculator\s*,?\s*)?"
+    r"(?:work out|calculate|compute|what is|what's|add up|do)\s+"
+    r"(.+?)(?:\s+in\s+(?:the\s+)?calculator)?\??$",
+    re.IGNORECASE,
+)
+CALC_WORDS = (
+    (r"\b(?:multiplied by|times)\b|[x\u00d7]", "*"),
+    (r"\b(?:divided by|over)\b|\u00f7", "/"),
+    (r"\bplus\b", "+"),
+    (r"\bminus\b", "-"),
+)
+CALC_SUM = re.compile(r"\d+(?:\.\d+)?(?:[+*/-]\d+(?:\.\d+)?)+")
+
+
+def calc_entry(task: str) -> str | None:
+    """'12*34=' for "Open Calculator and work out 12 times 34": typed whole, no model
+    (D-106). None unless the task names Calculator and is one plain sum."""
+    text = task.strip().rstrip(".!")
+    found = CALC_TASK.match(text)
+    if found is None or "calculator" not in text.casefold():
+        return None
+    entry = found.group(1).casefold()
+    for words, sign in CALC_WORDS:
+        entry = re.sub(words, sign, entry)
+    entry = re.sub(r"\s+|,(?=\d{3})", "", entry)
+    return entry + "=" if CALC_SUM.fullmatch(entry) else None
+
+
 EDITORS = frozenset({"notepad", "notepad++", "wordpad", "winword", "code", "sublime_text"})
 NEW_TEXT = re.compile(
     r"\b(write|type|jot|draft|compose|create|make|start)\b.*\b(note|list|text|letter|"
@@ -824,6 +855,49 @@ def _switching(steps: list[Step]) -> bool:
     )
 
 
+FIELD_ROLES = ("Edit", "Spinner", "ComboBox", "Document")
+TARGET_ROLES = (*FIELD_ROLES, "Button", "CheckBox", "RadioButton", "Hyperlink", "ListItem")
+NAMED_LINE = re.compile(r'^\s*\[(e\d+)\] (\w+) "([^"]{3,})"[^\n]*?center \((\d+), (\d+)\)', re.M)
+
+
+def _named(
+    elements: str, thought: str, roles: tuple[str, ...], empty: bool = False
+) -> tuple[str, list[int]] | None:
+    """The listed control whose name the thought says, longest name first; with
+    `empty`, only boxes that have nothing in them yet."""
+    said = " ".join(thought.casefold().split())
+    best: tuple[int, str, list[int]] | None = None
+    for found in NAMED_LINE.finditer(elements):
+        element_id, role, name = found.group(1), found.group(2), found.group(3)
+        key = " ".join(name.casefold().rstrip("?:* ").split())
+        if empty and "value=" in found.group(0):
+            continue
+        good = role in roles and len(key) >= 3 and key in said
+        if good and (best is None or len(key) > best[0]):
+            point = [int(found.group(4)), int(found.group(5))]
+            best = (len(key), element_id, point)
+    return (best[1], best[2]) if best else None
+
+
+def _listed_named(elements: str, text: str) -> str | None:
+    """The id of a listed control named exactly `text` (ignoring case), if one is."""
+    want = " ".join(text.casefold().split())
+    for found in re.finditer(r'^\s*\[(e\d+)\] (\w+) "([^"]+)"', elements, re.M):
+        if found.group(2) in TARGET_ROLES and " ".join(found.group(3).casefold().split()) == want:
+            return found.group(1)  # even one on another display, with no centre here
+    return None
+
+
+def _intended_element(elements: str, thought: str) -> list[int] | None:
+    found = _named(elements, thought, TARGET_ROLES)
+    return found[1] if found else None
+
+
+def _intended_field(elements: str, thought: str) -> str | None:
+    found = _named(elements, thought, FIELD_ROLES, empty=True)
+    return found[0] if found else None
+
+
 def _element_label(elements: str, element_id: str) -> str:
     """'"Search jobs"' for e20 when the listing has `[e20] Edit "Search jobs"`."""
     found = re.search(rf"\[{re.escape(element_id)}\] (\w+)(?: \"([^\"]*)\")?", elements)
@@ -883,7 +957,8 @@ def run_instant(task: str, hands: Hands, emit: Event) -> Outcome | None:
     For "open X" an open window of X is brought forward first and the app is launched
     only when there is none.
     """
-    plan = instant_plan(task)
+    entry = calc_entry(task)
+    plan = instant_plan("open Calculator") if entry else instant_plan(task)
     if plan is None:
         return None
     started = time.perf_counter()
@@ -900,6 +975,8 @@ def run_instant(task: str, hands: Hands, emit: Event) -> Outcome | None:
         text = result.text or "done"
         if result.is_error or (member == "focus_window" and "is in front" not in text):
             continue
+        if entry:
+            return _type_entry(entry, Step(1, "", action, text), hands, emit, started)
         step = Step(1, "", action, text)
         ms = round((time.perf_counter() - started) * 1000)
         say = plain(action, text, False, "")
@@ -916,6 +993,39 @@ def run_instant(task: str, hands: Hands, emit: Event) -> Outcome | None:
         emit({"event": "done", "message": text, "steps": 1, "instant_ms": ms})
         return Outcome("done", text, [step])
     return None
+
+
+def _type_entry(
+    entry: str, opened: Step, hands: Hands, emit: Event, started: float
+) -> Outcome | None:
+    """Calculator is in front: type the whole sum in one go (D-106)."""
+    action = {"action": "type", "text": entry}
+    try:
+        result = hands.run("type", {"text": entry})
+    except (KillSwitchError, ApprovalDeniedError, PromptUnavailableError) as exc:
+        emit({"event": "stopped", "message": str(exc), "steps": 2})
+        return Outcome("stopped", str(exc), [opened, Step(2, "", action, f"STOP: {exc}", True)])
+    except ActionError:
+        return None
+    if result.is_error:
+        return None
+    text = result.text or "done"
+    steps = [opened, Step(2, "", action, text)]
+    for step in steps:
+        emit(
+            {
+                "event": "step",
+                "step": step.n,
+                "thought": "",
+                "action": describe(step.action),
+                "say": plain(step.action, step.result, False, ""),
+                "result": step.result,
+            }
+        )
+    ms = round((time.perf_counter() - started) * 1000)
+    message = f"Typed {entry} into Calculator"
+    emit({"event": "done", "message": message, "steps": 2, "instant_ms": ms})
+    return Outcome("done", message, steps)
 
 
 class LocalAgent:
@@ -949,6 +1059,7 @@ class LocalAgent:
         self.typed: dict[str, int] = {}  # text typed so far -> the step that typed it
         self.save_to = ""  # full path for the Save dialog, once the task and owner name it
         self.task = ""
+        self.last_type_step = 0  # the step that typed last, when it was the latest step
         self.plan_app = ""  # the program the plan named, for a launch_app with no name
         self.warned: set[str] = set()  # empty fields already pointed out (D-106)
         self.new_doc = False  # a writing task: editors get a new tab first
@@ -1338,7 +1449,22 @@ class LocalAgent:
                 if member in ("type", "uia_set_value"):
                     self._not_twice(n, str(params.get("text", params.get("value", ""))))
                 if member in POINT_CLICKS:
-                    self._inside_front(params)
+                    try:
+                        self._inside_front(params)
+                    except ActionError:
+                        # The click missed the window, but the thought names a listed
+                        # control: "click on the Full name field" (D-106).
+                        meant = _intended_element(self.elements, thought)
+                        if meant is None:
+                            raise
+                        params = {"coordinate": meant}
+                if member == "type" and self._typing_again(n):
+                    meant_id = _intended_field(self.elements, thought)
+                    if meant_id is not None:
+                        # A second type with no click between went into the field
+                        # before it: the phone number landed in Email (D-106).
+                        member = "uia_set_value"
+                        params = {"element": meant_id, "value": params["text"]}
                 if member in ("click_text", "uia_invoke"):
                     self._fields_first(params)
                 if member == "click_text":
@@ -1360,6 +1486,7 @@ class LocalAgent:
                 self._remember_front()
             if not error and member in ("type", "uia_set_value"):
                 self.typed.setdefault(_typed_key(params), n)
+            self.last_type_step = n if not error and member == "type" else 0
             if not error and member == "uia_set_value" and self._address_bar(params):
                 # A search or address in the browser's bar does nothing until Enter,
                 # and models kept pressing the search icon instead (D-097).
@@ -1371,6 +1498,8 @@ class LocalAgent:
             text, error = f"STOP: {exc}", True
         except ActionError as exc:
             text, error = f"failed: {exc}", True
+        except Exception as exc:  # a UI Automation COMError ended a whole task (D-106)
+            text, error = f"failed: {exc.__class__.__name__}: {exc}", True
         element = params.get("element")
         target = _picked(self.elements, element) if isinstance(element, str) else ""
         if not error and self.save_to and self.typed and _opens_save(member, params, self.elements):
@@ -1629,6 +1758,10 @@ class LocalAgent:
         with contextlib.suppress(ActionError):
             self.hands.run("focus_window", {"window": self.target})
 
+    def _typing_again(self, n: int) -> bool:
+        """The step before this one also typed, so the focus is still on that field."""
+        return bool(self.last_type_step) and self.last_type_step == n - 1
+
     def _fields_first(self, params: Mapping[str, Any]) -> None:
         """Before Next or Submit, point out fields the task names that are still empty.
 
@@ -1668,6 +1801,11 @@ class LocalAgent:
         found = self.hands.run("find_text", {"text": text}).text or ""
         points = [[int(x), int(y)] for x, y in re.findall(r"center \((\d+), (\d+)\)", found)]
         if not points:
+            listed = _listed_named(self.elements, text)
+            if listed is not None:
+                # OCR reads only the active display; the Explorer window on the other
+                # monitor listed "incoming" but OCR never saw it (D-106).
+                return self._invoke(listed)
             raise ActionError(f"no text like {text!r} on the screen")
         check = getattr(self.hands, "outside_front", None)
         inside = [p for p in points if not (callable(check) and check(p))]
