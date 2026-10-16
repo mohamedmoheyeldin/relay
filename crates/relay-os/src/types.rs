@@ -138,6 +138,10 @@ pub trait Desktop: Send + Sync {
         None
     }
     fn windows(&self) -> Result<Vec<WindowInfo>>;
+    /// Accessible name of the control under a physical point, if the platform can tell.
+    fn control_name_at(&self, _x: i32, _y: i32) -> Result<Option<String>> {
+        Ok(None)
+    }
     /// Bring the first window whose title contains `needle` (case-insensitive) to the front.
     fn focus_window(&self, needle: &str) -> Result<String>;
 }

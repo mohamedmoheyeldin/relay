@@ -15,6 +15,7 @@ struct Inner {
     cursor: (i32, i32),
     shade: u8,
     windows: Vec<WindowInfo>,
+    control: Option<String>,
 }
 
 /// A fake desktop that records every input event and serves synthetic frames.
@@ -54,6 +55,7 @@ impl FakeDesktop {
                 cursor: (0, 0),
                 shade: 0,
                 windows: Vec::new(),
+                control: None,
             }),
         }
     }
@@ -84,6 +86,11 @@ impl FakeDesktop {
     /// Change the colour of subsequent frames (simulates the screen changing).
     pub fn set_shade(&self, shade: u8) {
         self.lock().shade = shade;
+    }
+
+    /// Name every control reports under the pointer (for risky-control tests).
+    pub fn set_control_name(&self, name: Option<&str>) {
+        self.lock().control = name.map(str::to_string);
     }
 
     pub fn set_windows(&self, windows: Vec<WindowInfo>) {
@@ -151,6 +158,10 @@ impl Desktop for FakeDesktop {
 
     fn windows(&self) -> Result<Vec<WindowInfo>> {
         Ok(self.lock().windows.clone())
+    }
+
+    fn control_name_at(&self, _x: i32, _y: i32) -> Result<Option<String>> {
+        Ok(self.lock().control.clone())
     }
 
     fn focus_window(&self, needle: &str) -> Result<String> {

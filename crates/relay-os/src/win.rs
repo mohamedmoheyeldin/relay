@@ -189,6 +189,44 @@ fn dispatch(input: INPUT) -> Result<()> {
     }
 }
 
+/// Accessible name of the UI Automation element at a physical point (its parent's if it has none).
+fn control_name(x: i32, y: i32) -> Result<Option<String>> {
+    use windows::Win32::Foundation::POINT;
+    use windows::Win32::System::Com::{
+        CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED,
+    };
+    use windows::Win32::UI::Accessibility::{CUIAutomation, IUIAutomation};
+
+    // SAFETY: COM initialisation per thread is idempotent; S_FALSE just means already initialised.
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+        let automation: IUIAutomation =
+            CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)
+                .map_err(|e| platform("UI Automation", e))?;
+        let element = automation
+            .ElementFromPoint(POINT { x, y })
+            .map_err(|e| platform("ElementFromPoint", e))?;
+        let name = element
+            .CurrentName()
+            .map(|b| b.to_string())
+            .unwrap_or_default();
+        if !name.trim().is_empty() {
+            return Ok(Some(name));
+        }
+        let parent_name = automation
+            .ControlViewWalker()
+            .and_then(|walker| walker.GetParentElement(&element))
+            .and_then(|parent| parent.CurrentName())
+            .map(|b| b.to_string())
+            .unwrap_or_default();
+        Ok(if parent_name.trim().is_empty() {
+            None
+        } else {
+            Some(parent_name)
+        })
+    }
+}
+
 impl Desktop for WindowsDesktop {
     fn displays(&self) -> Result<Vec<DisplayInfo>> {
         let mut found: Vec<DisplayInfo> = Vec::new();
@@ -379,6 +417,10 @@ impl Desktop for WindowsDesktop {
         })
     }
 
+    fn control_name_at(&self, x: i32, y: i32) -> Result<Option<String>> {
+        control_name(x, y)
+    }
+
     fn windows(&self) -> Result<Vec<WindowInfo>> {
         Ok(scan_windows()?.into_iter().map(|(_, w)| w).collect())
     }
@@ -440,6 +482,14 @@ mod tests {
             .unwrap();
         assert_eq!(frame.rgba.len(), 64 * 48 * 4);
         assert!(frame.rgba.chunks_exact(4).all(|p| p[3] == 255));
+    }
+
+    #[test]
+    fn reads_a_control_name_without_error() {
+        let d = WindowsDesktop::new();
+        let primary = d.displays().unwrap().remove(0);
+        let result = d.control_name_at(primary.rect.x + 5, primary.rect.y + 5);
+        assert!(result.is_ok(), "{result:?}");
     }
 
     #[test]

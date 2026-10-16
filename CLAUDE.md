@@ -68,7 +68,7 @@ Confirmation requests are `UiEvent::Confirm`; the UI answers with `UiCommand::An
 - [x] M1 workspace, protocol, scaling, keys
 - [x] M2 AI provider + Claude Code + fake-CLI integration tests
 - [x] M3 OS layer (Windows capture/input)
-- [ ] M4 MCP server + safety gate
+- [x] M4 MCP server + safety gate
 - [ ] M5 agent orchestrator
 - [ ] M6 Tauri shell + Leptos UI
 - [ ] M7 end-to-end verification
