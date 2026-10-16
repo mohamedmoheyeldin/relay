@@ -65,9 +65,9 @@ Confirmation requests are `UiEvent::Confirm`; the UI answers with `UiCommand::An
 - D11 The brief forbids mentioning the inspiration product anywhere in the project; none is named.
 
 ## Progress
-- [ ] M1 workspace, protocol, scaling, keys
-- [ ] M2 AI provider + Claude Code + fake-CLI integration tests
-- [ ] M3 OS layer (Windows capture/input)
+- [x] M1 workspace, protocol, scaling, keys
+- [x] M2 AI provider + Claude Code + fake-CLI integration tests
+- [x] M3 OS layer (Windows capture/input)
 - [ ] M4 MCP server + safety gate
 - [ ] M5 agent orchestrator
 - [ ] M6 Tauri shell + Leptos UI
