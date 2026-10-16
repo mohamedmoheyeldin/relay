@@ -289,7 +289,7 @@ def test_the_cli_lists_and_reads_the_latest(tmp_path: Path, capsys: Any) -> None
 def test_the_scenarios_cover_the_owners_ask() -> None:
     chosen = diag.scenarios("1", "http://127.0.0.1:1")
     kinds = {s.kind for s in chosen}
-    assert kinds == {"operator", "displays", "route", "claude-text", "claude-ui"}
+    assert kinds == {"operator", "displays", "route", "claude-text", "claude-ui", "app"}
     assert any(s.offline for s in chosen) and len({s.id for s in chosen}) == len(chosen)
 
 
