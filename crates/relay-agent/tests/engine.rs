@@ -216,3 +216,41 @@ async fn network_failures_are_reported() {
     assert!(m.start().await.is_err());
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[tokio::test]
+async fn a_release_without_a_checksum_is_refused() {
+    let zip = build_zip();
+    let feed = Feed {
+        zip: Arc::new(zip),
+        advertised_hash: String::new(),
+        base: Arc::default(),
+        requests: Arc::default(),
+    };
+    // Serve a release that lists the zip but no checksum asset.
+    async fn release_no_sums(State(f): State<Feed>) -> Json<serde_json::Value> {
+        let base = f.base.lock().unwrap().clone();
+        Json(json!({"tag_name":"v1","assets":[
+            {"name":"ollama-windows-amd64.zip","browser_download_url":format!("{base}/zip"),"size":f.zip.len()}]}))
+    }
+    let app = Router::new()
+        .route("/release", get(release_no_sums))
+        .route("/zip", get(zip_file))
+        .with_state(feed.clone());
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+        .await
+        .unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    *feed.base.lock().unwrap() = base.clone();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    let root = temp("nosums");
+    let m = manager(&root, &base);
+    let err = m
+        .install(&mut |_| {}, &CancellationToken::new())
+        .await
+        .unwrap_err();
+    assert!(matches!(err, EngineError::Unverified), "{err:?}");
+    assert!(!m.is_installed());
+    let _ = std::fs::remove_dir_all(&root);
+}

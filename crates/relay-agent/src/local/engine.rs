@@ -31,6 +31,8 @@ pub enum EngineError {
     Unpack(String),
     #[error("the engine did not start: {0}")]
     Start(String),
+    #[error("the download could not be verified (no published checksum), so it was not installed")]
+    Unverified,
     #[error("setup was cancelled")]
     Cancelled,
     #[error("no suitable download was found for this PC")]
@@ -149,7 +151,10 @@ pub fn find_checksum(body: &str, file: &str) -> Option<String> {
     body.lines().find_map(|line| {
         let mut parts = line.split_whitespace();
         let hash = parts.next()?;
-        let name = parts.next()?.trim_start_matches('*');
+        let name = parts
+            .next()?
+            .trim_start_matches('*')
+            .trim_start_matches("./");
         (name == file && hash.len() == 64).then(|| hash.to_lowercase())
     })
 }
@@ -332,7 +337,11 @@ impl EngineManager {
                 return Err(EngineError::BadChecksum);
             }
             Some(_) => {}
-            None => warn!("no checksum published for {tag}; continuing without one"),
+            None => {
+                warn!("no checksum published for {tag}; refusing to install an unverified engine");
+                let _ = tokio::fs::remove_file(&part).await;
+                return Err(EngineError::Unverified);
+            }
         }
 
         let staging = self.root.join("app.staging");
@@ -542,7 +551,7 @@ mod tests {
         );
         assert!(pick_assets(&json!({"assets":[]})).is_none());
         let sums = format!(
-            "{}  ollama-linux.tgz\n{}  ollama-windows-amd64.zip\n",
+            "{}  ./ollama-linux.tgz\n{}  ./ollama-windows-amd64.zip\n",
             "a".repeat(64),
             "B".repeat(64)
         );
