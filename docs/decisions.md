@@ -1694,3 +1694,19 @@ From round 5 of the full test (D-103):
 - **Only what was asked.** The prompt says never to save, close, send or delete
   what the task didn't ask for; Notepad tasks were saving files unasked.
 - launch_app takes the app name under any of the keys models used.
+
+## D-105 llama-server loads with DirectIO, and relay-screen leaves with its Claude run
+*2026-10-16*
+
+- **Load mode.** On llama.cpp builds with `--load-mode`, `none` reads the whole
+  weights file into a heap buffer before it goes to the GPU; round 5 measured
+  llama-server at 9.8 GB private with it. Relay now passes `--load-mode dio`
+  (DirectIO: no heap copy and no file cache) when the build lists it, and `mmap`
+  otherwise, never `none`. `RELAY_LLAMA_LOAD_MODE` overrides the choice so a run
+  on the PC can compare modes without a new build. Older builds keep `--no-mmap`.
+- **No leftover MCP servers.** Stopping a chat turn or a timed-out diagnostics run
+  kills only claude.exe, and on Windows its children live on. relay-screen's MCP
+  server now waits on its parent's process handle and exits with it, and exits as
+  soon as stdin closes instead of waiting for worker threads. (Most of the 11
+  "relay-screen for Claude" processes in round 5 were the Claude desktop app's own
+  MCP servers, which the diagnostics count no longer includes.)
