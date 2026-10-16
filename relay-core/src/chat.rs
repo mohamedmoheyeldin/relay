@@ -278,17 +278,32 @@ fn tool_result_body(content: Option<&Value>) -> (String, Option<String>) {
 }
 
 /// A running turn. Dropping it does not stop Claude; call [`Turn::stop`].
-pub struct Turn {
-    child: tokio::process::Child,
+/// A running turn: a Claude (or one-shot local agent) process, or a task in the
+/// operator service.
+pub enum Turn {
+    Process(Box<tokio::process::Child>),
+    Operator {
+        op: std::sync::Arc<crate::operator::Operator>,
+        id: String,
+    },
 }
 
 impl Turn {
     pub fn new(child: tokio::process::Child) -> Self {
-        Self { child }
+        Self::Process(Box::new(child))
+    }
+
+    pub fn operator(op: std::sync::Arc<crate::operator::Operator>, id: String) -> Self {
+        Self::Operator { op, id }
     }
 
     pub async fn stop(&mut self) {
-        let _ = self.child.kill().await;
+        match self {
+            Self::Process(child) => {
+                let _ = child.kill().await;
+            }
+            Self::Operator { op, id } => op.stop(id).await,
+        }
     }
 }
 
@@ -343,7 +358,7 @@ pub async fn start(
             on_event(ChatEvent::Error { message });
         }
     });
-    Ok((Turn { child }, task))
+    Ok((Turn::new(child), task))
 }
 
 #[cfg(test)]

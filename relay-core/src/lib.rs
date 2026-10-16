@@ -15,6 +15,7 @@ pub mod launcher;
 pub mod local_agent;
 pub mod local_ai;
 pub mod mcp;
+pub mod operator;
 pub mod paths;
 pub mod proc;
 pub mod secrets;
