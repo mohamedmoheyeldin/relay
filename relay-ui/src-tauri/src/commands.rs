@@ -660,8 +660,16 @@ pub async fn operator(app: &AppHandle) -> Option<Arc<Operator>> {
     }
     let python = state::python_path(app).filter(|p| p.exists())?;
     let events_app = app.clone();
+    // Steps of tasks Relay didn't start here (Claude's ui_task calls) show only while
+    // this app's own Claude turn runs; other callers' tasks never land in a chat.
     let started = Operator::start(&python, &st.settings(), move |event| {
-        emit_chat(&events_app, Some(event))
+        if events_app
+            .state::<AppState>()
+            .claude_turn
+            .load(Ordering::SeqCst)
+        {
+            emit_chat(&events_app, Some(event))
+        }
     })
     .await;
     // A Python that can't run the service exits right away.
@@ -810,6 +818,7 @@ async fn chat_send(app: AppHandle, prompt: String) -> Res<()> {
     let claude_task = match started {
         Ok((handle, task)) => {
             *turn = Some(handle);
+            st.claude_turn.store(true, Ordering::SeqCst);
             Some(task)
         }
         // Claude Code isn't installed: the local AI takes the task straight away.
@@ -822,6 +831,10 @@ async fn chat_send(app: AppHandle, prompt: String) -> Res<()> {
             None => Some("Claude Code isn't installed".to_string()),
             Some(task) => {
                 let _ = task.await;
+                done_app
+                    .state::<AppState>()
+                    .claude_turn
+                    .store(false, Ordering::SeqCst);
                 let o = outcome.lock().expect("outcome lock");
                 (o.unavailable && !o.tool_ran)
                     .then(|| "Claude can't run right now (signed out or offline)".to_string())

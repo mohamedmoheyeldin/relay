@@ -1,10 +1,10 @@
-// The left sidebar, laid out like the Claude desktop app: New chat and search at the
-// top, pinned chats, recents grouped by day, and the account row at the bottom.
+// The left sidebar, laid out like the Claude desktop app: a row of icon buttons, a
+// short list (New chat, Search), pinned chats, recents, and Settings at the bottom.
+// Account details stay in Settings.
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { Menu, MenuItem, MenuTrigger, Popover } from "react-aria-components";
-import { DotsHorizontal, Edit03, LayoutLeft, Pin02, Plus, SearchLg, Settings01, Trash01, XClose } from "@untitledui/icons";
+import { Button as AriaButton, Menu, MenuItem, MenuTrigger, Popover } from "react-aria-components";
+import { ArrowLeft, ArrowRight, DotsHorizontal, Edit03, LayoutLeft, Pin02, Plus, SearchLg, Settings01, Trash01, XClose } from "@untitledui/icons";
 import type { ChatSummary } from "@/lib/api";
-import { useClaude } from "@/lib/claude";
 import { cx } from "@/utils/cx";
 
 /** Relay's mark (src/assets/relay-mark.svg): a lowercase r of two linked nodes, the
@@ -22,7 +22,7 @@ export const RelayMark = ({ className = "size-8" }: { className?: string }) => (
 
 const DAY = 24 * 60 * 60 * 1000;
 
-/** Recents grouped the way the Claude app does it. */
+/** Recents grouped by day, newest first. */
 export const groupByDay = (chats: ChatSummary[], now = Date.now()) => {
     const start = new Date(now);
     start.setHours(0, 0, 0, 0);
@@ -42,88 +42,119 @@ export const groupByDay = (chats: ChatSummary[], now = Date.now()) => {
     return groups.filter((g) => g.chats.length);
 };
 
-const IconButton = ({ label, onClick, children }: { label: string; onClick: () => void; children: ReactNode }) => (
+const IconButton = ({ label, onClick, disabled, children }: { label: string; onClick: () => void; disabled?: boolean; children: ReactNode }) => (
     <button
         onClick={onClick}
+        disabled={disabled}
         aria-label={label}
         title={label}
-        className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-fg-tertiary transition duration-150 outline-focus-ring hover:bg-tertiary/70 hover:text-fg-secondary focus-visible:outline-2"
+        className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-fg-tertiary transition duration-100 outline-focus-ring hover:bg-tertiary/70 hover:text-fg-secondary focus-visible:outline-2 disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent"
     >
         {children}
     </button>
 );
 
-const NavRow = ({
-    icon: Icon,
-    label,
-    collapsed,
-    onClick,
-    active,
-    accent,
-}: {
-    icon: typeof Plus;
-    label: string;
-    collapsed: boolean;
-    onClick: () => void;
-    active?: boolean;
-    accent?: boolean;
-}) => (
+/** One line of the sidebar list: a small icon and a label, nothing louder. */
+const Row = ({ icon: Icon, label, onClick, active }: { icon: typeof Plus; label: string; onClick: () => void; active?: boolean }) => (
     <button
-        title={collapsed ? label : undefined}
-        aria-label={label}
         aria-current={active ? "page" : undefined}
         onClick={onClick}
         className={cx(
-            "group flex h-9 w-full cursor-pointer items-center gap-2.5 rounded-lg px-1.5 text-sm transition duration-150 ease-out outline-focus-ring focus-visible:outline-2",
-            active ? "bg-tertiary font-medium text-primary" : "text-secondary hover:bg-tertiary/70 hover:text-primary",
-            accent && "font-medium text-primary",
+            "flex h-[30px] w-full cursor-pointer items-center gap-2.5 rounded-md px-2 text-left text-sm transition duration-100 outline-focus-ring focus-visible:outline-2",
+            active ? "bg-tertiary text-primary" : "text-secondary hover:bg-tertiary/60 hover:text-primary",
         )}
     >
-        {accent ? (
-            <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-brand-solid text-white transition duration-150 group-hover:scale-105 group-hover:bg-brand-solid_hover">
-                <Icon className="size-4" />
-            </span>
-        ) : (
-            <span className="flex size-6 shrink-0 items-center justify-center">
-                <Icon className={cx("size-[18px] transition", active ? "text-fg-secondary" : "text-fg-tertiary group-hover:text-fg-secondary")} />
-            </span>
-        )}
-        <span className={cx("truncate", collapsed && "sr-only")}>{label}</span>
+        <Icon className="size-4 shrink-0 text-fg-tertiary" />
+        <span className="truncate">{label}</span>
     </button>
 );
 
-const menuItem =
-    "flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-secondary outline-hidden data-[focused]:bg-tertiary data-[focused]:text-primary";
+/** The menu on a chat: Pin, Rename and Delete, as in the Claude app. Also used by the chat's title bar. */
+export const ChatMenu = ({
+    title,
+    pinned,
+    onPin,
+    onRename,
+    onDelete,
+    className,
+    children,
+}: {
+    title: string;
+    pinned: boolean;
+    onPin: () => void;
+    onRename: () => void;
+    onDelete: () => void;
+    className?: string;
+    children?: ReactNode;
+}) => {
+    const item =
+        "flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 text-sm text-secondary outline-hidden data-[focused]:bg-tertiary data-[focused]:text-primary";
+    return (
+        <MenuTrigger>
+            <AriaButton aria-label={`Options for ${title}`} className={className}>
+                {children ?? <DotsHorizontal className="size-4" />}
+            </AriaButton>
+            <Popover placement="bottom end" offset={4} className="min-w-44 rounded-xl bg-primary_alt p-1 shadow-xl ring-1 ring-secondary outline-hidden">
+                <Menu
+                    aria-label={`Options for ${title}`}
+                    className="outline-hidden"
+                    onAction={(key) => {
+                        if (key === "pin") onPin();
+                        if (key === "rename") onRename();
+                        if (key === "delete") onDelete();
+                    }}
+                >
+                    <MenuItem id="pin" className={item}>
+                        <Pin02 className="size-4 text-fg-tertiary" />
+                        {pinned ? "Unpin" : "Pin"}
+                    </MenuItem>
+                    <MenuItem id="rename" className={item}>
+                        <Edit03 className="size-4 text-fg-tertiary" />
+                        Rename
+                    </MenuItem>
+                    <MenuItem id="delete" className={cx(item, "text-error-primary data-[focused]:text-error-primary")}>
+                        <Trash01 className="size-4" />
+                        Delete
+                    </MenuItem>
+                </Menu>
+            </Popover>
+        </MenuTrigger>
+    );
+};
 
 const ChatRow = ({
     chat,
     active,
+    renaming,
     onOpen,
+    onStartRename,
     onRename,
     onPin,
     onDelete,
 }: {
     chat: ChatSummary;
     active: boolean;
+    renaming: boolean;
     onOpen: () => void;
-    onRename: (title: string) => void;
+    onStartRename: () => void;
+    onRename: (title: string | null) => void;
     onPin: () => void;
     onDelete: () => void;
 }) => {
-    const [editing, setEditing] = useState(false);
     const [name, setName] = useState(chat.title);
     const field = useRef<HTMLInputElement>(null);
     useEffect(() => {
-        if (editing) field.current?.select();
-    }, [editing]);
+        if (renaming) {
+            setName(chat.title);
+            requestAnimationFrame(() => field.current?.select());
+        }
+    }, [renaming]);
     const commit = () => {
-        setEditing(false);
         const next = name.trim();
-        if (next && next !== chat.title) onRename(next);
-        else setName(chat.title);
+        onRename(next && next !== chat.title ? next : null);
     };
 
-    if (editing)
+    if (renaming)
         return (
             <input
                 ref={field}
@@ -133,99 +164,40 @@ const ChatRow = ({
                 onBlur={commit}
                 onKeyDown={(e) => {
                     if (e.key === "Enter") commit();
-                    if (e.key === "Escape") {
-                        setName(chat.title);
-                        setEditing(false);
-                    }
+                    if (e.key === "Escape") onRename(null);
                 }}
-                className="h-8 w-full rounded-lg bg-primary px-2 text-sm text-primary ring-1 ring-brand outline-hidden"
+                className="h-[30px] w-full rounded-md bg-primary px-2 text-sm text-primary ring-1 ring-brand outline-hidden"
             />
         );
     return (
         <div
             className={cx(
-                "group relative flex h-8 items-center rounded-lg text-sm transition duration-150",
-                active ? "bg-tertiary text-primary" : "text-secondary hover:bg-tertiary/70 hover:text-primary",
+                "group relative flex h-[30px] items-center rounded-md text-sm transition duration-100",
+                active ? "bg-tertiary text-primary" : "text-secondary hover:bg-tertiary/60 hover:text-primary",
             )}
         >
             <button
                 onClick={onOpen}
-                onDoubleClick={() => setEditing(true)}
+                onDoubleClick={onStartRename}
                 title={chat.title}
                 aria-current={active ? "page" : undefined}
-                className="h-full min-w-0 flex-1 cursor-pointer truncate px-2 text-left outline-focus-ring focus-visible:outline-2"
+                className="flex h-full min-w-0 flex-1 cursor-pointer items-center gap-2.5 px-2 text-left outline-focus-ring focus-visible:outline-2"
             >
-                {chat.title}
+                <span className={cx("size-1.5 shrink-0 rounded-full ring-1", active ? "bg-fg-brand-primary ring-transparent" : "ring-fg-quaternary")} />
+                <span className="truncate">{chat.title}</span>
             </button>
-            <MenuTrigger>
-                <button
-                    aria-label={`More for ${chat.title}`}
-                    className={cx(
-                        "mr-1 flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-fg-quaternary transition hover:bg-quaternary/60 hover:text-fg-secondary focus-visible:opacity-100 aria-expanded:opacity-100",
-                        active ? "opacity-100" : "opacity-0 group-hover:opacity-100",
-                    )}
-                >
-                    <DotsHorizontal className="size-4" />
-                </button>
-                <Popover placement="bottom end" className="min-w-40 rounded-xl bg-primary p-1 shadow-lg ring-1 ring-secondary outline-hidden animate-in fade-in zoom-in-95 duration-150">
-                    <Menu
-                        className="outline-hidden"
-                        onAction={(key) => {
-                            if (key === "pin") onPin();
-                            if (key === "rename") setEditing(true);
-                            if (key === "delete") onDelete();
-                        }}
-                    >
-                        <MenuItem id="pin" className={menuItem}>
-                            <Pin02 className="size-4" />
-                            {chat.pinned ? "Unpin" : "Pin"}
-                        </MenuItem>
-                        <MenuItem id="rename" className={menuItem}>
-                            <Edit03 className="size-4" />
-                            Rename
-                        </MenuItem>
-                        <MenuItem id="delete" className={cx(menuItem, "text-error-primary data-[focused]:text-error-primary")}>
-                            <Trash01 className="size-4" />
-                            Delete
-                        </MenuItem>
-                    </Menu>
-                </Popover>
-            </MenuTrigger>
+            <ChatMenu
+                title={chat.title}
+                pinned={chat.pinned}
+                onPin={onPin}
+                onRename={onStartRename}
+                onDelete={onDelete}
+                className={cx(
+                    "mr-1 flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-fg-quaternary transition outline-hidden hover:bg-quaternary/60 hover:text-fg-secondary data-[focus-visible]:opacity-100 data-[pressed]:opacity-100 aria-expanded:opacity-100",
+                    active ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+                )}
+            />
         </div>
-    );
-};
-
-const initials = (text: string) =>
-    text
-        .split(/[\s@._-]+/)
-        .filter(Boolean)
-        .slice(0, 2)
-        .map((w) => w[0]?.toUpperCase())
-        .join("") || "R";
-
-/** The account row: who Claude is signed in as, like the Claude app's footer. */
-const Account = ({ collapsed, onOpen }: { collapsed: boolean; onOpen: () => void }) => {
-    const { state } = useClaude();
-    const auth = state?.auth;
-    const name = auth?.loggedIn ? auth.email || "Claude account" : "Not signed in to Claude";
-    const plan = auth?.loggedIn && auth.subscriptionType ? auth.subscriptionType.replace(/^\w/, (c) => c.toUpperCase()) : auth?.loggedIn ? "" : "Local AI only";
-    return (
-        <button
-            onClick={onOpen}
-            title={collapsed ? name : "Settings"}
-            className="group flex h-11 w-full cursor-pointer items-center gap-2.5 rounded-lg px-1 text-left transition duration-150 outline-focus-ring hover:bg-tertiary/70 focus-visible:outline-2"
-        >
-            <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-quaternary text-xs font-semibold text-secondary">
-                {auth?.loggedIn ? initials(auth.email || "C") : "R"}
-            </span>
-            {!collapsed && (
-                <span className="flex min-w-0 flex-1 flex-col leading-tight">
-                    <span className="truncate text-sm font-medium text-primary">{name}</span>
-                    {plan && <span className="truncate text-xs text-tertiary">{plan}</span>}
-                </span>
-            )}
-            {!collapsed && <Settings01 className="size-4 shrink-0 text-fg-quaternary transition group-hover:text-fg-secondary" />}
-        </button>
     );
 };
 
@@ -234,8 +206,15 @@ export const Sidebar = ({
     onToggle,
     chats,
     activeId,
+    settingsOpen,
+    canBack,
+    canForward,
+    onBack,
+    onForward,
     onNew,
     onOpen,
+    renamingId,
+    onStartRename,
     onRename,
     onPin,
     onDelete,
@@ -245,9 +224,16 @@ export const Sidebar = ({
     onToggle: () => void;
     chats: ChatSummary[];
     activeId: string | null;
+    settingsOpen: boolean;
+    canBack: boolean;
+    canForward: boolean;
+    onBack: () => void;
+    onForward: () => void;
     onNew: () => void;
     onOpen: (id: string) => void;
-    onRename: (id: string, title: string) => void;
+    renamingId: string | null;
+    onStartRename: (id: string) => void;
+    onRename: (id: string, title: string | null) => void;
     onPin: (id: string, pinned: boolean) => void;
     onDelete: (id: string) => void;
     onSettings: () => void;
@@ -263,82 +249,103 @@ export const Sidebar = ({
             key={c.id}
             chat={c}
             active={c.id === activeId}
+            renaming={c.id === renamingId}
             onOpen={() => onOpen(c.id)}
+            onStartRename={() => onStartRename(c.id)}
             onRename={(t) => onRename(c.id, t)}
             onPin={() => onPin(c.id, !c.pinned)}
             onDelete={() => onDelete(c.id)}
         />
     );
-    const heading = (label: string) => <span className="px-2 pt-4 pb-1 text-xs font-medium text-quaternary">{label}</span>;
+    const heading = (label: string) => <span className="px-2 pt-5 pb-1 text-xs text-quaternary">{label}</span>;
+    const closeSearch = () => {
+        setQuery("");
+        setSearching(false);
+    };
+
+    if (collapsed)
+        return (
+            <nav aria-label="Relay" className="flex w-12 shrink-0 flex-col items-center gap-1 bg-secondary py-2.5">
+                <IconButton label="Open sidebar" onClick={onToggle}>
+                    <LayoutLeft className="size-4" />
+                </IconButton>
+                <IconButton label="New chat" onClick={onNew}>
+                    <Plus className="size-4" />
+                </IconButton>
+                <IconButton
+                    label="Search chats"
+                    onClick={() => {
+                        onToggle();
+                        setSearching(true);
+                    }}
+                >
+                    <SearchLg className="size-4" />
+                </IconButton>
+                <div className="mt-auto">
+                    <IconButton label="Settings" onClick={onSettings}>
+                        <Settings01 className="size-4" />
+                    </IconButton>
+                </div>
+            </nav>
+        );
 
     return (
-        <nav aria-label="Relay" className={cx("flex shrink-0 flex-col bg-secondary px-2 py-3 transition-[width] duration-200 ease-out", collapsed ? "w-[52px]" : "w-64")}>
-            <div className={cx("mb-3 flex h-9 items-center gap-2", collapsed ? "justify-center" : "justify-between pl-1.5")}>
-                {!collapsed && (
-                    <div className="flex min-w-0 items-center gap-2 animate-in fade-in duration-200">
-                        <RelayMark className="size-6" />
-                        <span className="text-md font-semibold tracking-tight text-primary">Relay</span>
-                    </div>
-                )}
-                <IconButton label={collapsed ? "Open sidebar" : "Close sidebar"} onClick={onToggle}>
-                    <LayoutLeft className="size-[18px]" />
+        <nav aria-label="Relay" className="flex w-[264px] shrink-0 flex-col bg-secondary px-2 pt-2.5 pb-2">
+            <div className="flex h-8 items-center gap-0.5 px-0.5">
+                <IconButton label="Close sidebar" onClick={onToggle}>
+                    <LayoutLeft className="size-4" />
                 </IconButton>
+                <IconButton label="Back" onClick={onBack} disabled={!canBack}>
+                    <ArrowLeft className="size-4" />
+                </IconButton>
+                <IconButton label="Forward" onClick={onForward} disabled={!canForward}>
+                    <ArrowRight className="size-4" />
+                </IconButton>
+                <div className="ml-auto flex items-center gap-1.5 pr-1.5">
+                    <RelayMark className="size-[18px]" />
+                    <span className="text-sm font-semibold tracking-tight text-primary">Relay</span>
+                </div>
             </div>
-            <div className="flex flex-col gap-0.5">
-                <NavRow icon={Plus} label="New chat" accent collapsed={collapsed} onClick={onNew} />
-                {collapsed ? (
-                    <NavRow icon={SearchLg} label="Search chats" collapsed onClick={onToggle} />
-                ) : searching ? (
-                    <div className="flex h-9 items-center gap-2 rounded-lg bg-primary px-2 ring-1 ring-secondary focus-within:ring-brand animate-in fade-in duration-150">
-                        <SearchLg className="size-4 shrink-0 text-fg-quaternary" />
+            <div className="mt-3 flex flex-col gap-px">
+                <Row icon={Plus} label="New chat" onClick={onNew} />
+                {searching ? (
+                    <div className="flex h-[30px] items-center gap-2.5 rounded-md bg-primary px-2 ring-1 ring-secondary focus-within:ring-brand">
+                        <SearchLg className="size-4 shrink-0 text-fg-tertiary" />
                         <input
                             autoFocus
                             aria-label="Search chats"
                             placeholder="Search chats"
                             value={query}
                             onChange={(e) => setQuery(e.target.value)}
-                            onKeyDown={(e) => {
-                                if (e.key === "Escape") {
-                                    setQuery("");
-                                    setSearching(false);
-                                }
-                            }}
+                            onKeyDown={(e) => e.key === "Escape" && closeSearch()}
                             className="min-w-0 flex-1 bg-transparent text-sm text-primary outline-hidden placeholder:text-placeholder"
                         />
-                        <button
-                            aria-label="Close search"
-                            onClick={() => {
-                                setQuery("");
-                                setSearching(false);
-                            }}
-                            className="cursor-pointer text-fg-quaternary hover:text-fg-secondary"
-                        >
-                            <XClose className="size-4" />
+                        <button aria-label="Close search" onClick={closeSearch} className="cursor-pointer text-fg-quaternary hover:text-fg-secondary">
+                            <XClose className="size-3.5" />
                         </button>
                     </div>
                 ) : (
-                    <NavRow icon={SearchLg} label="Search chats" collapsed={false} onClick={() => setSearching(true)} />
+                    <Row icon={SearchLg} label="Search" onClick={() => setSearching(true)} />
                 )}
             </div>
-            {!collapsed && (
-                <div className="-mx-1 mt-1 flex min-h-0 flex-1 flex-col overflow-y-auto px-1 animate-in fade-in duration-200">
-                    {pinned.length > 0 && (
-                        <>
-                            {heading("Pinned")}
-                            <div className="flex flex-col gap-0.5">{pinned.map(row)}</div>
-                        </>
-                    )}
-                    {groups.map((g) => (
-                        <div key={g.label} className="flex flex-col">
-                            {heading(g.label)}
-                            <div className="flex flex-col gap-0.5">{g.chats.map(row)}</div>
-                        </div>
-                    ))}
-                    {q && shown.length === 0 && <p className="px-2 pt-4 text-sm text-tertiary">No chats match "{query.trim()}".</p>}
-                </div>
-            )}
-            <div className="mt-auto border-t border-secondary pt-2">
-                <Account collapsed={collapsed} onOpen={onSettings} />
+            <div className="-mx-1 mt-1 flex min-h-0 flex-1 flex-col overflow-y-auto px-1 pb-2">
+                {pinned.length > 0 && (
+                    <>
+                        {heading("Pinned")}
+                        <div className="flex flex-col gap-px">{pinned.map(row)}</div>
+                    </>
+                )}
+                {groups.map((g) => (
+                    <div key={g.label} className="flex flex-col">
+                        {heading(g.label)}
+                        <div className="flex flex-col gap-px">{g.chats.map(row)}</div>
+                    </div>
+                ))}
+                {q && shown.length === 0 && <p className="px-2 pt-5 text-sm text-tertiary">No chats match "{query.trim()}".</p>}
+                {!q && chats.length === 0 && <p className="px-2 pt-5 text-xs text-quaternary">Your chats will show here.</p>}
+            </div>
+            <div className="border-t border-secondary pt-1.5">
+                <Row icon={Settings01} label="Settings" active={settingsOpen} onClick={onSettings} />
             </div>
         </nav>
     );
