@@ -1204,3 +1204,52 @@ windows, and ask only before steps that can't be undone. The owner answered
   when it ends (`stage.rs`), alongside D-078's never-target-Relay rule.
 - Chat shows each step in plain words (`describe-tool.ts`).
 - Relay Setup turns off Windows 11's 1 px window frame.
+
+## D-081 Claude plans, the local AI does every screen task; no shell, no scripts in chat
+*2026-10-16 · accepted · owner request · amends D-069, D-074, D-079*
+
+The owner, after 0.1.9: "I see tons of PowerShell, tons of Python script … it
+keeps asking for permissions, then extensions". They want the local AI to work
+out and do the UI work in any program, smoothly and fast. Why it happened:
+
+- Relay ran `claude -p` with all of Claude Code's built-in tools. For a task on
+  the screen, Claude reached for what it knows best: PowerShell `Get-Process`,
+  `Start-Process` and small Python scripts. Each of those went through the
+  approval gate.
+- Claude also had relay-screen's direct click and key tools. It drove the
+  screen itself, one screenshot at a time, instead of calling `ui_task`, so
+  the local AI was rarely used.
+- The system prompt told Claude to prefer the relay-browser lane for websites.
+  That lane needs the Playwright extension, and when the extension was missing
+  Claude told the owner to install it.
+
+Decision. A Relay chat runs `claude -p` with `--disallowedTools`:
+
+- removed tools:
+  - `Bash`, `PowerShell`, `Write`, `Edit`, `MultiEdit` and `NotebookEdit`;
+  - the whole `mcp__relay-browser` server;
+  - relay-screen's direct input tools (clicks, drag, mouse, scroll, type, key,
+    hold_key, batch, uia_invoke, uia_set_value);
+- tools Claude keeps:
+  - for looking: screenshot, zoom, uia_tree, uia_find, find_text, list_windows
+    and list_apps;
+  - for opening things: open_url, launch_app and focus_window;
+  - `ui_task`, the connectors, and read-only built-ins.
+
+The system prompt now casts Claude as the planner and the local AI as the
+hands:
+
+- every task on the screen, in any program or site, goes to `ui_task`, one
+  goal per call, with long tasks split into several calls;
+- connectors only read information and never replace doing the task on
+  screen;
+- Claude never asks the owner to install or set anything up.
+
+A `ui_task` that doesn't finish tells Claude to look, then hand the rest back
+as a narrower goal. While the model downloads (D-079), Claude tells the owner
+it will be ready shortly.
+
+Trade-off: Claude can no longer run shell commands or write files from the
+chat. File work now happens on screen through the local AI, for example in
+File Explorer. relay-screen's direct tools stay for other MCP clients and for
+the local AI itself.
