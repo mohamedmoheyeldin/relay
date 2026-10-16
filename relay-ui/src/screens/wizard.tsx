@@ -2,13 +2,13 @@
 // appear where something needs the owner: installing Claude Code, signing in,
 // downloading the suggested model.
 import { type ReactNode, useEffect } from "react";
-import { ArrowRight, CpuChip01, Globe01, ShieldTick, Stars01 } from "@untitledui/icons";
+import { ArrowRight, CpuChip01, ShieldTick, Stars01 } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
 import { Card } from "@/components/relay/ui";
 import { type Settings, api } from "@/lib/api";
 import { useClaude } from "@/lib/claude";
 import { ClaudeChecks } from "./claude-setup";
-import { BrowserCheck, LocalAiChecks, SelfTest } from "./setup-checks";
+import { LocalAiChecks, SelfTest } from "./setup-checks";
 
 const Group = ({ icon: Icon, title, description, children }: { icon: typeof Stars01; title: string; description: string; children: ReactNode }) => (
     <section className="flex flex-col gap-3 animate-in fade-in slide-in-from-bottom-2 duration-500 fill-mode-both">
@@ -25,7 +25,7 @@ const Group = ({ icon: Icon, title, description, children }: { icon: typeof Star
     </section>
 );
 
-export const Wizard = ({ settings, save, onFinish }: { settings: Settings; save: (s: Settings) => Promise<void>; onFinish: () => void }) => {
+export const Wizard = ({ onFinish }: { settings: Settings; save: (s: Settings) => Promise<void>; onFinish: () => void }) => {
     const { signedIn, check } = useClaude();
     const ready = signedIn && check.status === "ok";
     const finish = async () => {
@@ -58,9 +58,6 @@ export const Wizard = ({ settings, save, onFinish }: { settings: Settings; save:
                     </Group>
                     <Group icon={CpuChip01} title="Local AI" description="A vision model on your GPU helps Relay find things on screen, and runs tasks on its own when Claude can't.">
                         <LocalAiChecks autoDownload />
-                    </Group>
-                    <Group icon={Globe01} title="Browser" description="For web tasks Claude drives your browser through its page structure.">
-                        <BrowserCheck settings={settings} save={save} />
                     </Group>
                     <Group icon={ShieldTick} title="Self-test" description="The rest of Relay, checked on this PC.">
                         <SelfTest />

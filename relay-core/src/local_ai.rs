@@ -421,7 +421,9 @@ mod tests {
         let (models, custom) = views(&local, Some(&gpu), Some(&l));
         let venus = models.iter().find(|m| m.id == "ui-venus-1.5-8b").unwrap();
         assert_eq!(venus.source, None);
-        assert_eq!(venus.recommended_quant.as_deref(), Some("Q4_K_M"));
+        assert_eq!(venus.recommended_quant, None);
+        let holo = models.iter().find(|m| m.id == "holo-3.1-9b").unwrap();
+        assert_eq!(holo.recommended_quant.as_deref(), Some("Q5_K_M"));
         assert_eq!(venus.quants[0].fit, Fit::Fits);
         let qwen = models
             .iter()

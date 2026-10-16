@@ -2,6 +2,12 @@
 
 Short entries so later sessions can pick up where earlier ones stopped. Newest first.
 
+## 2026-10-16 · App side: browser lane removed, Holo3.1-9B by default
+- Brave is driven through UI Automation now (D-089), so the Playwright browser lane is gone: no relay-browser MCP entry, no extension token step, no Browser page in Settings or setup. On start Relay removes the old relay-browser entry, its paused entry and the stored token.
+- The installer no longer adds the extension by policy. Install and uninstall both remove the ExtensionInstallForcelist entry earlier versions added, keeping the list gap-free.
+- Setup's suggested download is Holo3.1-9B Q5_K_M alone (about 7.4 GB). Holo2-8B and Holo2-4B remain the fallbacks for smaller GPUs.
+- The "local AI can't run yet" message says the model is still downloading, not that the owner must download one.
+
 ## 2026-10-16 · Operator side complete for the first full build (D-089, D-090)
 - Working straight on `dev` now (owner rule, 00:49).
 - Browsers are read through UI Automation from the page's Document, with the address bar and usable controls only, so no extension is needed (D-089). UIA listings come from one CacheRequest per read.

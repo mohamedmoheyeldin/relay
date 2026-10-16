@@ -95,7 +95,9 @@ pub fn parse_line(line: &str) -> Vec<ChatEvent> {
                 .trim_end();
             let mut message = format!("The local AI can't run yet. {why}");
             if !message.contains("Settings > Local AI") {
-                message.push_str(" Download a model in Settings > Local AI.");
+                message.push_str(
+                    " Relay is downloading its model; you can follow it in Settings > Local AI.",
+                );
             }
             vec![ChatEvent::Error { message }]
         }
