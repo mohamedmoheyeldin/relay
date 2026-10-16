@@ -6,7 +6,7 @@ members = [
     "crates/relay-ai",
     "crates/relay-mcp",
     "crates/relay-agent",
-    "crates/relay-ui",
+    "crates/relay-store",
     "src-tauri",
 ]
 

@@ -3,6 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use relay_agent::local::engine::MANAGED_PORT;
 use relay_agent::RouteMode;
 use relay_mcp::ApprovalMode;
 use serde::{Deserialize, Serialize};
@@ -15,6 +16,9 @@ pub struct Paths {
     pub work_dir: PathBuf,
     pub runs_dir: PathBuf,
     pub logs_dir: PathBuf,
+    /// The built-in local AI engine and its models.
+    pub engine_dir: PathBuf,
+    pub database: PathBuf,
     /// The owner's MCP servers (`{"mcpServers": {...}}`).
     pub mcp_config: PathBuf,
     pub settings_file: PathBuf,
@@ -27,6 +31,8 @@ impl Paths {
             work_dir: data_dir.join("workspace"),
             runs_dir: data_dir.join("runs"),
             logs_dir: data_dir.join("logs"),
+            engine_dir: data_dir.join("engine"),
+            database: data_dir.join("relay.db"),
             mcp_config: data_dir.join("mcp.json"),
             settings_file: data_dir.join("settings.json"),
             data_dir,
@@ -35,7 +41,12 @@ impl Paths {
 
     /// Create the folders and a starter MCP file so the owner can see where to add servers.
     pub fn ensure(&self) -> Result<()> {
-        for dir in [&self.work_dir, &self.runs_dir, &self.logs_dir] {
+        for dir in [
+            &self.work_dir,
+            &self.runs_dir,
+            &self.logs_dir,
+            &self.engine_dir,
+        ] {
             std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
         }
         if !self.mcp_config.exists() {
@@ -63,6 +74,10 @@ pub fn mode_from_str(text: &str) -> Option<ApprovalMode> {
     }
 }
 
+fn default_user() -> String {
+    std::env::var("USERNAME").unwrap_or_else(|_| "You".to_string())
+}
+
 /// Settings stored in `settings.json`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -73,6 +88,10 @@ pub struct Settings {
     /// Local model name; `None` picks the best installed one.
     pub local_model: Option<String>,
     pub local_url: String,
+    pub user_name: String,
+    pub custom_instructions: String,
+    /// Download and run the built-in local AI automatically.
+    pub auto_setup: bool,
 }
 
 impl Default for Settings {
@@ -81,9 +100,21 @@ impl Default for Settings {
             approval_mode: mode_to_str(ApprovalMode::Off).to_string(),
             route_mode: RouteMode::Auto.as_str().to_string(),
             local_model: None,
-            local_url: relay_agent::local::DEFAULT_URL.to_string(),
+            local_url: format!("http://127.0.0.1:{MANAGED_PORT}"),
+            user_name: default_user(),
+            custom_instructions: String::new(),
+            auto_setup: true,
         }
     }
+}
+
+/// A partial update from the UI.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct SettingsPatch {
+    pub approval_mode: Option<String>,
+    pub user_name: Option<String>,
+    pub custom_instructions: Option<String>,
+    pub auto_setup: Option<bool>,
 }
 
 impl Settings {
@@ -95,7 +126,25 @@ impl Settings {
         mode_from_str(&self.approval_mode).unwrap_or(ApprovalMode::Off)
     }
 
-    /// Load settings; a missing or unreadable file yields the safe defaults.
+    /// Apply a patch; unknown approval modes are rejected.
+    pub fn apply(&mut self, patch: SettingsPatch) -> Result<()> {
+        if let Some(mode) = patch.approval_mode {
+            mode_from_str(&mode).with_context(|| format!("unknown approval mode {mode:?}"))?;
+            self.approval_mode = mode;
+        }
+        if let Some(name) = patch.user_name {
+            self.user_name = name.trim().to_string();
+        }
+        if let Some(text) = patch.custom_instructions {
+            self.custom_instructions = text;
+        }
+        if let Some(auto) = patch.auto_setup {
+            self.auto_setup = auto;
+        }
+        Ok(())
+    }
+
+    /// Load settings; a missing or unreadable file yields the defaults.
     pub fn load(path: &Path) -> Self {
         std::fs::read_to_string(path)
             .ok()
@@ -132,6 +181,15 @@ mod tests {
     }
 
     #[test]
+    fn defaults_are_hands_off_and_automatic() {
+        let s = Settings::default();
+        assert_eq!(s.mode(), ApprovalMode::Off);
+        assert_eq!(s.route(), RouteMode::Auto);
+        assert!(s.auto_setup);
+        assert!(s.local_url.ends_with(&MANAGED_PORT.to_string()));
+    }
+
+    #[test]
     fn missing_or_corrupt_settings_fall_back_to_defaults() {
         let dir = temp("settings");
         std::fs::create_dir_all(&dir).unwrap();
@@ -153,26 +211,39 @@ mod tests {
         let s = Settings::load(&file);
         assert_eq!(s.mode(), ApprovalMode::Always);
         assert_eq!(s.route(), RouteMode::Auto);
-        assert_eq!(s.local_url, relay_agent::local::DEFAULT_URL);
+        assert!(s.auto_setup);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
-    fn settings_persist() {
+    fn settings_persist_and_patch() {
         let dir = temp("persist");
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("settings.json");
-        let s = Settings {
-            approval_mode: "always".into(),
-            route_mode: "local_only".into(),
-            local_model: Some("qwen3:14b".into()),
-            ..Settings::default()
-        };
+        let mut s = Settings::default();
+        s.apply(SettingsPatch {
+            approval_mode: Some("always".into()),
+            user_name: Some("  Moe ".into()),
+            custom_instructions: Some("Be brief".into()),
+            auto_setup: Some(false),
+        })
+        .unwrap();
+        s.route_mode = "local_only".into();
+        s.local_model = Some("qwen3:14b".into());
         s.save(&file).unwrap();
         let back = Settings::load(&file);
         assert_eq!(back.mode(), ApprovalMode::Always);
         assert_eq!(back.route(), RouteMode::LocalOnly);
+        assert_eq!(back.user_name, "Moe");
+        assert_eq!(back.custom_instructions, "Be brief");
+        assert!(!back.auto_setup);
         assert_eq!(back.local_model.as_deref(), Some("qwen3:14b"));
+        assert!(s
+            .apply(SettingsPatch {
+                approval_mode: Some("nope".into()),
+                ..SettingsPatch::default()
+            })
+            .is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -181,7 +252,7 @@ mod tests {
         let dir = temp("paths");
         let paths = Paths::new(&dir);
         paths.ensure().unwrap();
-        assert!(paths.work_dir.is_dir() && paths.runs_dir.is_dir() && paths.logs_dir.is_dir());
+        assert!(paths.work_dir.is_dir() && paths.runs_dir.is_dir() && paths.engine_dir.is_dir());
         let text = std::fs::read_to_string(&paths.mcp_config).unwrap();
         assert!(text.contains("mcpServers"));
         std::fs::write(&paths.mcp_config, "{\"mcpServers\":{\"x\":{}}}").unwrap();

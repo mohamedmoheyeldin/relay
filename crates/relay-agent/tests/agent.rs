@@ -7,7 +7,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use relay_agent::{
     Agent, AgentConfig, AgentParts, ConfirmBridge, EventSink, LocalConfig, LocalProvider,
-    RouteMode, SubmitError,
+    MemoryStore, RouteMode, SubmitError,
 };
 use relay_ai::{
     AiError, AiEvent, AiProvider, Finish, ProviderStatus, RunHandle, RunRequest, SessionMode,
@@ -223,6 +223,7 @@ async fn world(script: Script, user_mcp: Option<std::path::PathBuf>) -> World {
             mcp: server.clone(),
             kill: kill.clone(),
             bridge,
+            store: Arc::new(MemoryStore::default()),
         },
         AgentConfig {
             work_dir: std::env::temp_dir(),
@@ -266,7 +267,13 @@ async fn a_task_streams_progress_and_completes() {
     let run_id = w.agent.submit("do the thing").unwrap();
     assert_eq!(wait_finished(&w).await, RunOutcome::Completed);
     let events = w.events.lock().unwrap().clone();
-    assert_eq!(events[0], UiEvent::RunStarted { run_id });
+    assert_eq!(
+        events[0],
+        UiEvent::RunStarted {
+            run_id,
+            conv_id: "default".into()
+        }
+    );
     assert!(events.contains(&UiEvent::AssistantDelta {
         run_id,
         text: "Hel".into()
@@ -328,7 +335,7 @@ async fn follow_up_messages_resume_the_same_conversation() {
         other => panic!("{other:?}"),
     };
     assert_eq!(reqs[1].session, SessionMode::Resume(first));
-    w.agent.new_conversation();
+    w.agent.forget("default");
     w.events.lock().unwrap().clear();
     w.agent.submit("three").unwrap();
     wait_finished(&w).await;
@@ -507,4 +514,37 @@ async fn status_reports_readiness_busy_and_hotkey() {
     assert!(w.agent.status().await.busy);
     w.agent.stop();
     wait_finished(&w).await;
+}
+
+#[tokio::test]
+async fn each_conversation_keeps_its_own_session_and_attachments_reach_the_prompt() {
+    let w = world(Script::Complete, None).await;
+    w.agent.submit_in("a", "first in a", &[]).unwrap();
+    wait_finished(&w).await;
+    w.events.lock().unwrap().clear();
+    w.agent
+        .submit_in("b", "first in b", &["C:\\docs\\cv.pdf".to_string()])
+        .unwrap();
+    wait_finished(&w).await;
+    w.events.lock().unwrap().clear();
+    w.agent.submit_in("a", "second in a", &[]).unwrap();
+    wait_finished(&w).await;
+    let reqs = w.provider.requests();
+    let a1 = match &reqs[0].session {
+        SessionMode::New(id) => id.clone(),
+        other => panic!("{other:?}"),
+    };
+    assert!(
+        matches!(reqs[1].session, SessionMode::New(_)),
+        "b is a separate chat"
+    );
+    assert!(reqs[1].prompt.contains("Attached files:") && reqs[1].prompt.contains("cv.pdf"));
+    assert_eq!(reqs[2].session, SessionMode::Resume(a1));
+    let started = w
+        .events
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|e| matches!(e, UiEvent::RunStarted { conv_id, .. } if conv_id == "a"));
+    assert!(started);
 }

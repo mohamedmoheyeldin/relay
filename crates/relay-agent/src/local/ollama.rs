@@ -121,7 +121,7 @@ impl OllamaClient {
         Self {
             base: base.into().trim_end_matches('/').to_string(),
             http: reqwest::Client::builder()
-                .connect_timeout(Duration::from_secs(2))
+                .connect_timeout(Duration::from_millis(600))
                 .build()
                 .unwrap_or_default(),
         }
@@ -139,7 +139,7 @@ impl OllamaClient {
     pub async fn available(&self) -> bool {
         self.http
             .get(format!("{}/api/tags", self.base))
-            .timeout(Duration::from_secs(3))
+            .timeout(Duration::from_millis(1500))
             .send()
             .await
             .map(|r| r.status().is_success())

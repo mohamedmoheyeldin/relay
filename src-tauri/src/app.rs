@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
+use relay_agent::local::engine::{EngineManager, MANAGED_PORT};
 use relay_agent::{
     Agent, AgentConfig, AgentParts, ConfirmBridge, EventSink, LocalConfig, LocalProvider,
 };
@@ -13,14 +14,17 @@ use relay_mcp::audit::AuditLog;
 use relay_mcp::{HostOptions, KillSwitch, McpServer, ToolHost};
 use relay_os::driver::Driver;
 use relay_protocol::UiEvent;
+use relay_store::Store;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 use crate::commands;
 use crate::settings::{Paths, Settings};
+use crate::setup::LocalSetup;
+use crate::store_adapter::StoreAdapter;
 
 /// Event name the chat window listens on.
 pub const EVENT_NAME: &str = "relay-event";
@@ -28,15 +32,56 @@ pub const EVENT_NAME: &str = "relay-event";
 pub const KILL_HOTKEY_LABEL: &str = "Ctrl+Alt+Shift+Esc";
 const CONFIRM_TIMEOUT: Duration = Duration::from_secs(120);
 
+/// What this launch is for (kept in Tauri state so commands can read it).
+pub struct ModeState(pub crate::installer::Mode);
+
+/// Relay's data folder.
+pub fn data_dir_of(app: &AppHandle) -> Result<std::path::PathBuf> {
+    app.path()
+        .app_local_data_dir()
+        .context("finding the data folder")
+}
+
+/// Show the setup or removal window instead of the app.
+fn setup_installer(app: &mut tauri::App, mode: crate::installer::Mode) -> Result<()> {
+    app.manage(ModeState(mode));
+    if let Some(window) = app.get_webview_window("main") {
+        let title = match mode {
+            crate::installer::Mode::Uninstall => "Remove Relay",
+            _ => "Relay Setup",
+        };
+        let _ = window.set_title(title);
+        let _ = window.set_resizable(false);
+        let _ = window.set_maximizable(false);
+        let _ = window.set_size(tauri::LogicalSize::new(560.0, 620.0));
+        let _ = window.center();
+        let _ = window.show();
+    }
+    Ok(())
+}
+
 pub struct AppState {
     pub agent: Arc<Agent>,
     pub host: Arc<ToolHost>,
     pub paths: Paths,
-    pub settings: Mutex<Settings>,
+    pub settings: Arc<Mutex<Settings>>,
+    pub store: Arc<Store>,
+    pub setup: Arc<LocalSetup>,
     /// Where the cloud CLI was found, shown in Settings.
     pub cloud_path: String,
     // Keeps the MCP server alive for the life of the app.
     pub _mcp: Arc<McpServer>,
+}
+
+impl AppState {
+    /// Change and persist the settings.
+    pub fn update_settings(&self, change: impl FnOnce(&mut Settings)) -> Result<(), String> {
+        let mut settings = self.settings.lock().map_err(|e| e.to_string())?;
+        change(&mut settings);
+        settings
+            .save(&self.paths.settings_file)
+            .map_err(|e| e.to_string())
+    }
 }
 
 fn kill_shortcut() -> Shortcut {
@@ -65,13 +110,8 @@ fn toggle_main(app: &AppHandle) {
 }
 
 pub fn emit_event(app: &AppHandle, event: &UiEvent) {
-    match serde_json::to_string(event) {
-        Ok(json) => {
-            if let Err(e) = app.emit(EVENT_NAME, json) {
-                warn!("could not deliver event to the window: {e}");
-            }
-        }
-        Err(e) => error!("could not serialise event: {e}"),
+    if let Err(e) = app.emit(EVENT_NAME, event) {
+        warn!("could not deliver event to the window: {e}");
     }
 }
 
@@ -141,6 +181,17 @@ fn build_tray(app: &AppHandle) -> Result<()> {
 }
 
 fn setup(app: &mut tauri::App) -> Result<()> {
+    let args: Vec<String> = std::env::args().collect();
+    let mode = crate::installer::detect_mode(
+        &args,
+        &std::env::current_exe().unwrap_or_default(),
+        &crate::installer::install_dir(),
+        cfg!(debug_assertions),
+    );
+    if mode != crate::installer::Mode::App {
+        return setup_installer(app, mode);
+    }
+    app.manage(ModeState(mode));
     let handle = app.handle().clone();
     let data_dir = app
         .path()
@@ -151,7 +202,9 @@ fn setup(app: &mut tauri::App) -> Result<()> {
     init_logging(&paths);
     info!("Relay starting; data in {}", paths.data_dir.display());
 
-    let settings = Settings::load(&paths.settings_file);
+    let settings = Arc::new(Mutex::new(Settings::load(&paths.settings_file)));
+    let start = settings.lock().map(|s| s.clone()).unwrap_or_default();
+    let store = Arc::new(Store::open(&paths.database).context("opening the chat database")?);
     let sink: EventSink = {
         let handle = handle.clone();
         Arc::new(move |event| emit_event(&handle, &event))
@@ -177,7 +230,7 @@ fn setup(app: &mut tauri::App) -> Result<()> {
         bridge.clone(),
         Some(audit),
         HostOptions {
-            approval_mode: settings.mode(),
+            approval_mode: start.mode(),
             ..HostOptions::default()
         },
     ));
@@ -190,19 +243,26 @@ fn setup(app: &mut tauri::App) -> Result<()> {
     let cloud: Arc<dyn AiProvider> = Arc::new(claude);
     let local = LocalProvider::new(
         LocalConfig {
-            base_url: settings.local_url.clone(),
-            model: settings.local_model.clone(),
+            base_url: start.local_url.clone(),
+            model: start.local_model.clone(),
         },
         host.clone(),
     );
+    let engine = Arc::new(EngineManager::new(
+        paths.engine_dir.clone(),
+        paths.logs_dir.join("local-ai.log"),
+        MANAGED_PORT,
+    ));
+    let setup = LocalSetup::new(handle.clone(), engine, local.clone());
     let agent = Agent::new(
         AgentParts {
             cloud,
             local,
-            route: settings.route(),
+            route: start.route(),
             mcp: mcp.clone(),
             kill,
             bridge,
+            store: Arc::new(StoreAdapter::new(store.clone(), settings.clone())),
         },
         AgentConfig {
             work_dir: paths.work_dir.clone(),
@@ -217,7 +277,9 @@ fn setup(app: &mut tauri::App) -> Result<()> {
         agent,
         host,
         paths,
-        settings: Mutex::new(settings),
+        settings,
+        store,
+        setup: setup.clone(),
         cloud_path,
         _mcp: mcp,
     });
@@ -259,6 +321,28 @@ fn setup(app: &mut tauri::App) -> Result<()> {
             _ => {}
         });
     }
+    // Bring the built-in local AI up in the background; install it first if it is missing.
+    if start.auto_setup {
+        let setup = setup.clone();
+        tauri::async_runtime::spawn(async move {
+            if setup.engine().is_installed() {
+                if let Err(e) = setup.engine().start().await {
+                    warn!("local AI did not start: {e}");
+                }
+                let has_model = setup
+                    .local_client()
+                    .models()
+                    .await
+                    .map(|m| m.iter().any(|m| m.tools))
+                    .unwrap_or(false);
+                if !has_model {
+                    setup.start();
+                }
+            } else {
+                setup.start();
+            }
+        });
+    }
     let start_hidden = std::env::args().any(|a| a == "--minimized");
     if !start_hidden {
         show_main(&handle);
@@ -269,6 +353,7 @@ fn setup(app: &mut tauri::App) -> Result<()> {
 pub fn run() -> Result<()> {
     let shortcut = kill_shortcut();
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             show_main(app);
         }))
@@ -288,17 +373,46 @@ pub fn run() -> Result<()> {
             commands::send_message,
             commands::stop_task,
             commands::answer_confirm,
-            commands::new_conversation,
             commands::get_status,
+            commands::conv_list,
+            commands::conv_get,
+            commands::conv_create,
+            commands::conv_save,
+            commands::conv_update,
+            commands::conv_move,
+            commands::conv_delete,
+            commands::search,
+            commands::project_list,
+            commands::project_create,
+            commands::project_update,
+            commands::project_delete,
             commands::get_engines,
-            commands::set_approval_mode,
             commands::set_route_mode,
             commands::set_local_model,
-            commands::set_local_url,
+            commands::local_ai_setup,
             commands::pull_model,
-            commands::open_data_folder,
+            commands::get_settings,
+            commands::set_settings,
+            commands::mcp_get,
+            commands::mcp_set,
+            commands::pick_files,
             commands::open_link,
+            commands::installer_info,
+            commands::installer_install,
+            commands::installer_launch,
+            commands::uninstall_run,
+            commands::app_quit,
         ])
-        .run(tauri::generate_context!())
-        .context("running the application")
+        .build(tauri::generate_context!())
+        .context("building the application")?
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                if let Some(state) = app.try_state::<AppState>() {
+                    state.agent.stop();
+                    // Stop the built-in local AI server with the app.
+                    tauri::async_runtime::block_on(state.setup.engine().stop());
+                }
+            }
+        });
+    Ok(())
 }

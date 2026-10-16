@@ -11,7 +11,8 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use relay_agent::local::{OllamaClient, PullProgress};
 use relay_agent::{
-    Agent, AgentConfig, AgentParts, ConfirmBridge, EventSink, LocalConfig, LocalProvider, RouteMode,
+    Agent, AgentConfig, AgentParts, ConfirmBridge, EventSink, LocalConfig, LocalProvider,
+    MemoryStore, RouteMode,
 };
 use relay_ai::{
     AiError, AiEvent, AiProvider, Finish, ProviderStatus, RunHandle, RunRequest, Timeouts,
@@ -197,6 +198,7 @@ async fn world(mode: RouteMode, models: Vec<(&str, Vec<&'static str>)>) -> World
             mcp: server.clone(),
             kill,
             bridge,
+            store: Arc::new(MemoryStore::default()),
         },
         AgentConfig {
             work_dir: std::env::temp_dir(),

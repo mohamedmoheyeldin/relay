@@ -18,6 +18,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 use crate::bridge::{ConfirmBridge, EventSink};
+use crate::context::ConvStore;
 use crate::local::{decide, Engine, LocalProvider, RouteMode};
 use crate::prompt::SYSTEM_PROMPT;
 
@@ -50,10 +51,9 @@ struct Active {
 #[derive(Default)]
 struct State {
     active: Option<Active>,
-    session_id: Option<String>,
     next_run: RunId,
-    /// Recent (request, final answer) pairs, so every engine has the conversation so far.
-    history: Vec<(String, String)>,
+    /// Session id the cloud CLI reported during the current run.
+    pending_session: Option<String>,
 }
 
 const HISTORY_TURNS: usize = 6;
@@ -67,7 +67,10 @@ pub struct Agent {
     bridge: Arc<ConfirmBridge>,
     config: AgentConfig,
     sink: EventSink,
+    store: Arc<dyn ConvStore>,
     state: Mutex<State>,
+    /// `claude auth status` spawns a process, so its answer is cached briefly.
+    cloud_cache: Mutex<Option<(std::time::Instant, relay_ai::ProviderStatus)>>,
 }
 
 /// Merge the owner's MCP servers with Relay's own; Relay's entry always wins.
@@ -220,6 +223,7 @@ pub struct AgentParts {
     pub mcp: Arc<McpServer>,
     pub kill: KillSwitch,
     pub bridge: Arc<ConfirmBridge>,
+    pub store: Arc<dyn ConvStore>,
 }
 
 impl Agent {
@@ -233,6 +237,8 @@ impl Agent {
             bridge: parts.bridge,
             config,
             sink,
+            store: parts.store,
+            cloud_cache: Mutex::new(None),
             state: Mutex::new(State {
                 next_run: 1,
                 ..State::default()
@@ -268,11 +274,9 @@ impl Agent {
         &self.cloud
     }
 
-    /// Forget the conversation so the next task starts fresh.
-    pub fn new_conversation(&self) {
-        let mut state = self.state();
-        state.session_id = None;
-        state.history.clear();
+    /// Forget a conversation's AI context so its next task starts fresh.
+    pub fn forget(&self, conv_id: &str) {
+        self.store.save(conv_id, None, &[]);
     }
 
     /// The owner's click on a confirmation card.
@@ -290,8 +294,32 @@ impl Agent {
         }
     }
 
+    /// The cloud CLI's install and sign-in state, cached for 30 seconds.
+    pub async fn cloud_status(&self) -> relay_ai::ProviderStatus {
+        const FRESH: std::time::Duration = std::time::Duration::from_secs(30);
+        if let Some((at, status)) = self
+            .cloud_cache
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+        {
+            if at.elapsed() < FRESH {
+                return status;
+            }
+        }
+        let status = self.cloud.status().await;
+        *self.cloud_cache.lock().unwrap_or_else(|p| p.into_inner()) =
+            Some((std::time::Instant::now(), status.clone()));
+        status
+    }
+
+    /// Forget the cached cloud status (after the owner signs in).
+    pub fn refresh_cloud_status(&self) {
+        *self.cloud_cache.lock().unwrap_or_else(|p| p.into_inner()) = None;
+    }
+
     pub async fn status(&self) -> StatusInfo {
-        let cloud = self.cloud.status().await;
+        let cloud = self.cloud_status().await;
         let local = self.local.overview().await;
         StatusInfo {
             provider: self.cloud.name().to_string(),
@@ -310,11 +338,27 @@ impl Agent {
         }
     }
 
-    /// Start a task. Returns at once; progress arrives as events.
+    /// Start a task in the default conversation (used by tests and simple callers).
     pub fn submit(self: &Arc<Self>, text: &str) -> Result<RunId, SubmitError> {
-        let prompt = text.trim().to_string();
+        self.submit_in("default", text, &[])
+    }
+
+    /// Start a task in a conversation. Returns at once; progress arrives as events.
+    pub fn submit_in(
+        self: &Arc<Self>,
+        conv_id: &str,
+        text: &str,
+        attachments: &[String],
+    ) -> Result<RunId, SubmitError> {
+        let mut prompt = text.trim().to_string();
         if prompt.is_empty() {
             return Err(SubmitError::Empty);
+        }
+        if !attachments.is_empty() {
+            prompt.push_str("\n\nAttached files:");
+            for path in attachments {
+                prompt.push_str(&format!("\n- {path}"));
+            }
         }
         let (run_id, stop) = {
             let mut state = self.state();
@@ -329,10 +373,14 @@ impl Agent {
         };
         // A new task is the owner's explicit go-ahead, so the earlier stop is lifted.
         self.kill.rearm();
-        self.emit(UiEvent::RunStarted { run_id });
+        let conv_id = conv_id.to_string();
+        self.emit(UiEvent::RunStarted {
+            run_id,
+            conv_id: conv_id.clone(),
+        });
         let this = self.clone();
         tokio::spawn(async move {
-            this.run_task(run_id, prompt, stop).await;
+            this.run_task(run_id, conv_id, prompt, stop).await;
         });
         Ok(run_id)
     }
@@ -362,7 +410,7 @@ impl Agent {
                             Some(event) => {
                                 if let AiEvent::Started { session_id, .. } = &event {
                                     if is_cloud && !session_id.is_empty() {
-                                        self.state().session_id = Some(session_id.clone());
+                                        self.state().pending_session = Some(session_id.clone());
                                     }
                                 }
                                 for ui in map_event(run_id, &event) {
@@ -383,7 +431,16 @@ impl Agent {
         session: SessionMode,
         mcp_servers: Value,
         cloud: bool,
+        instructions: &str,
     ) -> RunRequest {
+        let standing = if instructions.trim().is_empty() {
+            String::new()
+        } else {
+            format!(
+                "\n\nStanding instructions from the owner (follow them):\n{}",
+                instructions.trim()
+            )
+        };
         RunRequest {
             run_id,
             prompt,
@@ -402,7 +459,11 @@ impl Agent {
             } else {
                 Vec::new()
             },
-            system_prompt_append: cloud.then(|| SYSTEM_PROMPT.to_string()),
+            system_prompt_append: if cloud {
+                Some(format!("{SYSTEM_PROMPT}{standing}"))
+            } else {
+                (!standing.is_empty()).then_some(standing)
+            },
             model: if cloud {
                 self.config.model.clone()
             } else {
@@ -412,7 +473,15 @@ impl Agent {
         }
     }
 
-    async fn run_task(self: Arc<Self>, run_id: RunId, prompt: String, stop: CancellationToken) {
+    async fn run_task(
+        self: Arc<Self>,
+        run_id: RunId,
+        conv_id: String,
+        prompt: String,
+        stop: CancellationToken,
+    ) {
+        let ctx = self.store.load(&conv_id);
+        self.state().pending_session = None;
         let grant = self.mcp.grant(run_id);
         let user_servers = match &self.config.user_mcp_config {
             Some(path) => load_user_servers(path).await.unwrap_or_else(|problem| {
@@ -430,7 +499,7 @@ impl Agent {
         let mode = self.route_mode();
         let overview = self.local.overview().await;
         let ability = overview.ability();
-        let history = self.state().history.clone();
+        let history = ctx.history.clone();
         let mut engine = decide(mode, &prompt, ability);
         let mut handoff: Option<(String, String)> = None;
         let mut local_name = overview.active.map(|m| m.name);
@@ -449,6 +518,7 @@ impl Agent {
                         SessionMode::New(uuid::Uuid::new_v4().to_string()),
                         Value::Null,
                         false,
+                        &ctx.instructions,
                     );
                     let provider: Arc<dyn AiProvider> = self.local.clone();
                     self.drive(run_id, &provider, request, &stop, false).await
@@ -459,21 +529,25 @@ impl Agent {
                         kind: "cloud".into(),
                         name: self.cloud.name().to_string(),
                     });
-                    let (session, base) = {
-                        let state = self.state();
-                        match &state.session_id {
-                            Some(id) => (SessionMode::Resume(id.clone()), prompt.clone()),
-                            None => (
-                                SessionMode::New(uuid::Uuid::new_v4().to_string()),
-                                with_context(&state.history, &prompt),
-                            ),
-                        }
+                    let (session, base) = match &ctx.session_id {
+                        Some(id) => (SessionMode::Resume(id.clone()), prompt.clone()),
+                        None => (
+                            SessionMode::New(uuid::Uuid::new_v4().to_string()),
+                            with_context(&ctx.history, &prompt),
+                        ),
                     };
                     let text = match &handoff {
                         Some((reason, summary)) => handoff_prompt(&base, reason, summary),
                         None => base,
                     };
-                    let request = self.request(run_id, text, session, mcp_servers.clone(), true);
+                    let request = self.request(
+                        run_id,
+                        text,
+                        session,
+                        mcp_servers.clone(),
+                        true,
+                        &ctx.instructions,
+                    );
                     let provider = self.cloud.clone();
                     self.drive(run_id, &provider, request, &stop, true).await
                 }
@@ -503,17 +577,24 @@ impl Agent {
 
         self.mcp.revoke(&grant);
         self.bridge.deny_all();
+        // Keep the cloud session even when a run is cut short, so the next message resumes it.
+        let session_seen = self
+            .state()
+            .pending_session
+            .take()
+            .or(ctx.session_id.clone());
+        let mut history = ctx.history.clone();
+        let mut session_to_keep = session_seen;
         let run_outcome = match &outcome {
             Finish::Completed {
                 session_id, result, ..
             } => {
-                let mut state = self.state();
                 if let Some(id) = session_id {
-                    state.session_id = Some(id.clone());
+                    session_to_keep = Some(id.clone());
                 }
-                state.history.push((prompt.clone(), result.clone()));
-                let excess = state.history.len().saturating_sub(HISTORY_TURNS);
-                state.history.drain(..excess);
+                history.push((prompt.clone(), result.clone()));
+                let excess = history.len().saturating_sub(HISTORY_TURNS);
+                history.drain(..excess);
                 RunOutcome::Completed
             }
             Finish::Cancelled => RunOutcome::Cancelled,
@@ -528,7 +609,7 @@ impl Agent {
             }
             Finish::Failed(error) => {
                 if error.to_string().contains("No conversation found") {
-                    self.state().session_id = None;
+                    session_to_keep = None;
                 }
                 let (kind, message) = error_to_ui(error);
                 self.emit(UiEvent::Error {
@@ -547,6 +628,8 @@ impl Agent {
                 RunOutcome::Failed
             }
         };
+        self.store
+            .save(&conv_id, session_to_keep.as_deref(), &history);
         self.state().active = None;
         self.emit(UiEvent::RunFinished {
             run_id,

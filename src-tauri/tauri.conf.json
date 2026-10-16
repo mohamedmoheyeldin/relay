@@ -1,13 +1,13 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Relay Rust",
+  "productName": "Relay",
   "version": "0.2.0",
   "identifier": "dev.relay.operator",
   "build": {
-    "frontendDist": "../crates/relay-ui/dist",
+    "frontendDist": "../ui/dist",
     "devUrl": "http://127.0.0.1:1420",
-    "beforeDevCommand": { "script": "trunk serve", "cwd": "../crates/relay-ui", "wait": false },
-    "beforeBuildCommand": { "script": "trunk build --release", "cwd": "../crates/relay-ui", "wait": true }
+    "beforeDevCommand": { "script": "pnpm dev", "cwd": "../ui", "wait": false },
+    "beforeBuildCommand": { "script": "pnpm build", "cwd": "../ui", "wait": true }
   },
   "app": {
     "withGlobalTauri": true,
@@ -15,22 +15,22 @@
       {
         "label": "main",
         "title": "Relay",
-        "width": 480,
-        "height": 740,
-        "minWidth": 380,
-        "minHeight": 480,
+        "width": 1180,
+        "height": 780,
+        "minWidth": 760,
+        "minHeight": 520,
         "resizable": true,
         "visible": false,
-        "center": true
+        "center": true,
+        "backgroundColor": "#212121"
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost ws://127.0.0.1:1420 http://127.0.0.1:1420"
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost ws://127.0.0.1:1420 http://127.0.0.1:1420"
     }
   },
   "bundle": {
-    "active": true,
-    "targets": ["nsis"],
+    "active": false,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -38,14 +38,6 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "shortDescription": "AI desktop operator",
-    "windows": {
-      "nsis": {
-        "installMode": "both",
-        "installerIcon": "icons/icon.ico",
-        "sidebarImage": "installer/sidebar.bmp",
-        "headerImage": "installer/header.bmp"
-      }
-    }
+    "shortDescription": "AI desktop operator"
   }
 }

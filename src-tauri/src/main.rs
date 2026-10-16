@@ -3,7 +3,10 @@
 
 mod app;
 mod commands;
+mod installer;
 mod settings;
+mod setup;
+mod store_adapter;
 
 fn main() {
     if let Err(e) = app::run() {

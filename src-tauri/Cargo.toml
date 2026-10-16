@@ -16,6 +16,9 @@ relay-ai = { path = "../crates/relay-ai" }
 relay-mcp = { path = "../crates/relay-mcp" }
 relay-os = { path = "../crates/relay-os" }
 relay-protocol = { path = "../crates/relay-protocol" }
+relay-store = { path = "../crates/relay-store" }
+tokio-util = "0.7"
+tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = { version = "2", features = ["tray-icon"] }

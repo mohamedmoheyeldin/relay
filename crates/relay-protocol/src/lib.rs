@@ -78,6 +78,8 @@ pub struct StatusInfo {
 pub enum UiEvent {
     RunStarted {
         run_id: RunId,
+        /// The conversation the task belongs to.
+        conv_id: String,
     },
     /// Streaming fragment of the assistant's reply.
     AssistantDelta {
@@ -144,7 +146,10 @@ mod tests {
     #[test]
     fn events_round_trip_through_json() {
         let events = vec![
-            UiEvent::RunStarted { run_id: 3 },
+            UiEvent::RunStarted {
+                run_id: 3,
+                conv_id: "c1".into(),
+            },
             UiEvent::AssistantDelta {
                 run_id: 3,
                 text: "hi".into(),

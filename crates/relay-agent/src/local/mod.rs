@@ -1,6 +1,7 @@
 //! The local AI engine: an Ollama model that does OS chores and desktop automation on this PC,
 //! handing over to the cloud CLI when a task is beyond it.
 
+pub mod engine;
 pub mod ollama;
 pub mod route;
 pub mod tools;
@@ -252,7 +253,13 @@ async fn run_loop(
     };
     let home = std::env::var("USERPROFILE").unwrap_or_default();
     let mut messages = vec![
-        ChatMessage::new("system", format!("{SYSTEM_PROMPT}\n\nHome folder: {home}")),
+        ChatMessage::new(
+            "system",
+            format!(
+                "{SYSTEM_PROMPT}\n\nHome folder: {home}{}",
+                request.system_prompt_append.clone().unwrap_or_default()
+            ),
+        ),
         ChatMessage::new("user", request.prompt.clone()),
     ];
     let definitions = tool_definitions(model.vision);
