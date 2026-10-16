@@ -62,7 +62,7 @@ CANCEL_POLL = 0.05  # s between stop checks while the model, Cloud AI or a wait 
 INPUT_MEMBERS = frozenset(
     {"left_click", "double_click", "right_click", "type", "key", "scroll", "click_text"}
 )
-REPEAT_IS_STUCK = frozenset({"focus_window", "focus", "switch_to"})
+REPEAT_IS_STUCK = frozenset({"focus_window", "focus", "switch_to", "launch_app", "open_url"})
 POINT_CLICKS = frozenset({"left_click", "double_click", "right_click"})
 MAX_PAGE_CHARS = 8000  # a web page's controls, ~2.5k tokens
 PAGE_DEPTH = 40
@@ -260,6 +260,7 @@ class Step:
     result: str
     error: bool = False
     target: str = ""  # the listed element it acted on; ids change with every listing
+    label: str = ""  # the action with its element named, the same across new ids
 
     def line(self) -> str:
         return f"Step {self.n}: {describe(self.action)} -> {self.result}"
@@ -769,6 +770,18 @@ def _opens_save(member: str, params: Mapping[str, Any], elements: str) -> bool:
     return label.strip().casefold() in ("save", "save as", "save as…", "save as...")
 
 
+DOCUMENT_LINE = re.compile(r"^\s*\[e\d+\] Document\b[^\n]*", re.M)
+
+
+def _front_document_empty(elements: str) -> bool:
+    """The editor's text area, listed first, has nothing in it (web pages aside)."""
+    for found in DOCUMENT_LINE.finditer(elements):
+        if "#RootWebArea" not in found.group(0):
+            return "value=" not in found.group(0)
+    return False
+
+
+OPEN_MENU = re.compile(r"^\s*\[e\d+\] Menu\b(?!Bar|Item)", re.M)
 SUBMITS = re.compile(r"(next|submit|continue|apply|send|finish|save)\b", re.IGNORECASE)
 EMPTY_FIELD = re.compile(r'^\s*\[e\d+\] (?:Edit|Spinner) "([^"]+)"(?![^\n]*value=)', re.M)
 
@@ -928,6 +941,22 @@ def _listed_named(elements: str, text: str, roles: tuple[str, ...] = TARGET_ROLE
     return None
 
 
+def _all_named(elements: str, text: str, roles: tuple[str, ...]) -> list[str]:
+    """Ids of every listed control named exactly `text` (ignoring case)."""
+    want = " ".join(text.casefold().split())
+    return [
+        found.group(1)
+        for found in re.finditer(r'^\s*\[(e\d+)\] (\w+) "([^"]+)"', elements, re.M)
+        if found.group(2) in roles and " ".join(found.group(3).casefold().split()) == want
+    ]
+
+
+def _listing_line(elements: str, element_id: str) -> str:
+    """'e12 (row: Dune · Paperback)': the id and the row names `_with_rows` added."""
+    found = re.search(rf"\[{re.escape(element_id)}\][^\n]*?(\(row: [^)]*\))?$", elements, re.M)
+    return f"{element_id} {found.group(1)}" if found and found.group(1) else element_id
+
+
 ROW_NAMES = 3  # names before a repeated button that tell its row apart
 
 
@@ -1011,6 +1040,17 @@ def _element_label(elements: str, element_id: str) -> str:
         return "a control"
     role, name = found.group(1), found.group(2)
     return f'"{name}"' if name else f"the {role.lower()}"
+
+
+def _label(member: str, params: Mapping[str, Any], elements: str) -> str:
+    """The action with the element it acts on named instead of numbered:
+    'uia_invoke "About"'. Ids change with every listing, so repeats hid behind them."""
+    element = params.get("element")
+    if isinstance(element, str) and element:
+        return f"{member} {_element_label(elements, element)}"
+    if member == "click_text":
+        return f'{member} "{" ".join(str(params.get("text", "")).casefold().split())}"'
+    return ""
 
 
 def plain(action: Mapping[str, Any], result: str, error: bool, elements: str) -> str:
@@ -1523,6 +1563,10 @@ class LocalAgent:
             # The prices page was open in Brave and the model opened Brave again, onto
             # its start page (D-112).
             return ActionResult(f"{parts[0]} is already in front; use it")
+        bare = name.replace(" ", "")
+        if stem and len(bare) >= 3 and (bare.startswith(stem) or stem.startswith(bare)):
+            # Notepad was in front and the model launched it 22 times (D-112).
+            return ActionResult(f"{parts[0]} is already in front; act in it now")
         try:
             return self.hands.run("launch_app", params)
         except ActionError:
@@ -1667,10 +1711,28 @@ class LocalAgent:
                         "the task doesn't ask to save, so Relay didn't; if the task is "
                         "finished, reply done"
                     )
+                if (
+                    _opens_save(member, params, self.elements)
+                    and self.typed
+                    and _front_document_empty(self.elements)
+                ):
+                    # Notepad saved an empty new tab while the typed text sat in the tab
+                    # beside it (D-112).
+                    raise ActionError(
+                        "the document in front is empty, so Relay didn't save it; the text "
+                        "you typed is in another tab or window: switch to it first"
+                    )
+                if member == "type" and OPEN_MENU.search(self.elements):
+                    # A file name typed into Notepad's open File menu picked its items
+                    # (D-112).
+                    raise ActionError(
+                        "a menu is open, so typing would pick its items; invoke the item "
+                        "you want, or press escape first"
+                    )
                 if member in ("click_text", "uia_invoke"):
                     self._fields_first(params)
                 if member == "click_text":
-                    result = self._click_text(str(params["text"]))
+                    result = self._click_text(str(params["text"]), thought)
                 elif (
                     member == "focus_window"
                     and self._same_program(params)
@@ -1721,7 +1783,7 @@ class LocalAgent:
         target = _picked(self.elements, element) if isinstance(element, str) else ""
         if not error and self.save_to and self.typed and _opens_save(member, params, self.elements):
             text = f"{text} · {self._fill_save_dialog()}"
-        step = Step(n, thought, action, text, error, target)
+        step = Step(n, thought, action, text, error, target, _label(member, params, self.elements))
         self.emit(
             {
                 "event": "step",
@@ -2051,8 +2113,19 @@ class LocalAgent:
             return bool(back(self.target_handle))
         return False
 
-    def _click_text(self, text: str) -> ActionResult:
-        listed = _listed_named(self.elements, text, PRESS_ROLES)
+    def _click_text(self, text: str, thought: str = "") -> ActionResult:
+        alike = _all_named(self.elements, text, PRESS_ROLES)
+        if len(alike) > 1:
+            meant = [e for e in alike if re.search(rf"\b{e}\b", thought)]
+            if len(meant) == 1:
+                return self._invoke(meant[0])
+            # "Reserve" on every row: the first one was the hardback (D-112).
+            rows = "; ".join(_listing_line(self.elements, e) for e in alike[:6])
+            raise ActionError(
+                f"{len(alike)} controls are named {text!r}; invoke the one you mean by its "
+                f"id: {rows}"
+            )
+        listed = alike[0] if alike else None
         if listed is not None:
             # The element list names the control exactly; OCR's first "Search" was a
             # text box's label (D-112).
@@ -2127,6 +2200,10 @@ class LocalAgent:
             return True  # the same refused click, twenty times in round 7 (D-106)
         if same and first.action.get("action") in REPEAT_IS_STUCK:
             return True  # focusing the window it is in, again and again (D-106)
+        if all(s.label and s.label == first.label for s in last) and all(
+            "no visible change" in s.result for s in last
+        ):
+            return True  # "About" invoked under a new id each step, nothing changing (D-112)
         return same and all("no visible change" in s.result for s in last)
 
     def _finish(self, status: Status, message: str, steps: list[Step]) -> Outcome:

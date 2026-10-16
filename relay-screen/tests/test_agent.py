@@ -1413,3 +1413,79 @@ def test_repeated_buttons_show_their_row() -> None:
     assert out[3].endswith("(row: Dune · Hardback)")
     assert out[6].endswith("(row: Dune Messiah · Paperback)")
     assert out[7] == '  [e7] Button "Search" {invoke}'
+
+
+def test_a_program_in_front_is_not_launched_again() -> None:
+    # Round 19: Notepad in front, launched 22 times (D-112).
+    windows = '1 open window(s), topmost first:\n"Untitled - Notepad" · Notepad.exe · in front'
+    hands = FakeHands({"list_windows": windows})
+    _, events = run(hands, Script({"action": "launch_app", "name": "Notepad"}, done()))
+    assert not any(a[0] == "launch_app" for a in hands.acts())
+    step = next(e for e in events if e["event"] == "step")
+    assert "already in front; act in it now" in step["result"]
+
+
+def test_a_button_pressed_under_new_ids_with_no_change_is_stuck() -> None:
+    # Settings in round 19: "About" invoked twenty times, the page already shown (D-112).
+    listings = iter(
+        f'Elements (ids ...):\n[e1] Window "Settings"\n  [e{n}] Button "About"'
+        for n in range(5, 15)
+    )
+    hands = FakeHands(
+        {"uia_tree": lambda _: next(listings), "uia_invoke": "Invoked · OK · no visible change"}
+    )
+    model = Script(*({"action": "invoke", "element": f"e{n}"} for n in range(5, 12)))
+    outcome, _ = run(hands, model)
+    assert outcome.status == "failed" and "kept changing nothing" in outcome.message
+    assert len(hands.acts()) == 4  # warned after three, stopped at the next repeat
+
+
+RESERVE_ROWS = "\n".join(
+    [
+        "Elements:",
+        '  [e1] DataItem "Dune"',
+        '  [e2] DataItem "Hardback"',
+        '  [e3] Button "Reserve" {invoke} center (10, 10)',
+        '  [e4] DataItem "Dune"',
+        '  [e5] DataItem "Paperback"',
+        '  [e6] Button "Reserve" {invoke} center (10, 20)',
+    ]
+)
+
+
+def test_click_text_on_a_repeated_button_asks_for_the_id() -> None:
+    # Round 19 reserved the hardback: "Reserve" picked the first row (D-112).
+    hands = FakeHands({"uia_tree": RESERVE_ROWS})
+    _, events = run(hands, Script({"action": "click_text", "text": "Reserve"}, done()))
+    step = next(e for e in events if e["event"] == "step")
+    assert "2 controls are named 'Reserve'" in step["result"]
+    assert "e6 (row: Dune · Paperback)" in step["result"]
+    assert not any(a[0] == "uia_invoke" for a in hands.acts())
+
+
+def test_click_text_on_a_repeated_button_takes_the_id_the_thought_names() -> None:
+    hands = FakeHands({"uia_tree": RESERVE_ROWS})
+    reply = {"thought": "The paperback is e6.", "action": "click_text", "text": "Reserve"}
+    run(hands, Script(reply, done()))
+    assert ("uia_invoke", {"element": "e6"}) in hands.acts()
+
+
+def test_typing_into_an_open_menu_is_refused() -> None:
+    tree = 'Elements:\n[e1] Menu "File"\n  [e2] MenuItem "New tab"'
+    hands = FakeHands({"uia_tree": tree})
+    _, events = run(hands, Script({"action": "type", "text": "notes.txt"}, done()))
+    step = next(e for e in events if e["event"] == "step")
+    assert step["result"].startswith("failed: a menu is open")
+    assert not any(a[0] == "type" for a in hands.acts())
+
+
+def test_an_empty_document_is_not_saved_after_typing() -> None:
+    # Round 19 saved an empty new tab while the text sat in the tab beside it (D-112).
+    full = "Elements:\n[e1] Document \"Text editor\" value='hi' center (5, 5)"
+    empty = 'Elements:\n[e1] Document "Text editor" center (5, 5)'
+    listings = iter([full, empty, empty])
+    hands = FakeHands({"uia_tree": lambda _: next(listings)})
+    model = Script({"action": "type", "text": "hi"}, {"action": "key", "text": "ctrl+s"}, done())
+    _, events = run(hands, model, task="type hi and save it as a.txt in Downloads")
+    saves = [e for e in events if e["event"] == "step" and "ctrl+s" in e["action"]]
+    assert saves and saves[0]["result"].startswith("failed: the document in front is empty")

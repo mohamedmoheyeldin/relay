@@ -1945,3 +1945,10 @@ any program, so the fixes are general:
   listed just before them, `(row: Dune · Paperback · Frank Herbert)`, because the
   model picked the wrong copy twice. A click given as `coordinate: [x, y]` is
   accepted, and a click given an element id is told to use invoke.
+- Round 19 (19/24): repeats now count by what was pressed, not its id, so "About"
+  pressed under a new id each step with nothing changing is stuck; launching or
+  opening the same thing three times in a row is stuck, and launching a program
+  that is already in front says so instead. click_text on a name that several
+  controls share refuses and lists their ids and rows, unless the thought names one
+  of them. Typing while a menu is open is refused (keys pick menu items), and saving
+  is refused when the text area in front is empty after the task typed something.
