@@ -301,6 +301,7 @@ export interface DiagnosticsSummary {
     skipped: number;
     problems: string[];
     results: DiagnosticsResult[];
+    resources?: { peak_relay_ram_mb: number; over_budget: string[] };
 }
 
 export function errorText(e: unknown): string {

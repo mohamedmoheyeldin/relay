@@ -1586,3 +1586,20 @@ The owner chose the full rebuild with every recommendation:
 - A diagnostics run's Claude starts relay-screen with RELAY_DIAGNOSTICS=1, so
   its `ui_task` hand-off is marked quiet and the app's chat never shows it.
   Diagnostics' own tasks are quiet too.
+
+## D-099 Harder test scenarios, the owner's interruptions, and RAM per process
+*2026-10-16 · accepted · owner ("test should be more complicated", "the app keep using the mouse and keyboard", "the app using a lot of my system ram")*
+
+- Five more scenarios, closer to real use: a three-page job application on the
+  run's own test site (text, email, select, number, radio, textarea, a confirm
+  box; checked by what the last page received); finding the cheapest laptop on
+  a price page and writing it in Notepad; saving a file when the task doesn't
+  say where (the run answers "Downloads" if the operator asks, and the file must
+  land there); a File Explorer window put on another monitor first; and the
+  owner interrupting: after step 1 the mouse moves, File Explorer comes in
+  front and two keys are pressed, and the task must still finish.
+- Every run samples RAM (working set and private bytes) and VRAM every 2 s,
+  grouped as the app, its WebView2 window, the local AI service, relay-screen
+  for Claude, llama-server and the test itself, into resources.jsonl. Peaks go
+  in summary.json. Over budget (1.5 GB for Relay without the model, 2.5 GB for
+  llama-server) is listed as a problem and shown in Settings > Developer.

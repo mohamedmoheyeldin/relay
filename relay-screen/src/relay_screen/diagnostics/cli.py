@@ -102,14 +102,14 @@ def main(argv: list[str]) -> int:
         print(json.dumps(found, indent=2) if found else "{}")
         return 0 if found else 2
     if args.list:
-        for s in diag.scenarios("000000", "http://127.0.0.1/form"):
+        for s in diag.scenarios("000000", "http://127.0.0.1"):
             print(f"{s.id:20} {s.title}")
         return 0
 
     log: list[Path] = []
     emit = emitter(args.json, log)
     form = diag.FormServer()
-    chosen = diag.scenarios(time.strftime("%H%M%S"), form.url)
+    chosen = diag.scenarios(time.strftime("%H%M%S"), form.base)
     known = {s.id for s in chosen}
     unknown = sorted((set(args.only or []) | set(args.skip)) - known)
     if unknown:
@@ -160,6 +160,17 @@ def main(argv: list[str]) -> int:
             found.append({**d.describe(), "screenshot_size": [geometry.width, geometry.height]})
         return found
 
+    from relay_screen.diagnostics import desktop
+
+    def setup(s: diag.Scenario) -> str | None:
+        if s.setup == "explorer-other-display":
+            return desktop.explorer_on_other_display(root / diag.EXPLORER_TEST)
+        return f"unknown setup {s.setup!r}"
+
+    def sample() -> dict[str, dict[str, int]]:
+        return diag.group_processes(desktop.processes(), desktop.gpu_processes(), os.getpid())
+
+    watch = diag.ResourceWatch(sample, folder / "resources.jsonl")
     tools = diag.Tools(
         hands=hands,
         desktop=windows_desktop(hands),
@@ -170,6 +181,8 @@ def main(argv: list[str]) -> int:
         select_display=state.select,
         active_display=lambda: state.active().id,
         form=form,
+        setup=setup,
+        interfere=lambda: desktop.owner_interrupts(Path.home() / "Downloads"),
     )
     emit(
         {
@@ -182,15 +195,17 @@ def main(argv: list[str]) -> int:
     clock = time.monotonic()
     env = diag.environment(paths.home, link.name, claude)
     (folder / "environment.json").write_text(json.dumps(env, indent=2), "utf-8")
+    watch.begin()
     try:
-        results = diag.run_all(chosen, tools, folder, emit)
+        results = diag.run_all(chosen, tools, folder, emit, watch)
     finally:
+        resources = watch.end()
         form.close()
         if local is not None:
             local.close()
         for name, tail in tails.items():
             tail.copy_to(folder / name)
-    summary = diag.summarize(results, env, folder, started, time.monotonic() - clock)
+    summary = diag.summarize(results, env, folder, started, time.monotonic() - clock, resources)
     diag.write_summary(summary, folder)
     emit({"event": "summary", **summary})
     return 0 if summary["ok"] else 1
