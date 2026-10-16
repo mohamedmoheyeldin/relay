@@ -280,6 +280,8 @@ export interface DiagnosticsResult {
     id: string;
     title: string;
     kind: string;
+    /** Relay app, Real-world tasks, Claude and signed out, System. */
+    area?: string;
     status: "passed" | "failed" | "skipped";
     message: string;
     seconds: number;
@@ -302,6 +304,7 @@ export interface DiagnosticsSummary {
     problems: string[];
     results: DiagnosticsResult[];
     resources?: { peak_relay_ram_mb: number; over_budget: string[] };
+    areas?: { area: string; passed: number; failed: number; skipped: number }[];
 }
 
 export function errorText(e: unknown): string {

@@ -201,7 +201,7 @@ def main(argv: list[str]) -> int:
             "event": "start",
             "folder": str(folder),
             "link": link.name,
-            "scenarios": [{"id": s.id, "title": s.title} for s in chosen],
+            "scenarios": [{"id": s.id, "title": s.title, "area": diag.area_of(s)} for s in chosen],
         }
     )
     clock = time.monotonic()

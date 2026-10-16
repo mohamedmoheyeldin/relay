@@ -291,6 +291,10 @@ def test_the_scenarios_cover_the_owners_ask() -> None:
     kinds = {s.kind for s in chosen}
     assert kinds == {"operator", "displays", "route", "claude-text", "claude-ui", "app"}
     assert any(s.offline for s in chosen) and len({s.id for s in chosen}) == len(chosen)
+    # One run covers every area, in order: the app, real tasks, Claude, the system.
+    areas = [diag.area_of(s) for s in chosen]
+    assert list(dict.fromkeys(areas)) == list(diag.AREAS)
+    assert diag.area_of(next(s for s in chosen if s.id == "local-only")) == diag.AREAS[2]
 
 
 def test_the_service_runs_a_diagnostics_task_as_the_owners_own(tmp_path: Path) -> None:
