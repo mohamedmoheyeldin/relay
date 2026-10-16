@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Relay",
+  "productName": "Relay Rust",
   "version": "0.2.0",
   "identifier": "dev.relay.operator",
   "build": {
@@ -41,7 +41,7 @@
     "shortDescription": "AI desktop operator",
     "windows": {
       "nsis": {
-        "installMode": "currentUser"
+        "installMode": "both"
       }
     }
   }
