@@ -1956,7 +1956,6 @@ any program, so the fixes are general:
   says it has the focus, instead of clicking its label. The model's thought is
   capped at 600 characters in the reply schema, so a rambling thought can't run
   past the reply's token limit and leave cut-off JSON.
-
 - Round 21 (18/24; the app checks were disturbed by the PC being in use): a ticked
   checkbox is not pressed again unless the task says to untick it (the job form's
   confirm box was ticked, then unticked under a new id), and a click outside the
