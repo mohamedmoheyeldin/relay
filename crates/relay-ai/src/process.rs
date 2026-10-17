@@ -232,3 +232,33 @@ pub async fn kill_tree(child: &mut Child) {
     }
     let _ = child.kill().await;
 }
+
+/// Result of running a short status command.
+#[derive(Debug)]
+pub enum Probe {
+    NotFound,
+    TimedOut,
+    Failed(String),
+    Done { success: bool, stdout: String },
+}
+
+/// Run `program args` with a time limit and no window, for install/sign-in checks.
+pub async fn probe(program: &std::path::Path, args: &[&str], limit: Duration) -> Probe {
+    let mut cmd = Command::new(program);
+    cmd.args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    match tokio::time::timeout(limit, cmd.output()).await {
+        Err(_) => Probe::TimedOut,
+        Ok(Err(e)) if e.kind() == std::io::ErrorKind::NotFound => Probe::NotFound,
+        Ok(Err(e)) => Probe::Failed(e.to_string()),
+        Ok(Ok(out)) => Probe::Done {
+            success: out.status.success(),
+            stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+        },
+    }
+}

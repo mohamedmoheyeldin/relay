@@ -60,6 +60,21 @@ pub fn build_args(
         args.push("--model".into());
         args.push(model.clone());
     }
+    if let Some(effort) = &request.reasoning {
+        args.push("--effort".into());
+        args.push(effort.clone());
+    }
+    if let Some(schema) = &request.output_schema {
+        args.push("--json-schema".into());
+        args.push(schema.to_string());
+    }
+    if request.plan_only {
+        // Planning must not touch anything: no built-in tools, and anything that would prompt is denied.
+        args.push("--tools".into());
+        args.push(String::new());
+        args.push("--permission-prompts".into());
+        args.push("none".into());
+    }
     args
 }
 
@@ -77,6 +92,9 @@ mod tests {
             work_dir: PathBuf::from("."),
             mcp_servers: serde_json::json!({}),
             permission_prompt_tool: Some("mcp__relay__approve".into()),
+            reasoning: None,
+            output_schema: None,
+            plan_only: false,
             allowed_tools: vec!["mcp__relay".into(), "Read".into()],
             disallowed_tools: vec!["AskUserQuestion".into()],
             system_prompt_append: None,

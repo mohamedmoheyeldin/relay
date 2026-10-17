@@ -4,18 +4,16 @@ mod args;
 mod parser;
 
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use serde_json::json;
-use tokio::process::Command;
 
 pub use args::build_args;
 pub use parser::{classify_error, ClaudeProtocol};
 
-use crate::process::{spawn, ProcessSpec};
-use crate::{AiError, AiProvider, ProviderStatus, RunHandle, RunRequest};
+use crate::process::{probe, spawn, Probe, ProcessSpec};
+use crate::{AiError, AiProvider, ProviderCaps, ProviderStatus, RunHandle, RunRequest};
 
 /// Environment variable that overrides where the CLI is found.
 pub const PATH_OVERRIDE_ENV: &str = "RELAY_CLAUDE_PATH";
@@ -93,58 +91,74 @@ impl AiProvider for ClaudeProvider {
         "Claude Code"
     }
 
-    async fn status(&self) -> ProviderStatus {
-        let mut cmd = Command::new(&self.program);
-        cmd.args(["auth", "status"])
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true);
-        #[cfg(windows)]
-        cmd.creation_flags(0x0800_0000);
-        let output = match tokio::time::timeout(STATUS_TIMEOUT, cmd.output()).await {
-            Err(_) => {
-                return ProviderStatus {
-                    installed: true,
-                    logged_in: false,
-                    detail: "Timed out checking the sign-in status.".into(),
-                }
-            }
-            Ok(Err(e)) if e.kind() == std::io::ErrorKind::NotFound => {
-                return ProviderStatus {
-                    installed: false,
-                    logged_in: false,
-                    detail: format!(
-                        "Claude Code was not found ({}). Install it, then restart Relay.",
-                        self.program.display()
-                    ),
-                }
-            }
-            Ok(Err(e)) => {
-                return ProviderStatus {
-                    installed: false,
-                    logged_in: false,
-                    detail: format!("Could not start Claude Code: {e}"),
-                }
-            }
-            Ok(Ok(output)) => output,
-        };
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let logged_in = serde_json::from_str::<serde_json::Value>(stdout.trim())
-            .ok()
-            .and_then(|v| v.get("loggedIn").and_then(serde_json::Value::as_bool))
-            .unwrap_or(output.status.success());
-        ProviderStatus {
-            installed: true,
-            logged_in,
-            detail: if logged_in {
-                "Ready".into()
-            } else {
-                "Claude Code is installed but you are not signed in. Run `claude auth login` in a terminal.".into()
-            },
+    fn capabilities(&self) -> ProviderCaps {
+        ProviderCaps {
+            id: "claude",
+            label: "Claude Code",
+            structured_output: true,
+            session_resume: true,
+            mcp_tools: true,
+            streaming_deltas: true,
+            reasoning_levels: vec!["low", "medium", "high", "xhigh", "max"],
+            models: vec!["sonnet", "opus", "haiku"],
         }
     }
 
+    async fn status(&self) -> ProviderStatus {
+        let (auth, version) = tokio::join!(
+            probe(&self.program, &["auth", "status"], STATUS_TIMEOUT),
+            probe(&self.program, &["--version"], STATUS_TIMEOUT)
+        );
+        let version = match version {
+            Probe::Done {
+                success: true,
+                stdout,
+            } => stdout.split_whitespace().next().map(str::to_string),
+            _ => None,
+        };
+        match auth {
+            Probe::NotFound => ProviderStatus {
+                installed: false,
+                detail: format!(
+                    "Claude Code was not found ({}). Install it, then restart Relay.",
+                    self.program.display()
+                ),
+                ..ProviderStatus::default()
+            },
+            Probe::TimedOut => ProviderStatus {
+                installed: true,
+                detail: "Timed out checking the sign-in status.".into(),
+                version,
+                ..ProviderStatus::default()
+            },
+            Probe::Failed(e) => ProviderStatus {
+                detail: format!("Could not start Claude Code: {e}"),
+                ..ProviderStatus::default()
+            },
+            Probe::Done { success, stdout } => {
+                let json = serde_json::from_str::<serde_json::Value>(stdout.trim()).ok();
+                let logged_in = json
+                    .as_ref()
+                    .and_then(|v| v.get("loggedIn").and_then(serde_json::Value::as_bool))
+                    .unwrap_or(success);
+                let auth_method = json
+                    .as_ref()
+                    .and_then(|v| v.get("authMethod").and_then(serde_json::Value::as_str))
+                    .map(str::to_string);
+                ProviderStatus {
+                    installed: true,
+                    logged_in,
+                    detail: if logged_in {
+                        "Ready".into()
+                    } else {
+                        "Claude Code is installed but you are not signed in. Run `claude auth login` in a terminal.".into()
+                    },
+                    version,
+                    auth_method,
+                }
+            }
+        }
+    }
     async fn run(&self, request: RunRequest) -> Result<RunHandle, AiError> {
         let scratch = scratch_dir();
         tokio::fs::create_dir_all(&scratch)

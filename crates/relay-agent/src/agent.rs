@@ -469,6 +469,9 @@ impl Agent {
             } else {
                 None
             },
+            reasoning: None,
+            output_schema: None,
+            plan_only: false,
             timeouts: self.config.timeouts,
         }
     }

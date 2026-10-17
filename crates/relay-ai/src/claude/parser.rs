@@ -170,11 +170,15 @@ impl StreamProtocol for ClaudeProtocol {
                         .get("subtype")
                         .and_then(Value::as_str)
                         .is_some_and(|s| s.starts_with("error"));
-                let result = value
+                let mut result = value
                     .get("result")
                     .and_then(Value::as_str)
                     .unwrap_or_default()
                     .to_string();
+                // With --json-schema the validated answer is in `structured_output`.
+                if let Some(structured) = value.get("structured_output").filter(|s| !s.is_null()) {
+                    result = structured.to_string();
+                }
                 let session_id = value
                     .get("session_id")
                     .and_then(Value::as_str)

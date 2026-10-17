@@ -12,7 +12,8 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use relay_ai::{
-    AiError, AiEvent, AiProvider, Finish, ProviderStatus, RunHandle, RunRequest, TimeoutKind,
+    AiError, AiEvent, AiProvider, Finish, ProviderCaps, ProviderStatus, RunHandle, RunRequest,
+    TimeoutKind,
 };
 use relay_mcp::safety::truncate;
 use relay_mcp::{CallCtx, ToolHost};
@@ -190,6 +191,19 @@ impl AiProvider for LocalProvider {
         "Local AI"
     }
 
+    fn capabilities(&self) -> ProviderCaps {
+        ProviderCaps {
+            id: "local",
+            label: "Relay Local AI",
+            structured_output: true,
+            session_resume: false,
+            mcp_tools: false,
+            streaming_deltas: false,
+            reasoning_levels: Vec::new(),
+            models: Vec::new(),
+        }
+    }
+
     async fn status(&self) -> ProviderStatus {
         let o = self.overview().await;
         match (&o.available, &o.active) {
@@ -197,16 +211,20 @@ impl AiProvider for LocalProvider {
                 installed: false,
                 logged_in: false,
                 detail: format!("No local AI server at {}", o.base_url),
+                ..ProviderStatus::default()
             },
             (true, Some(m)) if m.tools => ProviderStatus {
                 installed: true,
                 logged_in: true,
                 detail: format!("Local model {}", m.name),
+                version: None,
+                auth_method: None,
             },
             (true, _) => ProviderStatus {
                 installed: true,
                 logged_in: false,
                 detail: "No local model installed".into(),
+                ..ProviderStatus::default()
             },
         }
     }

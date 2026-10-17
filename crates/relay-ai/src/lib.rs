@@ -5,6 +5,7 @@
 //! new CLIs plug in by implementing [`AiProvider`].
 
 pub mod claude;
+pub mod codex;
 pub mod error;
 pub mod process;
 
@@ -12,6 +13,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use serde::Serialize;
 use serde_json::Value;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -65,6 +67,12 @@ pub struct RunRequest {
     /// Extra instructions appended to the system prompt.
     pub system_prompt_append: Option<String>,
     pub model: Option<String>,
+    /// Reasoning effort (provider specific: low, medium, high, ...).
+    pub reasoning: Option<String>,
+    /// JSON Schema the final answer must satisfy (structured output).
+    pub output_schema: Option<Value>,
+    /// Planning only: the provider must not use tools or change anything; it just answers.
+    pub plan_only: bool,
     pub timeouts: Timeouts,
 }
 
@@ -136,11 +144,30 @@ impl RunHandle {
 }
 
 /// Whether the provider can currently run.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ProviderStatus {
     pub installed: bool,
     pub logged_in: bool,
     pub detail: String,
+    /// The CLI's version string, when it could be read.
+    pub version: Option<String>,
+    /// How the owner signed in (for display only; credentials are never read).
+    pub auth_method: Option<String>,
+}
+
+/// What a provider can do, so the UI and router never assume the two CLIs are the same.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ProviderCaps {
+    pub id: &'static str,
+    pub label: &'static str,
+    pub structured_output: bool,
+    pub session_resume: bool,
+    pub mcp_tools: bool,
+    /// Real token-by-token text deltas (otherwise whole messages arrive at once).
+    pub streaming_deltas: bool,
+    pub reasoning_levels: Vec<&'static str>,
+    /// Suggested model names (the CLI accepts others).
+    pub models: Vec<&'static str>,
 }
 
 impl ProviderStatus {
@@ -154,6 +181,8 @@ impl ProviderStatus {
 pub trait AiProvider: Send + Sync {
     /// Short display name.
     fn name(&self) -> &str;
+    /// What this provider supports.
+    fn capabilities(&self) -> ProviderCaps;
     /// Check installation and login without starting a conversation.
     async fn status(&self) -> ProviderStatus;
     /// Start a run. Errors that happen before the process exists (not installed) come back here;

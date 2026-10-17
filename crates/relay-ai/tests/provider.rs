@@ -23,6 +23,9 @@ fn request(prompt: &str) -> RunRequest {
         permission_prompt_tool: Some("mcp__relay__approve".into()),
         allowed_tools: vec!["mcp__relay".into()],
         disallowed_tools: vec!["AskUserQuestion".into()],
+        reasoning: None,
+        output_schema: None,
+        plan_only: false,
         system_prompt_append: Some("be careful".into()),
         model: None,
         timeouts: Timeouts {
@@ -227,4 +230,109 @@ fn pid_alive(pid: u32) -> bool {
             .map(|s| s.success())
             .unwrap_or(false)
     }
+}
+
+// ---- Codex provider ----
+
+use relay_ai::codex::CodexProvider;
+
+fn codex() -> CodexProvider {
+    CodexProvider::with_program(env!("CARGO_BIN_EXE_fake_cli"))
+}
+
+#[tokio::test]
+async fn codex_streams_items_and_completes() {
+    let handle = codex()
+        .run(request("SCENARIO:echo\nhello codex"))
+        .await
+        .unwrap();
+    let events = collect(handle).await;
+    assert!(
+        matches!(&events[0], AiEvent::Started { session_id, .. } if session_id == "codex-thread-1")
+    );
+    assert!(events
+        .iter()
+        .any(|e| matches!(e, AiEvent::ToolUse { name, .. } if name == "command")));
+    assert!(events
+        .iter()
+        .any(|e| matches!(e, AiEvent::ToolResult { content, .. } if content == "a.txt\n")));
+    assert!(matches!(
+        finish_of(&events),
+        Finish::Completed { result, session_id: Some(s), .. } if result.starts_with("codex:") && s == "codex-thread-1"
+    ));
+}
+
+#[tokio::test]
+async fn codex_command_line_is_sandboxed_and_keeps_the_prompt_off_argv() {
+    let mut req = request("SCENARIO:args");
+    req.plan_only = true;
+    req.reasoning = Some("high".into());
+    req.output_schema = Some(serde_json::json!({"type":"object"}));
+    let events = collect(codex().run(req).await.unwrap()).await;
+    let line = events
+        .iter()
+        .find_map(|e| match e {
+            AiEvent::Text(t) => Some(t.clone()),
+            _ => None,
+        })
+        .unwrap();
+    for needle in [
+        "exec",
+        "--json",
+        "--sandbox|read-only",
+        "--ephemeral",
+        "--ignore-user-config",
+        "--output-schema",
+        r#"model_reasoning_effort="high""#,
+    ] {
+        assert!(line.contains(needle), "{needle} missing from {line}");
+    }
+    assert!(!line.contains("SCENARIO"));
+    assert!(!line.contains("mcp_servers"), "plan-only runs get no tools");
+}
+
+#[tokio::test]
+async fn codex_returns_a_parseable_plan_and_classifies_login_failures() {
+    let events = collect(codex().run(request("SCENARIO:plan")).await.unwrap()).await;
+    assert!(
+        matches!(finish_of(&events), Finish::Completed { result, .. } if result.contains("open_app"))
+    );
+    let events = collect(codex().run(request("SCENARIO:notlogged")).await.unwrap()).await;
+    assert!(matches!(
+        finish_of(&events),
+        Finish::Failed(AiError::NotLoggedIn(_))
+    ));
+}
+
+#[tokio::test]
+async fn codex_can_be_cancelled_and_missing_cli_is_reported() {
+    let handle = codex().run(request("SCENARIO:hang")).await.unwrap();
+    let cancel = handle.canceller();
+    let task = tokio::spawn(collect(handle));
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    cancel.cancel();
+    let events = tokio::time::timeout(Duration::from_secs(10), task)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(finish_of(&events), &Finish::Cancelled);
+    let missing = CodexProvider::with_program(PathBuf::from("definitely-not-codex-xyz"));
+    assert!(matches!(
+        missing.run(request("hi")).await.err().unwrap(),
+        AiError::NotInstalled { .. }
+    ));
+    let st = missing.status().await;
+    assert!(!st.installed && !st.logged_in && st.detail.contains("npm install"));
+}
+
+#[tokio::test]
+async fn provider_status_uses_exit_codes_and_reports_versions() {
+    std::env::set_var("FAKE_FLAVOR", "codex");
+    let st = codex().status().await;
+    assert!(st.installed && st.logged_in);
+    assert_eq!(st.version.as_deref(), Some("0.163.0"));
+    assert_eq!(codex().capabilities().id, "codex");
+    assert!(!codex().capabilities().streaming_deltas);
+    assert!(fake().capabilities().streaming_deltas);
+    std::env::remove_var("FAKE_FLAVOR");
 }

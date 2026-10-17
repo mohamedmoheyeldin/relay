@@ -72,6 +72,24 @@ pub struct StatusInfo {
     pub route_mode: String,
 }
 
+/// One step of a proposed plan, as shown in the task timeline.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlanStepInfo {
+    pub id: String,
+    pub title: String,
+    /// Tool name, e.g. `open_app`.
+    pub tool: String,
+    /// `safe`, `sensitive` or `destructive`.
+    pub risk: String,
+}
+
+/// A category of local information that was included in a cloud request.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SharedInfo {
+    pub category: String,
+    pub items: usize,
+}
+
 /// Events pushed from the backend to the chat window.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -119,6 +137,41 @@ pub enum UiEvent {
         message: String,
     },
     Status(StatusInfo),
+    /// How the task will be carried out and why (`native`, `local_plan`, `cloud_plan`,
+    /// `cloud_agent` or `unavailable`).
+    Route {
+        run_id: RunId,
+        strategy: String,
+        provider: Option<String>,
+        reason: String,
+    },
+    /// A plan was proposed by an AI (or built natively). It is a proposal, not a result.
+    PlanProposed {
+        run_id: RunId,
+        /// `native`, `local`, `claude` or `codex`.
+        source: String,
+        objective: String,
+        steps: Vec<PlanStepInfo>,
+        notes: Option<String>,
+    },
+    StepStarted {
+        run_id: RunId,
+        step_id: String,
+    },
+    /// `status` is `verified`, `done`, `failed` or `skipped`. Only `verified` means the effect was checked.
+    StepFinished {
+        run_id: RunId,
+        step_id: String,
+        status: String,
+        summary: String,
+    },
+    /// What local information went into a cloud request (the privacy ledger).
+    ContextShared {
+        run_id: RunId,
+        provider: String,
+        categories: Vec<SharedInfo>,
+        bytes: usize,
+    },
     /// Which engine is working on the task now (`local` or `cloud`).
     Engine {
         run_id: RunId,

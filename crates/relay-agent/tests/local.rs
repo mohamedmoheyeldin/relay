@@ -115,11 +115,25 @@ impl AiProvider for Cloud {
     fn name(&self) -> &str {
         "Cloud"
     }
+    fn capabilities(&self) -> relay_ai::ProviderCaps {
+        relay_ai::ProviderCaps {
+            id: "test",
+            label: "Test",
+            structured_output: false,
+            session_resume: false,
+            mcp_tools: true,
+            streaming_deltas: false,
+            reasoning_levels: Vec::new(),
+            models: Vec::new(),
+        }
+    }
+
     async fn status(&self) -> ProviderStatus {
         ProviderStatus {
             installed: true,
             logged_in: true,
             detail: "Ready".into(),
+            ..ProviderStatus::default()
         }
     }
     async fn run(&self, request: RunRequest) -> Result<RunHandle, AiError> {
