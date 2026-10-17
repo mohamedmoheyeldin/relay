@@ -455,6 +455,7 @@ pub fn run() -> Result<()> {
             hybrid_commands::workflow_get,
             hybrid_commands::get_appearance,
             hybrid_commands::set_appearance,
+            hybrid_commands::system_check,
             commands::conv_list,
             commands::conv_get,
             commands::conv_create,

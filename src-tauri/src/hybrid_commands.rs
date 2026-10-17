@@ -327,3 +327,131 @@ pub async fn set_appearance(patch: Value, state: State<'_, AppState>) -> CmdResu
     s.save(&state.paths.settings_file).map_err(err)?;
     Ok(s.appearance.clone())
 }
+
+fn check_item(id: &str, label: &str, status: &str, detail: String, action: Option<Value>) -> Value {
+    json!({ "id": id, "label": label, "status": status, "detail": detail, "action": action })
+}
+
+/// Everything Relay depends on, what is missing, and how to fix it. `status` is ok, warn or missing;
+/// `action` is `{ kind: "url" | "command", value, label }` (a command is a Relay command name to invoke).
+#[tauri::command]
+pub async fn system_check(state: State<'_, AppState>) -> CmdResult<Value> {
+    let (overview, claude, codex, browser) = tokio::join!(
+        state.agent.local().overview(),
+        state.hybrid.provider_status(ProviderKind::Claude, true),
+        state.hybrid.provider_status(ProviderKind::Codex, true),
+        relay_agent::browser::BrowserDriver::status(state.browser.as_ref())
+    );
+    let mut items = Vec::new();
+
+    let engine_installed = state.setup.engine().is_installed();
+    items.push(match (&overview.active, engine_installed) {
+        (Some(m), _) => check_item(
+            "local_ai",
+            "Relay Local AI",
+            "ok",
+            format!("Running {} on this PC.", m.name),
+            None,
+        ),
+        (None, true) => check_item(
+            "local_ai",
+            "Relay Local AI",
+            "warn",
+            "Installed but not ready. Relay can start it and download a model that fits this PC."
+                .into(),
+            Some(json!({"kind": "command", "value": "local_ai_setup", "label": "Set up now"})),
+        ),
+        (None, false) => check_item(
+            "local_ai",
+            "Relay Local AI",
+            "missing",
+            "Not installed. Relay downloads and sets it up for you (several GB).".into(),
+            Some(json!({"kind": "command", "value": "local_ai_setup", "label": "Install"})),
+        ),
+    });
+
+    let cli = |id: &str,
+               label: &str,
+               st: &relay_ai::ProviderStatus,
+               install: &str,
+               signin: &str|
+     -> Value {
+        if st.installed && st.logged_in {
+            check_item(
+                id,
+                label,
+                "ok",
+                format!(
+                    "Installed and signed in{}.",
+                    st.version
+                        .as_deref()
+                        .map(|v| format!(" ({v})"))
+                        .unwrap_or_default()
+                ),
+                None,
+            )
+        } else if st.installed {
+            check_item(
+                id,
+                label,
+                "warn",
+                format!("Installed but not signed in. {signin}"),
+                None,
+            )
+        } else {
+            check_item(
+                id,
+                label,
+                "missing",
+                format!("Not installed (optional). {install}"),
+                None,
+            )
+        }
+    };
+    items.push(cli(
+        "claude",
+        "Claude Code",
+        &claude,
+        "Install it, then sign in, to let the cloud AI help with hard tasks.",
+        "Open a terminal, run `claude`, and sign in.",
+    ));
+    items.push(cli(
+        "codex",
+        "Codex",
+        &codex,
+        "Install it, then sign in, to use it as a second cloud AI.",
+        "Open a terminal, run `codex login`.",
+    ));
+
+    let node = relay_agent::browser::find_npx().is_some();
+    items.push(if node {
+        check_item(
+            "node",
+            "Node.js",
+            "ok",
+            "Found. Needed for browser control.".into(),
+            None,
+        )
+    } else {
+        check_item(
+            "node",
+            "Node.js",
+            "missing",
+            "Needed for browser control (website tasks).".into(),
+            Some(json!({"kind": "url", "value": "https://nodejs.org/", "label": "Get Node.js"})),
+        )
+    });
+
+    items.push(check_item(
+        "browser",
+        "Browser control",
+        if browser.available { if browser.mode == "yours" { "ok" } else { "warn" } } else { "missing" },
+        browser.detail.clone(),
+        browser.action_url.as_ref().map(|u| {
+            json!({"kind": "url", "value": u, "label": if u.contains("nodejs") { "Get Node.js" } else { "Get the Playwright extension" }})
+        }),
+    ));
+
+    let ok = items.iter().filter(|i| i["status"] == "ok").count();
+    Ok(json!({ "items": items, "ok": ok, "total": items.len() }))
+}
