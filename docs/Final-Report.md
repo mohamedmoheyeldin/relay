@@ -1,33 +1,50 @@
-# Final report (branch `new_app`, 2026-10-16)
+# Final report (branch `new_app`, 2026-10-17)
 
 ## What exists
-A Rust + Tauri + React desktop operator with a hybrid AI pipeline (native shortcut, local model, Claude Code, Codex),
-validated typed plans, folder/tool permissions, confirmation of destructive steps, redacted minimal cloud context, native
-execution with on-machine verification, replan/escalate, persisted workflow history, a Relay design-system UI, a
-self-installing single executable, and an MCP server (`Relay.exe --mcp`) with a Claude Code plugin.
+A Rust + Tauri + React desktop operator. Every message is first classified:
+- **Questions and code requests** are answered in words (streamed; nothing runs). Coding questions go to the cloud AI in
+  Hybrid mode; others to the local AI.
+- **PC tasks** use plan -> validate -> permission -> execute -> verify, with native shortcuts for common requests
+  (open an app, list a standard folder, what is using disk space), replans that never repeat finished effects, and an
+  escalation from the local AI to the cloud when the local plan is unusable.
+- **Website tasks** drive a real browser through the Playwright MCP server one observed step at a time, in the owner's own
+  browser (Brave, Chrome or Edge with the Playwright extension) or a separate profile. Irreversible clicks ask first;
+  passwords and card numbers are never typed.
+Plus: tags showing what did the work, plain wording, "Sensitive" only for real sensitive data, appearance controls
+(code themes with preview, fonts, text size, density, task view), resizable sidebar, System check with fix buttons,
+frameless Windows window, a self-installing single executable, and an MCP server (`Relay.exe --mcp`).
 
-## Verified on this PC
-- Rust: 343 tests pass, clippy `-D warnings` and fmt clean. UI: lint, typecheck, build, 170 unit/component tests,
-  22 browser E2E and 22 visual baselines pass (mock backend).
-- Real app (release build, real WebView2): Setup window and app window render; 6/6 desktop E2E checks pass (shell,
-  strict CSP, backend commands, settings round trip, rejection of bad settings, Local-only refusal).
-- Real Claude Code: planned and ran a task through the full pipeline; used `relay-mcp` as an MCP client (list, decline,
-  screen-control read tools). Native approval dialog: Yes works, timeout refuses.
+## Verified on this PC (2026-10-17)
+| layer | result |
+|---|---|
+| Rust unit + integration (incl. hybrid engine, web loop, MCP stdio, store) | 376 passed, 0 failed, 1 ignored (moves the real mouse) |
+| UI unit/component (Vitest) | 216 passed |
+| UI browser E2E (mock backend) | 35 passed |
+| Visual regression | 48 baselines passed |
+| Real installer (UAC accepted by the owner) | 6/6: files in `C:\Program Files\Relay`, uninstall entry, Start menu shortcut, version |
+| Desktop E2E against the **installed** app | 6/6 (window, strict CSP, backend, settings round trip, validation, Local only) |
+| Release build ignores the WebView2 debug hook | verified |
+
+Real scenarios, run through the real app (Claude Code, local Qwen3 14B, real browser):
+| message | path | result |
+|---|---|---|
+| "example of playwright code for testing amazon search?" | chat, Claude Code | code answer with code blocks, first text in 2.5 s, 10 s total, nothing opened |
+| "what is a mutex?" | chat, local AI | answer streamed, ~8 s |
+| "Find what is using my disk space" | native | drive totals + largest folders/files in 0.2 s |
+| "list the files in my Downloads folder" / "open notepad" | native | instant |
+| "go to https://www.dice.com/ and apply for fde jobs with easy apply" | web, Claude Code + Playwright | opened Dice, handled the cookie dialog, searched, opened an FDE job, reached **Apply Now** and asked for confirmation (declined by the test, nothing submitted), ~20 s, one tab |
+
+Bugs found by these runs and fixed: file-based page snapshots (the AI saw an empty page), covered-element click timeouts,
+links opening new tabs, long pages hiding the Apply button, a local plan opening an unrelated website, file listings and
+disk questions routed to an AI, raw page code on confirmation cards, stale Ollama address, confirmation level ignored in
+web tasks.
 
 ## Not verified (read this)
-- Elevated install to `C:\Program Files\Relay` and uninstall were not run. An older Relay 0.1.15 is installed on this PC;
-  Setup will offer to update it.
-- macOS: compile-checked for Apple targets only. No Mac run, no menus/vibrancy/dmg.
-- Codex CLI: not installed here; only scripted tests. ChatGPT cannot use the MCP server (needs a public HTTPS endpoint).
-- Local model planning with a real model, the multi-GB engine download, the real stop hotkey, Mica, high-contrast mode,
-  screen readers, WebdriverIO, GitHub Actions runs, performance budgets, adversarial prompt-injection corpus.
-- Real destructive runs through the app UI (approve/decline cards) were covered by tests and the dialog check, not clicked
-  through the app window.
-
-## Known gaps / next steps
-Retry-one-step command; structured refused-step and approval fields (UI currently parses prefixes); Mica/vibrancy and
-`transparent` window; CI desktop job; budget checks; install test on a clean VM; macOS hardware pass; unsigned binaries
-(SmartScreen warning).
-
-## Decision needing the owner
-Confirmation default is "destructive" (supersedes the earlier no-prompts request). Screen control in MCP is on by default.
+- **Your own Brave through the extension**: the connection works (Relay opened dice.com in your Brave earlier), but each
+  new session needs you to click **Allow & select** on the Playwright connect tab, or to save the extension's token once in
+  Settings > AI & Privacy > Browser control. I did not approve that prompt or copy the token for you: it grants access to
+  your whole browser. The Dice regression run used a separate test Chromium.
+- The final release build is in `Downloads\Relay Setup.exe` but is **not installed**: installing needs the Windows prompt.
+  The installed copy right now is the previous test build.
+- macOS, Codex CLI (not installed), screen readers, high-contrast mode, and Mica/vibrancy remain untested.
+- The Dice account was not signed in; the sign-in hand-off ("sign in, then say continue") is covered by tests, not a live run.
