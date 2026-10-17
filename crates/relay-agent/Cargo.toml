@@ -9,6 +9,8 @@ rust-version.workspace = true
 async-trait = "0.1"
 relay-ai = { path = "../relay-ai" }
 relay-mcp = { path = "../relay-mcp" }
+relay-orchestrator = { path = "../relay-orchestrator" }
+relay-os = { path = "../relay-os" }
 relay-protocol = { path = "../relay-protocol" }
 reqwest = { version = "0.12", default-features = false, features = ["json", "native-tls"] }
 sha2 = "0.10"

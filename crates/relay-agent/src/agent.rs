@@ -102,7 +102,7 @@ pub async fn load_user_servers(path: &std::path::Path) -> Result<Map<String, Val
     }
 }
 
-fn error_to_ui(error: &AiError) -> (ErrorKind, String) {
+pub(crate) fn error_to_ui(error: &AiError) -> (ErrorKind, String) {
     match error {
         AiError::NotInstalled { program } => (
             ErrorKind::CliNotInstalled,

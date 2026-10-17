@@ -224,6 +224,50 @@ impl OllamaClient {
             .map_err(|e| OllamaError::Server(format!("unexpected reply: {e}")))
     }
 
+    /// One non-streaming chat step constrained to a JSON Schema; returns the reply text.
+    pub async fn chat_json(
+        &self,
+        model: &str,
+        messages: &[ChatMessage],
+        schema: &Value,
+        timeout: Duration,
+    ) -> Result<String, OllamaError> {
+        let body = json!({
+            "model": model,
+            "messages": messages,
+            "stream": false,
+            "format": schema,
+            "keep_alive": "30m",
+            "options": { "num_ctx": 16384, "temperature": 0.1 }
+        });
+        let response = self
+            .http
+            .post(format!("{}/api/chat", self.base))
+            .json(&body)
+            .timeout(timeout)
+            .send()
+            .await
+            .map_err(|e| self.unreachable(e))?;
+        let status = response.status();
+        let value: Value = response
+            .json()
+            .await
+            .map_err(|e| OllamaError::Server(e.to_string()))?;
+        if !status.is_success() {
+            let message = value
+                .get("error")
+                .and_then(Value::as_str)
+                .unwrap_or("request failed");
+            return Err(OllamaError::Server(message.to_string()));
+        }
+        Ok(value
+            .get("message")
+            .and_then(|m| m.get("content"))
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string())
+    }
+
     /// Download a model, reporting progress.
     pub async fn pull(
         &self,

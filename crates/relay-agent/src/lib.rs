@@ -5,10 +5,14 @@
 pub mod agent;
 pub mod bridge;
 pub mod context;
+pub mod hybrid;
 pub mod local;
 pub mod prompt;
 
 pub use agent::{Agent, AgentConfig, AgentParts, SubmitError};
 pub use bridge::{ConfirmBridge, EventSink};
 pub use context::{ConvContext, ConvStore, MemoryStore};
+pub use hybrid::{
+    Hybrid, HybridParts, HybridSettings, ProviderOpts, WorkflowRecord, WorkflowStore,
+};
 pub use local::{LocalConfig, LocalProvider, RouteMode};
