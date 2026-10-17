@@ -280,6 +280,8 @@ pub fn server_args(plan: &BrowserPlan, profile: &Path) -> Option<Vec<String>> {
             "-y".into(),
             PLAYWRIGHT_MCP.into(),
             "--extension".into(),
+            "--timeout-action".into(),
+            "10000".into(),
             "--executable-path".into(),
             b.exe.display().to_string(),
         ]),
@@ -291,6 +293,8 @@ pub fn server_args(plan: &BrowserPlan, profile: &Path) -> Option<Vec<String>> {
             "--user-data-dir".into(),
             profile.display().to_string(),
             "--block-service-workers".into(),
+            "--timeout-action".into(),
+            "10000".into(),
         ]),
         BrowserPlan::Bundled => {
             let mut args = vec!["-y".to_string(), PLAYWRIGHT_MCP.to_string()];
@@ -305,6 +309,8 @@ pub fn server_args(plan: &BrowserPlan, profile: &Path) -> Option<Vec<String>> {
                 }
             }
             args.push("--isolated".into());
+            args.push("--timeout-action".into());
+            args.push("10000".into());
             Some(args)
         }
         _ => None,
