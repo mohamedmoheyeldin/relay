@@ -16,3 +16,5 @@ Thumbs.db
 !.vscode/extensions.json
 src-tauri/icons/android/
 src-tauri/icons/ios/
+reports/*
+!reports/README.md
