@@ -352,6 +352,17 @@ fn setup(app: &mut tauri::App) -> Result<()> {
 
     build_tray(&handle)?;
 
+    // Ask both cloud CLIs for their sign-in state now, so the first task does not wait for it.
+    if let Some(state) = handle.try_state::<AppState>() {
+        let hybrid = state.hybrid.clone();
+        tauri::async_runtime::spawn(async move {
+            let _ = tokio::join!(
+                hybrid.provider_status(relay_orchestrator::router::ProviderKind::Claude, true),
+                hybrid.provider_status(relay_orchestrator::router::ProviderKind::Codex, true)
+            );
+        });
+    }
+
     if let Some(window) = app.get_webview_window("main") {
         let hider = window.clone();
         let status_handle = handle.clone();

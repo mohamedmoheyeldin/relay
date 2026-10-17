@@ -225,8 +225,9 @@ impl Policy {
             (ConfirmLevel::Always, Risk::Safe) => false,
             (ConfirmLevel::Always, _) => true,
             (ConfirmLevel::Destructive, Risk::Destructive) => true,
+            // Only real sensitive information (key files, password stores, ...) needs a yes at this level.
             (ConfirmLevel::Destructive, Risk::Sensitive) => {
-                matches!(action, PlanAction::ReadTextFile { .. })
+                crate::sensitivity::action_is_sensitive(action)
             }
             (ConfirmLevel::Destructive, Risk::Safe) => false,
         };
@@ -237,7 +238,7 @@ impl Policy {
                     Risk::Destructive => {
                         "This changes or removes data and may not be easy to undo.".into()
                     }
-                    Risk::Sensitive => "This reads or changes personal content.".into(),
+                    Risk::Sensitive => "This touches sensitive information (passwords, keys or ID numbers).".into(),
                     Risk::Safe => "Confirmation is required for every action.".into(),
                 },
             }
@@ -329,9 +330,17 @@ mod tests {
             }),
             Verdict::Confirm { .. }
         ));
-        assert!(matches!(
+        // Reading an ordinary file does not ask; reading a password store does.
+        assert_eq!(
             p.check(&PlanAction::ReadTextFile {
                 path: r"C:\Users\me\Documents\a.txt".into(),
+                max_bytes: None
+            }),
+            Verdict::Allow
+        );
+        assert!(matches!(
+            p.check(&PlanAction::ReadTextFile {
+                path: r"C:\Users\me\Documents\passwords.txt".into(),
                 max_bytes: None
             }),
             Verdict::Confirm {

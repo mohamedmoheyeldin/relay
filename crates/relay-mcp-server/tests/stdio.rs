@@ -395,13 +395,21 @@ fn the_shipped_binary_speaks_mcp_over_real_stdio() {
             .contains("hello.txt"),
         "{list}"
     );
-    // With approvals set to deny, reading file contents is refused: nothing is sent without a yes.
+    // An ordinary file is read without a prompt.
     let read = ask(
         3,
         "tools/call",
         json!({"name": "read_text_file", "arguments": {"path": root.join("hello.txt")}}),
     );
-    assert_eq!(read["result"]["isError"], true, "{read}");
+    assert_eq!(read["result"]["isError"], false, "{read}");
+    // A password store needs the owner's yes; with approvals set to deny it is refused.
+    std::fs::write(root.join("passwords.txt"), "secret").unwrap();
+    let private = ask(
+        4,
+        "tools/call",
+        json!({"name": "read_text_file", "arguments": {"path": root.join("passwords.txt")}}),
+    );
+    assert_eq!(private["result"]["isError"], true, "{private}");
     drop(stdin);
     let status = child.wait().unwrap();
     assert!(
