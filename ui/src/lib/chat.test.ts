@@ -8,7 +8,9 @@ import {
   searchTextOf,
   titleFrom,
   type ChatEvent,
+  type AssistantItem,
   type ChatState,
+  type TaskItem,
   type ToolsItem,
 } from "./chat";
 
@@ -149,6 +151,86 @@ describe("chat reducer", () => {
       { type: "notice", text: "c" },
     ]);
     expect(new Set(s.items.map((i) => i.id)).size).toBe(3);
+  });
+});
+
+describe("v3: chat answers, used tags and web tasks", () => {
+  it("a chat answer (intent chat) is a plain assistant message with its chips: no task card", () => {
+    const s = run(
+      [
+        { type: "run_started", run_id: 5, conv_id: "c" },
+        { type: "route", run_id: 5, strategy: "cloud_plan", provider: "claude", reason: "A question", intent: "chat" },
+        { type: "used", run_id: 5, kind: "cloud_ai", label: "Claude Code" },
+        { type: "used", run_id: 5, kind: "cloud_ai", label: "Claude Code" }, // duplicates are ignored
+        { type: "context_shared", run_id: 5, provider: "claude", categories: [{ category: "task", items: 1 }], bytes: 80 },
+        { type: "assistant_delta", run_id: 5, text: "Here is " },
+        { type: "assistant_delta", run_id: 5, text: "some code" },
+        { type: "assistant_message", run_id: 5, text: "Here is some code\n\n```ts\nconst a = 1;\n```" },
+        { type: "run_finished", run_id: 5, outcome: "completed" },
+      ],
+      addUser(emptyChat(), "example of playwright code?", [], 1),
+    );
+    expect(s.items.map((i) => i.kind)).toEqual(["user", "assistant"]);
+    const a = s.items[1] as AssistantItem;
+    expect(a.used).toEqual([{ kind: "cloud_ai", label: "Claude Code", detail: null }]);
+    expect(a.shared).toEqual([{ provider: "claude", categories: [{ category: "task", items: 1 }], bytes: 80 }]);
+    expect(a.streaming).toBe(false);
+    expect(a.text).toContain("```ts");
+  });
+
+  it("drops an empty card created before the route said it is a question", () => {
+    const s = run([
+      { type: "run_started", run_id: 6, conv_id: "c" },
+      { type: "context_shared", run_id: 6, provider: "codex", categories: [{ category: "task", items: 1 }], bytes: 10 },
+      { type: "route", run_id: 6, strategy: "cloud_plan", provider: "codex", reason: "q", intent: "chat" },
+      { type: "assistant_message", run_id: 6, text: "Answer" },
+    ]);
+    expect(s.items.map((i) => i.kind)).toEqual(["assistant"]);
+    expect((s.items[0] as AssistantItem).shared?.[0]?.provider).toBe("codex");
+  });
+
+  it("used tags land on the task card of action runs", () => {
+    const s = run([
+      { type: "run_started", run_id: 7, conv_id: "c" },
+      { type: "route", run_id: 7, strategy: "local_plan", provider: "local", reason: "r", intent: "action" },
+      { type: "used", run_id: 7, kind: "local_ai", label: "Qwen3 14B" },
+      { type: "used", run_id: 7, kind: "native", label: "Windows" },
+    ]);
+    const t = s.items.find((i): i is TaskItem => i.kind === "task")!;
+    expect(t.intent).toBe("action");
+    expect(t.used?.map((u) => u.kind)).toEqual(["local_ai", "native"]);
+  });
+
+  it("web tasks grow with step_added, keep steps across a late plan, and end with the user's turn", () => {
+    const s = run([
+      { type: "run_started", run_id: 8, conv_id: "c" },
+      { type: "route", run_id: 8, strategy: "cloud_plan", provider: "claude", reason: "web", intent: "web" },
+      { type: "step_added", run_id: 8, step: { id: "w1", title: "Open dice.com", tool: "browser_navigate", risk: "safe", via: "mcp", server: "playwright" } },
+      { type: "step_started", run_id: 8, step_id: "w1" },
+      { type: "step_finished", run_id: 8, step_id: "w1", status: "verified", summary: "open" },
+      { type: "plan_proposed", run_id: 8, source: "claude", objective: "Find jobs", notes: null, steps: [] },
+      { type: "step_added", run_id: 8, step: { id: "w2", title: "Search", tool: "browser_type", risk: "safe", via: "mcp", server: "playwright", sensitive_data: true } },
+      { type: "step_added", run_id: 8, step: { id: "w2", title: "Search for Rust jobs", tool: "browser_type", risk: "safe", via: "mcp", server: "playwright" } },
+      { type: "assistant_message", run_id: 8, text: "Sign in to Dice in the Relay browser window, then say continue." },
+      { type: "run_finished", run_id: 8, outcome: "completed" },
+    ]);
+    const t = s.items.find((i): i is TaskItem => i.kind === "task")!;
+    expect(t.steps.map((x) => [x.id, x.status, x.via, x.server])).toEqual([
+      ["w1", "verified", "mcp", "playwright"],
+      ["w2", "pending", "mcp", "playwright"],
+    ]);
+    expect(t.steps[1]!.title).toBe("Search for Rust jobs"); // a repeated step_added updates in place
+    expect(t.awaiting_user).toBe(true);
+    expect((s.items.find((i) => i.kind === "assistant") as AssistantItem).asks_user).toBe(true);
+  });
+
+  it("an ordinary final message of an action run is not treated as a request", () => {
+    const s = run([
+      { type: "run_started", run_id: 9, conv_id: "c" },
+      { type: "route", run_id: 9, strategy: "native", provider: null, reason: "r" },
+      { type: "assistant_message", run_id: 9, text: "Is this OK? Done." },
+    ]);
+    expect((s.items.find((i) => i.kind === "assistant") as AssistantItem).asks_user).toBeUndefined();
   });
 });
 

@@ -1,10 +1,10 @@
 // Settings › AI & Privacy: privacy mode, cloud providers (status, model, reasoning), what context
 // may be shared, confirmation level, allowed/protected folders and the tool allowlist.
 import { useEffect, useId, useState } from "react";
-import { Cloud, FolderLock, FolderOpen, Plus, RefreshCw, Route, ShieldCheck, Trash2, TriangleAlert } from "lucide-react";
+import { Cloud, FolderLock, FolderOpen, Globe, Plus, RefreshCw, Route, ShieldCheck, Trash2, TriangleAlert } from "lucide-react";
 import { useHybrid, useRefreshProviders, useSetHybrid } from "@/hooks/queries";
-import type { ConfirmLevel, Hybrid, ProviderInfo, Share } from "@/lib/types";
-import { RISK_META } from "@/lib/task";
+import type { BrowserInfo, ConfirmLevel, Hybrid, ProviderInfo, Share } from "@/lib/types";
+import { DESTRUCTIVE_BADGE } from "@/lib/task";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -82,6 +82,8 @@ export function PrivacySection() {
         {h.providers.map((p) => (refresh.isPending ? <Skeleton key={p.id} className="h-[260px] rounded-xl" /> : <ProviderCard key={p.id} p={p} isDefault={p.id === h.default_provider} />))}
       </div>
 
+      {h.browser && <BrowserControl browser={h.browser} onChange={(v) => set.mutate({ browserEnabled: v })} />}
+
       <SectionTitle description="Only what you switch on here can go into a cloud request. Each task shows exactly what was shared.">What may be shared</SectionTitle>
       <Card>
         {SHARE_ROWS.map((r) => (
@@ -133,6 +135,46 @@ function LoadStateWithTitle({ error, retry }: { error: unknown; retry: () => voi
     <>
       <PageTitle>AI &amp; Privacy</PageTitle>
       <LoadState error={error} retry={retry} rows={4} />
+    </>
+  );
+}
+
+function BrowserControl({ browser, onChange }: { browser: BrowserInfo; onChange: (v: boolean) => void }) {
+  const id = useId();
+  return (
+    <>
+      <SectionTitle description="Web tasks use a separate browser window that Relay controls. Your own browser, its tabs and logins are not touched.">Web tasks</SectionTitle>
+      <Card>
+        <Row
+          label={
+            <span className="inline-flex items-center gap-2">
+              <Globe className="size-4 text-violet" aria-hidden="true" /> Browser control (Playwright)
+            </span>
+          }
+          htmlFor={browser.available ? id : undefined}
+          desc={
+            browser.available ? (
+              "Lets Relay open web pages, click and fill in forms to finish web tasks. It asks before anything that changes or deletes data."
+            ) : (
+              <span className="flex items-start gap-1.5 text-warning" data-testid="browser-unavailable">
+                <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+                <span>
+                  Not available on this PC{browser.detail ? `: ${browser.detail.replace(/\.$/, "")}` : ""}.
+                </span>
+              </span>
+            )
+          }
+        >
+          <Switch
+            id={id}
+            checked={browser.available && browser.enabled}
+            disabled={!browser.available}
+            onCheckedChange={onChange}
+            aria-label="Browser control (Playwright)"
+            data-testid="browser-switch"
+          />
+        </Row>
+      </Card>
     </>
   );
 }
@@ -375,9 +417,6 @@ function ToolTable({ hybrid, onToggle }: { hybrid: Hybrid; onToggle: (id: string
             <th scope="col" className="px-4 py-2 font-medium">
               Tool
             </th>
-            <th scope="col" className="px-2 py-2 font-medium">
-              Risk
-            </th>
             <th scope="col" className="w-20 px-4 py-2 text-right font-medium">
               Allowed
             </th>
@@ -391,12 +430,13 @@ function ToolTable({ hybrid, onToggle }: { hybrid: Hybrid; onToggle: (id: string
                 <th scope="row" className="px-4 py-2.5 text-left font-normal">
                   <span className="text-fg">{t.label}</span>
                   <span className="ml-2 font-mono text-[11.5px] text-fg-muted">{t.id}</span>
+                  {t.risk === "destructive" && (
+                    <Badge tone="danger" className="ml-2 align-[1px]" title={DESTRUCTIVE_BADGE.description}>
+                      <TriangleAlert aria-hidden="true" />
+                      {DESTRUCTIVE_BADGE.label}
+                    </Badge>
+                  )}
                 </th>
-                <td className="px-2 py-2.5">
-                  <Badge tone={t.risk === "destructive" ? "danger" : t.risk === "sensitive" ? "warning" : "neutral"} title={RISK_META[t.risk].description}>
-                    {RISK_META[t.risk].label}
-                  </Badge>
-                </td>
                 <td className="px-4 py-2.5 text-right">
                   <Switch checked={on} onCheckedChange={(v) => onToggle(t.id, v)} aria-label={`Allow ${t.label}`} />
                 </td>

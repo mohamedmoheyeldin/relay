@@ -13,7 +13,7 @@ test("send a message and watch the timeline reach verified", async ({ page }) =>
   await expect(t.getByTestId("plan-source")).toContainText("Proposed by Claude Code");
   await expect(t.getByRole("button", { name: /Shared with Claude Code/ })).toBeVisible();
   await expect(t).toHaveAttribute("data-verdict", "verified", { timeout: 15_000 });
-  await expect(t.getByTestId("task-verdict")).toHaveText("Verified · 3 of 3 steps");
+  await expect(t.getByTestId("task-verdict")).toHaveText("Done · all 3 steps checked");
   await expect(page.getByTestId("live-region")).toContainText("Relay:");
   // The sidebar lists the new chat under Today with its title.
   await expect(page.getByRole("region", { name: "Recent chats" }).getByRole("button", { name: "Rename my screenshots by date", exact: true })).toBeVisible();
@@ -84,7 +84,7 @@ test("a failed verification shows where and why, with retry", async ({ page }) =
   await sendMessage(page, "Set brightness to 60%");
   const t = timeline(page);
   await expect(t).toHaveAttribute("data-verdict", "failed", { timeout: 15_000 });
-  await expect(t.getByTestId("task-verdict")).toHaveText("Failed at step 2");
+  await expect(t.getByTestId("task-verdict")).toHaveText("Step 2 didn't work");
   await expect(t.getByText("Ran, but the check failed: brightness still reads 100%")).toBeVisible();
   await expect(t.getByRole("button", { name: /Retry task/ })).toBeVisible();
 });

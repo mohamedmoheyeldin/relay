@@ -75,8 +75,8 @@ test("task history: filter, keyboard and detail", async ({ page }) => {
   const list = page.getByTestId("task-list");
   await expect(list.getByTestId("task-row").first()).toBeVisible();
   await page.getByRole("radio", { name: "Failed" }).click();
-  await expect(list.getByTestId("task-row").first()).toContainText(/Failed|Refused|Unavailable/);
-  await page.getByRole("radio", { name: "All" }).click();
+  await expect(list.getByTestId("task-row").first()).toContainText(/Failed|Blocked|Unavailable/);
+  await page.getByRole("radio", { name: "All", exact: true }).click();
   await list.focus();
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("Enter");

@@ -16,7 +16,6 @@ import {
   Plus,
   Search,
   Settings as SettingsIcon,
-  SlidersHorizontal,
   SquarePen,
   Trash2,
 } from "lucide-react";
@@ -93,7 +92,7 @@ export function Sidebar() {
           aria-hidden={!drawerOpen}
           inert={!drawerOpen}
           className={cn(
-            "fixed inset-y-0 left-0 z-(--relay-z-drawer) w-[min(var(--relay-sidebar-w),86vw)] border-r border-line bg-sidebar shadow-dialog transition-transform duration-(--relay-dur-panel) ease-relay will-change-transform",
+            "fixed inset-y-0 left-0 z-(--relay-z-drawer) w-[min(var(--relay-sidebar-w),86vw)] bg-sidebar shadow-dialog transition-transform duration-(--relay-dur-panel) ease-relay will-change-transform",
             "[:root[data-material=mica]_&]:bg-bg [:root[data-material=vibrancy]_&]:bg-bg",
             drawerOpen ? "translate-x-0" : "-translate-x-full",
           )}
@@ -113,7 +112,7 @@ export function Sidebar() {
     >
       {/* The 280px panel slides left by transform; its right 56px stays visible as the rail. */}
       <div
-        className="absolute inset-y-0 left-0 w-(--relay-sidebar-w) border-r border-line bg-sidebar transition-transform duration-(--relay-dur-panel) ease-relay will-change-transform"
+        className="absolute inset-y-0 left-0 w-(--relay-sidebar-w) bg-sidebar transition-transform duration-(--relay-dur-panel) ease-relay will-change-transform"
         style={{ transform: collapsed ? "translateX(calc(var(--relay-sidebar-w-collapsed) - var(--relay-sidebar-w)))" : "none" }}
       >
         <div className={cn("h-full transition-opacity duration-(--relay-dur)", collapsed ? "pointer-events-none opacity-0" : "opacity-100")} inert={collapsed}>
@@ -527,7 +526,7 @@ function ProfileFooter() {
   const keysLabel = useShortcutLabel(shortcutKeys("shortcuts"));
 
   return (
-    <div className="shrink-0 border-t border-line p-2">
+    <div className="shrink-0 p-2">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
@@ -550,9 +549,6 @@ function ProfileFooter() {
           <DropdownMenuItem onSelect={() => go(paths.settings("general"))}>
             <SettingsIcon aria-hidden="true" /> Settings
             <DropdownMenuShortcut>{settingsLabel}</DropdownMenuShortcut>
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => go(paths.settings("personalization"))}>
-            <SlidersHorizontal aria-hidden="true" /> Personalization
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => go(paths.settings("keyboard"))}>
             <Keyboard aria-hidden="true" /> Keyboard shortcuts

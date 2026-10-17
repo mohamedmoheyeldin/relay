@@ -29,7 +29,7 @@ export function SectionTitle({ children, description, className, id }: { childre
 }
 
 export function Card({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cn("divide-y divide-line rounded-xl border border-line bg-surface px-4", className)}>{children}</div>;
+  return <div className={cn("divide-y divide-line/70 rounded-xl border border-line/70 bg-surface px-4", className)}>{children}</div>;
 }
 
 export function Row({

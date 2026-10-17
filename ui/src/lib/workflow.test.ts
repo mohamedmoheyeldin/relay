@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { matchesFilter, routeReason, workflowToTask } from "./workflow";
-import { verdictOf } from "./task";
+import { usedTagsOf, verdictOf } from "./task";
 import type { Workflow } from "./schemas";
 
 const base: Workflow = {
@@ -29,7 +29,7 @@ const base: Workflow = {
 describe("workflow history", () => {
   it("maps a stored workflow onto the timeline shape", () => {
     const t = workflowToTask(base);
-    expect(t.route).toMatchObject({ strategy: "cloud_plan", provider: "codex", reason: "Hybrid: Codex planned it, Relay ran it here" });
+    expect(t.route).toMatchObject({ strategy: "cloud_plan", provider: "codex", reason: "Codex made the plan; Relay did the steps on this PC" });
     expect(t.shared[0]).toMatchObject({ provider: "codex", bytes: 4000 });
     expect(t.steps.map((s) => s.status)).toEqual(["verified", "skipped"]);
     expect(t.confirms[0]).toMatchObject({ state: "declined", title: "Empty the Recycle Bin" });
@@ -50,8 +50,20 @@ describe("workflow history", () => {
     expect(matchesFilter(base, "all")).toBe(true);
   });
   it("describes routes in plain words", () => {
-    expect(routeReason("native", null)).toMatch(/directly/);
+    expect(routeReason("native", null)).toMatch(/itself, on this PC/);
     expect(routeReason("local_plan", "local")).toMatch(/Relay Local AI/);
-    expect(routeReason("cloud_agent", "claude")).toMatch(/Claude Code drove/);
+    expect(routeReason("cloud_agent", "claude")).toMatch(/Claude Code worked the desktop/);
+  });
+  it("keeps v3 tags, via and sensitive data from history (and derives tags for old entries)", () => {
+    const t = workflowToTask({
+      ...base,
+      used: [{ kind: "cloud_ai", label: "Codex" }, { kind: "mcp", label: "Playwright browser" }],
+      steps: [{ ...base.steps[0]!, via: "mcp", server: "playwright", sensitive_data: true }],
+    });
+    expect(t.used?.map((u) => u.kind)).toEqual(["cloud_ai", "mcp"]);
+    expect(t.steps[0]).toMatchObject({ via: "mcp", server: "playwright", sensitive_data: true });
+    const old = workflowToTask(base);
+    expect(old.used).toEqual([]);
+    expect(usedTagsOf(old).map((u) => [u.kind, u.label])).toEqual([["cloud_ai", "Codex"], ["native", "Windows"]]);
   });
 });

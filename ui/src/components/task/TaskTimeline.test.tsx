@@ -9,25 +9,25 @@ import { TaskTimeline, rawLog } from "./TaskTimeline";
 describe("TaskTimeline", () => {
   it("shows the route, the AI-proposal label and a verified verdict", () => {
     renderUi(<TaskTimeline item={taskFixture("verified")} />);
-    expect(screen.getByText("Hybrid: Claude Code plans it, Relay runs it here")).toBeInTheDocument();
+    expect(screen.getByText("Claude Code makes the plan; Relay does the steps on this PC")).toBeInTheDocument();
     expect(screen.getByTestId("route-badge")).toHaveTextContent("Cloud");
-    expect(screen.getByTestId("plan-source")).toHaveTextContent("Proposed by Claude Code · AI-generated");
-    expect(screen.getByTestId("task-verdict")).toHaveTextContent("Verified · 3 of 3 steps");
+    expect(screen.getByTestId("plan-source")).toHaveTextContent("Proposed by Claude Code · Relay checks each step");
+    expect(screen.getByTestId("task-verdict")).toHaveTextContent("Done · all 3 steps checked");
     expect(screen.getAllByTestId("plan-step").map((li) => li.getAttribute("data-status"))).toEqual(["verified", "verified", "verified"]);
   });
 
   it("distinguishes 'ran but not verified' and a neutral done tick", () => {
     renderUi(<TaskTimeline item={taskFixture("unverified")} />);
-    expect(screen.getByTestId("task-verdict")).toHaveTextContent("Ran, 2 of 3 verified");
+    expect(screen.getByTestId("task-verdict")).toHaveTextContent("Done · 2 of 3 steps checked");
     const done = screen.getAllByTestId("plan-step")[1]!;
     expect(done).toHaveAttribute("data-status", "done");
-    expect(within(done).getByText("Done")).toBeInTheDocument();
+    expect(within(done).getByText("Done, not checked")).toBeInTheDocument();
   });
 
   it("opens a failed step with its reason and offers Retry", async () => {
     const onRetry = vi.fn();
     renderUi(<TaskTimeline item={taskFixture("failed")} onRetry={onRetry} />);
-    expect(screen.getByTestId("task-verdict")).toHaveTextContent("Failed at step 2");
+    expect(screen.getByTestId("task-verdict")).toHaveTextContent("Step 2 didn't work");
     expect(screen.getByText("Ran, but the check failed: no files matched")).toBeVisible();
     await userEvent.click(screen.getByRole("button", { name: /Retry task/ }));
     expect(onRetry).toHaveBeenCalled();
@@ -63,10 +63,10 @@ describe("TaskTimeline", () => {
   it("shows a pending approval inline and the declined state afterwards", () => {
     const { rerender } = renderUi(<TaskTimeline item={taskFixture("awaiting")} live />);
     expect(screen.getByTestId("confirm-line")).toHaveAttribute("data-state", "pending");
-    expect(screen.getByTestId("confirm-line")).toHaveTextContent("Waiting for your approval");
+    expect(screen.getByTestId("confirm-line")).toHaveTextContent("Waiting for your OK");
     rerender(<TaskTimeline item={taskFixture("declined")} />);
-    expect(screen.getByTestId("confirm-line")).toHaveTextContent("Declined");
-    expect(screen.getByTestId("task-verdict")).toHaveTextContent(/declined/i);
+    expect(screen.getByTestId("confirm-line")).toHaveTextContent("You said no");
+    expect(screen.getByTestId("task-verdict")).toHaveTextContent(/you said no/i);
   });
 
   it("keeps raw output behind Details", async () => {
@@ -86,6 +86,41 @@ describe("TaskTimeline", () => {
     expect(buttons[1]).toHaveFocus();
     await userEvent.keyboard("{End}");
     expect(buttons[2]).toHaveFocus();
+  });
+
+  it("tags what did the work in the header and how each step ran", () => {
+    renderUi(<TaskTimeline item={taskFixture("verified")} />);
+    const chips = screen.getAllByTestId("used-chip");
+    expect(chips.map((c) => c.getAttribute("data-kind"))).toEqual(["cloud_ai", "native"]);
+    expect(chips[0]).toHaveTextContent("Cloud AI · Claude Code");
+    expect(chips[1]).toHaveTextContent("Native tools · Windows");
+    // Not colour only: each chip carries an icon and words.
+    expect(chips[0]!.querySelector("svg")).not.toBeNull();
+    expect(screen.getAllByTestId("via-chip").every((c) => c.getAttribute("data-via") === "native")).toBe(true);
+  });
+
+  it("shows Sensitive info only for real sensitive data, and destructive steps in plain words", () => {
+    renderUi(<TaskTimeline item={taskFixture("sensitive")} />);
+    const [plain, secret, destructive] = screen.getAllByTestId("plan-step");
+    expect(within(plain!).queryByTestId("risk-badge")).toBeNull(); // risk "sensitive" alone shows nothing
+    expect(within(secret!).getByTestId("risk-badge")).toHaveTextContent("Sensitive info");
+    expect(within(destructive!).getByTestId("risk-badge")).toHaveTextContent("Changes or deletes data");
+    expect(screen.queryByText(/^Sensitive$/)).toBeNull();
+  });
+
+  it("collapses a long web task to the latest step and expands on request", async () => {
+    renderUi(<TaskTimeline item={taskFixture("web")} />);
+    expect(screen.getAllByTestId("plan-step")).toHaveLength(1);
+    expect(screen.getByTestId("plan-step")).toHaveTextContent("Open Easy Apply for the top match");
+    expect(screen.getByTestId("via-chip")).toHaveTextContent("Playwright browser");
+    const toggle = screen.getByTestId("steps-toggle");
+    expect(toggle).toHaveTextContent("Show all 12 steps (11 more)");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await userEvent.click(toggle);
+    expect(screen.getAllByTestId("plan-step")).toHaveLength(12);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByTestId("task-verdict")).toHaveTextContent("Waiting for you");
+    expect(screen.getAllByTestId("used-chip").map((c) => c.textContent)).toEqual(["Used Cloud AI · Claude Code", "Used Playwright browser"]);
   });
 
   it("has no serious accessibility violations", async () => {

@@ -20,7 +20,30 @@ const SCREENS: { name: string; route: string; scenario?: string; prepare?: (page
       await page.locator("[data-md=rendered]").first().waitFor();
     },
   },
+  {
+    // v3: a question answered in chat (no task card), with chips and a highlighted code block.
+    name: "chat-code",
+    route: "/",
+    prepare: async (page, narrow) => {
+      if (narrow) await page.getByRole("button", { name: "Open sidebar" }).click();
+      await page.getByRole("button", { name: "Playwright test for a store search", exact: true }).click();
+      await page.getByTestId("code-block").first().waitFor();
+      await page.locator("[data-testid=code-block][data-highlighted=true]").first().waitFor();
+    },
+  },
+  {
+    // v3: a web task with a collapsed step list that ends with the user's turn.
+    name: "chat-web",
+    route: "/",
+    prepare: async (page, narrow) => {
+      if (narrow) await page.getByRole("button", { name: "Open sidebar" }).click();
+      await page.getByRole("button", { name: "Find remote Rust jobs on Dice", exact: true }).click();
+      await page.getByTestId("task-timeline").waitFor();
+      await page.locator("[data-asks-user=true] [data-md=rendered]").waitFor();
+    },
+  },
   { name: "tasks", route: "/tasks/wf-2" },
+  { name: "settings-general", route: "/settings/general" },
   { name: "settings-privacy", route: "/settings/privacy", scenario: "codex-missing" },
   { name: "settings-appearance", route: "/settings/appearance" },
 ];

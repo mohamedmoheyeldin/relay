@@ -34,6 +34,18 @@ pub struct WorkflowRecord {
     pub approvals: Vec<String>,
     pub errors: Vec<String>,
     pub notes: Option<String>,
+    /// `chat`, `action` or `web`.
+    #[serde(default)]
+    pub intent: Option<String>,
+    /// What did the work (local AI, cloud AI, native tools, MCP servers), for the tags in history.
+    #[serde(default)]
+    pub used: Vec<UsedTag>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UsedTag {
+    pub kind: String,
+    pub label: String,
 }
 
 /// Where finished workflows are kept.

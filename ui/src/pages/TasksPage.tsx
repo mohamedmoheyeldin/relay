@@ -24,7 +24,7 @@ const ROW_H = 60;
 
 const FILTERS: { value: OutcomeFilter; label: string }[] = [
   { value: "all", label: "All" },
-  { value: "verified", label: "Verified" },
+  { value: "verified", label: "All checked" },
   { value: "completed", label: "Completed" },
   { value: "failed", label: "Failed" },
   { value: "stopped", label: "Stopped" },
@@ -48,7 +48,7 @@ export default function TasksPage() {
       <Header title="Task history" />
       <div className="flex min-h-0 flex-1">
         {showList && (
-          <section aria-label="Tasks" className={cn("flex min-h-0 flex-col", showDetail && !narrow ? "w-[min(440px,45%)] shrink-0 border-r border-line" : "mx-auto w-full max-w-(--relay-content-max)")}>
+          <section aria-label="Tasks" className={cn("flex min-h-0 flex-col", showDetail && !narrow ? "w-[min(440px,45%)] shrink-0 border-r border-line/60" : "mx-auto w-full max-w-(--relay-content-max)")}>
             <div className="space-y-3 px-4 pt-2 pb-3">
               {!showDetail && <h1 className="font-display text-title">Task history</h1>}
               <div className="flex flex-wrap items-center gap-2">
@@ -80,7 +80,7 @@ export default function TasksPage() {
             ) : (list.data ?? []).length === 0 ? (
               <div className="px-4">
                 <EmptyState icon={<History />} title="No tasks yet">
-                  Every task Relay runs is listed here with its plan, what it shared and whether each step was verified.
+                  Every task Relay does shows up here: its steps, what it shared, and which steps it could check.
                 </EmptyState>
               </div>
             ) : rows.length === 0 ? (
@@ -181,7 +181,7 @@ function TaskList({ rows, selected, compact }: { rows: WorkflowSummary[]; select
                   <span aria-hidden="true">·</span>
                   <span className={cn("tabular-nums", allVerified && "text-success")}>
                     {allVerified && <ShieldCheck className="mr-0.5 inline size-3 align-[-1px]" aria-hidden="true" />}
-                    {w.steps_verified}/{w.steps_total} verified
+                    {w.steps_total === 0 ? "No steps" : `${w.steps_verified} of ${w.steps_total} checked`}
                   </span>
                   {!compact && (
                     <>

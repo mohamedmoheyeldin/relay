@@ -1,6 +1,6 @@
 // Hybrid routing, cloud providers and the task (workflow) history (docs/ui-contract.md v2).
 import * as z from "zod/mini";
-import { StepRiskSchema } from "./events";
+import { StepRiskSchema, UsedKindSchema } from "./events";
 
 export const ProviderIdSchema = z.enum(["claude", "codex"]);
 export const PrivacyModeSchema = z.enum(["local_only", "hybrid_auto", "cloud_preferred"]);
@@ -38,6 +38,9 @@ export const ShareSchema = z.object({
 
 export const HybridToolSchema = z.object({ id: z.string(), label: z.string(), risk: StepRiskSchema });
 
+/** v3: browser control through an MCP server (Playwright). */
+export const BrowserInfoSchema = z.object({ enabled: z.boolean(), available: z.boolean(), server: z.string(), detail: z.string() });
+
 export const HybridSchema = z.object({
   privacy_mode: PrivacyModeSchema,
   default_provider: ProviderIdSchema,
@@ -48,6 +51,7 @@ export const HybridSchema = z.object({
   protected_roots: z.array(z.string()),
   disabled_tools: z.array(z.string()),
   tools: z.array(HybridToolSchema),
+  browser: z.optional(BrowserInfoSchema),
 });
 
 export const WorkflowOutcomeSchema = z.enum(["completed", "failed", "cancelled", "declined", "denied", "timed_out", "unavailable"]);
@@ -73,9 +77,17 @@ export const WorkflowStepSchema = z.object({
   status: z.string(),
   summary: z.string(),
   attempts: z.number(),
+  via: z.optional(z.nullable(z.string())),
+  server: z.optional(z.nullable(z.string())),
+  sensitive_data: z.optional(z.boolean()),
 });
 
+/** What did the work (same shape as the `used` event). Optional: older histories lack it. */
+export const UsedTagSchema = z.object({ kind: UsedKindSchema, label: z.string(), detail: z.optional(z.nullable(z.string())) });
+
 export const WorkflowSchema = z.extend(WorkflowSummarySchema, {
+  used: z.optional(z.array(UsedTagSchema)),
+  intent: z.optional(z.nullable(z.string())),
   plan_source: z.string(),
   steps: z.array(WorkflowStepSchema),
   shared: z.array(z.object({ category: z.string(), items: z.number() })),
@@ -96,6 +108,8 @@ export type WorkflowOutcome = z.infer<typeof WorkflowOutcomeSchema>;
 export type WorkflowSummary = z.infer<typeof WorkflowSummarySchema>;
 export type WorkflowStep = z.infer<typeof WorkflowStepSchema>;
 export type Workflow = z.infer<typeof WorkflowSchema>;
+export type BrowserInfo = z.infer<typeof BrowserInfoSchema>;
+export type UsedTag = z.infer<typeof UsedTagSchema>;
 
 /** `set_hybrid` argument: every field optional (camelCase, converted by Tauri). */
 export type HybridPatch = {
@@ -106,6 +120,8 @@ export type HybridPatch = {
   allowedRoots?: string[];
   disabledTools?: string[];
   provider?: { id: ProviderId; model?: string | null; reasoning?: string | null };
+  /** v3: switch browser control (the Playwright MCP server) on or off. */
+  browserEnabled?: boolean;
 };
 
 /** Applies a set_hybrid patch locally (optimistic update and mock backend share this). */
@@ -118,6 +134,7 @@ export function applyHybridPatch(h: Hybrid, p: HybridPatch): Hybrid {
     share: p.share ? { ...h.share, ...p.share } : h.share,
     allowed_roots: p.allowedRoots ?? h.allowed_roots,
     disabled_tools: p.disabledTools ?? h.disabled_tools,
+    ...(h.browser ? { browser: p.browserEnabled !== undefined && h.browser.available ? { ...h.browser, enabled: p.browserEnabled } : h.browser } : {}),
     providers: p.provider
       ? h.providers.map((x) =>
           x.id === p.provider!.id

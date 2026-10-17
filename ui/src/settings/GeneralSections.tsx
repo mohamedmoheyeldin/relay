@@ -58,6 +58,7 @@ export function GeneralSection() {
           <Switch id={autoId} checked={s.auto_setup} onCheckedChange={(v) => set.mutate({ auto_setup: v })} />
         </Row>
       </Card>
+      <CustomInstructions saved={s.custom_instructions} />
       <SectionTitle description="Plan steps follow the confirmation level in AI & Privacy. This setting covers agent mode, where a cloud provider drives the desktop directly.">
         Agent mode approvals
       </SectionTitle>
@@ -234,37 +235,25 @@ export function AppearanceSection() {
   );
 }
 
-export function PersonalizationSection() {
-  const settings = useSettings();
+/** Custom instructions (part of General; it was a separate "Personalization" page before). */
+function CustomInstructions({ saved: savedValue }: { saved: string }) {
   const set = useSetSettings();
-  const [text, setText] = useState(settings.data?.custom_instructions ?? "");
+  const [text, setText] = useState(savedValue);
   const [saved, setSaved] = useState(false);
-  const nameId = useId();
-  useEffect(() => setText(settings.data?.custom_instructions ?? ""), [settings.data?.custom_instructions]);
-  if (!settings.data)
-    return (
-      <>
-        <PageTitle>Personalization</PageTitle>
-        <LoadState error={settings.error} retry={() => void settings.refetch()} />
-      </>
-    );
-  const dirty = text !== settings.data.custom_instructions;
+  useEffect(() => setText(savedValue), [savedValue]);
+  const dirty = text !== savedValue;
   return (
     <>
-      <PageTitle>Personalization</PageTitle>
-      <Card className="mb-8">
-        <Row label="Your name" htmlFor={nameId}>
-          <NameInput id={nameId} />
-        </Row>
-      </Card>
-      <SectionTitle description="What should Relay know about you and how you like things done? Applies to every chat.">Custom instructions</SectionTitle>
+      <SectionTitle id="custom-instructions" description="What should Relay know about you and how you like things done? Applies to every chat.">
+        Custom instructions
+      </SectionTitle>
       <Textarea
         value={text}
         onChange={(e) => {
           setText(e.target.value);
           setSaved(false);
         }}
-        rows={8}
+        rows={5}
         maxLength={4000}
         placeholder="e.g. I keep work files in D:\Work. Prefer short answers. Never empty the Recycle Bin."
         aria-label="Custom instructions"
@@ -274,7 +263,7 @@ export function PersonalizationSection() {
         <span className="text-caption text-fg-muted" aria-live="polite">
           {saved ? "Saved" : `${text.length} / 4000`}
         </span>
-        <Button variant="ghost" size="sm" disabled={!dirty} onClick={() => setText(settings.data!.custom_instructions)}>
+        <Button variant="ghost" size="sm" disabled={!dirty} onClick={() => setText(savedValue)}>
           Cancel
         </Button>
         <Button variant="primary" size="sm" disabled={!dirty} onClick={() => set.mutate({ custom_instructions: text }, { onSuccess: () => setSaved(true) })}>

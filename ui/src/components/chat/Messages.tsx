@@ -1,6 +1,8 @@
 import { lazy, memo, Suspense, useState } from "react";
-import { Check, Cloud, Copy, Cpu, FileText, RotateCcw, Settings2, TriangleAlert } from "lucide-react";
-import type { AssistantItem, ErrorItem, NoticeItem, UserItem } from "@/lib/chat";
+import { Check, Copy, FileText, RotateCcw, Settings2, TriangleAlert, UserRound } from "lucide-react";
+import type { AssistantItem, ErrorItem, NoticeItem, UsedTag, UserItem } from "@/lib/chat";
+import { UsedChips } from "@/components/task/UsedChips";
+import { PrivacyLedger } from "@/components/task/PrivacyLedger";
 import { useApp } from "@/store/app";
 import { copyText } from "@/hooks/dom";
 import { cn } from "@/lib/utils";
@@ -16,10 +18,10 @@ if (typeof window !== "undefined") {
   const idle = (window as Window & { requestIdleCallback?: (cb: () => void) => void }).requestIdleCallback ?? ((cb: () => void) => setTimeout(cb, 800));
   idle(() => void loadMarkdown());
 }
-function Markdown({ text }: { text: string }) {
+function Markdown({ text, streaming }: { text: string; streaming?: boolean }) {
   return (
     <Suspense fallback={<div className="md whitespace-pre-wrap">{text}</div>}>
-      <LazyMarkdown text={text} />
+      <LazyMarkdown text={text} streaming={streaming} />
     </Suspense>
   );
 }
@@ -73,19 +75,42 @@ export const AssistantMessage = memo(function AssistantMessage({
   isLast,
   convId,
   canRetry,
+  showTags = true,
 }: {
   item: AssistantItem;
   isLast: boolean;
   convId: string;
   canRetry: boolean;
+  /** Show the "what did the work" chips (off when a task card above already shows them). */
+  showTags?: boolean;
 }) {
+  const tags: UsedTag[] = showTags ? (item.used?.length ? item.used : item.engine ? [engineTag(item.engine)] : []) : [];
+  const body = <Markdown text={item.text} streaming={item.streaming} />;
   return (
-    <div className="group turn py-2" aria-busy={item.streaming}>
+    <div className="group turn py-2" aria-busy={item.streaming} data-testid="assistant-message" data-asks-user={item.asks_user ? "true" : undefined}>
       <span className="sr-only">Relay said: </span>
-      <Markdown text={item.text} />
-      {item.streaming ? (
-        <span className="pulse-dot mt-2" aria-hidden="true" />
+      {item.asks_user ? (
+        <div className="rounded-xl border border-brand/35 bg-brand-soft/45 px-4 py-3" role="note" aria-label="Relay needs you to act">
+          <p className="mb-1.5 inline-flex items-center gap-1.5 text-caption font-medium text-brand-text">
+            <UserRound className="size-3.5" aria-hidden="true" /> Your turn
+          </p>
+          {body}
+        </div>
       ) : (
+        body
+      )}
+      {item.streaming && <span className="pulse-dot mt-2" aria-hidden="true" />}
+      {(tags.length > 0 || (item.shared?.length ?? 0) > 0) && (
+        <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+          <UsedChips tags={tags} label="Answered with" />
+          {item.shared && item.shared.length > 0 && (
+            <div className="min-w-0 basis-full sm:basis-auto">
+              <PrivacyLedger shares={item.shared} staysLocal={false} compact />
+            </div>
+          )}
+        </div>
+      )}
+      {!item.streaming && (
         <div
           className={cn(
             "mt-1 -ml-1.5 flex h-8 items-center gap-0.5 transition-opacity duration-(--relay-dur-fast)",
@@ -98,17 +123,15 @@ export const AssistantMessage = memo(function AssistantMessage({
               <RotateCcw aria-hidden="true" />
             </IconButton>
           )}
-          {item.engine && (
-            <span className="ml-1.5 inline-flex items-center gap-1 text-caption text-fg-muted">
-              {item.engine.kind === "local" ? <Cpu className="size-3.5" aria-hidden="true" /> : <Cloud className="size-3.5" aria-hidden="true" />}
-              {item.engine.kind === "local" ? `Relay Local AI · ${item.engine.name}` : item.engine.name}
-            </span>
-          )}
         </div>
       )}
     </div>
   );
 });
+
+function engineTag(e: NonNullable<AssistantItem["engine"]>): UsedTag {
+  return e.kind === "local" ? { kind: "local_ai", label: e.name } : { kind: "cloud_ai", label: e.name };
+}
 
 /** Shown while a run is starting or between steps, before any text arrives (no-streaming providers). */
 export function Thinking() {

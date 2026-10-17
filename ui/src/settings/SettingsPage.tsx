@@ -2,13 +2,13 @@
 // on the right; Esc returns to where you were. Code-split from the main bundle.
 import { useEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { useParams } from "react-router";
-import { Archive, ArrowLeft, ChevronLeft, CircleHelp, Cpu, HardDrive, Keyboard, Palette, Plug, Search, Settings as Gear, ShieldCheck, SlidersHorizontal } from "lucide-react";
+import { Archive, ArrowLeft, ChevronLeft, CircleHelp, Cpu, HardDrive, Keyboard, Palette, Plug, Search, Settings as Gear, ShieldCheck } from "lucide-react";
 import { useApp } from "@/store/app";
 import { useNarrow } from "@/hooks/dom";
 import { useRovingList } from "@/hooks/roving";
 import { go, paths } from "@/lib/nav";
 import { cn } from "@/lib/utils";
-import { AboutSection, AppearanceSection, ArchivedSection, DataSection, GeneralSection, KeyboardSection, PersonalizationSection } from "./GeneralSections";
+import { AboutSection, AppearanceSection, ArchivedSection, DataSection, GeneralSection, KeyboardSection } from "./GeneralSections";
 import { PrivacySection } from "./PrivacySection";
 import { LocalAiSection } from "./LocalAiSection";
 import { ConnectionsSection } from "./ConnectionsSection";
@@ -16,12 +16,11 @@ import { ConnectionsSection } from "./ConnectionsSection";
 type Section = { id: string; label: string; icon: ComponentType<{ className?: string }>; keywords: string; group: string; render: ComponentType };
 
 export const SECTIONS: Section[] = [
-  { id: "general", label: "General", icon: Gear, group: "App", keywords: "name emergency stop hotkey automatic setup agent approvals", render: GeneralSection },
+  { id: "general", label: "General", icon: Gear, group: "App", keywords: "name custom instructions about you emergency stop hotkey automatic setup agent approvals", render: GeneralSection },
   { id: "appearance", label: "Appearance", icon: Palette, group: "App", keywords: "theme dark light mode accent colour color background text font serif", render: AppearanceSection },
   { id: "privacy", label: "AI & Privacy", icon: ShieldCheck, group: "AI", keywords: "privacy local hybrid cloud provider claude code codex model reasoning share context screenshots files folders tools confirm approval sign in login install", render: PrivacySection },
   { id: "local-ai", label: "Relay Local AI", icon: Cpu, group: "AI", keywords: "local model gpu download setup offline", render: LocalAiSection },
   { id: "connections", label: "Connections", icon: Plug, group: "AI", keywords: "mcp servers tools plugins json", render: ConnectionsSection },
-  { id: "personalization", label: "Personalization", icon: SlidersHorizontal, group: "You", keywords: "custom instructions name about you", render: PersonalizationSection },
   { id: "archived", label: "Archived chats", icon: Archive, group: "You", keywords: "archive restore unarchive", render: ArchivedSection },
   { id: "data", label: "Data & storage", icon: HardDrive, group: "System", keywords: "folder paths logs audit data", render: DataSection },
   { id: "keyboard", label: "Keyboard", icon: Keyboard, group: "System", keywords: "shortcuts keys hotkey", render: KeyboardSection },
@@ -70,7 +69,7 @@ export default function SettingsPage() {
   return (
     <div className="flex h-full" data-testid="settings-page">
       {showNav && (
-        <nav aria-label="Settings sections" className={cn("flex h-full shrink-0 flex-col bg-sidebar", narrow ? "w-full" : "w-[260px] border-r border-line")}>
+        <nav aria-label="Settings sections" className={cn("flex h-full shrink-0 flex-col bg-sidebar", narrow ? "w-full" : "w-[260px]")}>
           <div data-tauri-drag-region className="flex h-12 shrink-0 items-center pr-2 pl-[calc(var(--relay-titlebar-inset)+8px)]">
             <button type="button" onClick={close} className="no-drag flex h-8 items-center gap-2 rounded-md px-2 text-ui text-fg-2 hover:bg-hover hover:text-fg">
               <ArrowLeft className="size-4" aria-hidden="true" /> Back to Relay
@@ -133,7 +132,7 @@ export default function SettingsPage() {
       )}
       {(!narrow || !navOpen) && (
         <main ref={mainRef} className="min-w-0 flex-1 overflow-y-auto scroll-thin" aria-label={section.label}>
-          <div data-tauri-drag-region className={cn("sticky top-0 z-(--relay-z-sticky) flex h-12 items-center gap-1 px-2", narrow ? "bg-canvas" : "")}>
+          <div data-tauri-drag-region className={cn("sticky top-0 z-(--relay-z-sticky) flex h-12 items-center gap-1 pr-[max(8px,var(--relay-controls-w))] pl-2", narrow ? "bg-canvas" : "")}>
             {narrow && (
               <>
                 <button type="button" onClick={() => setNavOpen(true)} className="no-drag flex h-8 items-center gap-1 rounded-md px-2 text-ui text-fg-2 hover:bg-hover hover:text-fg">

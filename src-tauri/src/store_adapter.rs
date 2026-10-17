@@ -107,6 +107,8 @@ mod tests {
             approvals: vec![],
             errors: vec![],
             notes: None,
+            intent: None,
+            used: Vec::new(),
         };
         WorkflowStore::save(&adapter, &rec);
         let back: WorkflowRecord =

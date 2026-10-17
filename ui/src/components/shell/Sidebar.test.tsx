@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderUi, useMockBackend, axeViolations } from "@/test/render";
@@ -16,7 +16,15 @@ async function rowFor(title: string) {
 }
 
 describe("Sidebar", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   beforeEach(() => {
+    // The mock seeds chats "N hours ago"; pin the clock to mid-afternoon so "Today" and "Yesterday"
+    // do not depend on when the test runs (it failed shortly after midnight).
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 9, 17, 15, 0, 0));
     t = useMockBackend();
     useApp.setState({ sidebarCollapsed: false, confirmDialog: null });
   });

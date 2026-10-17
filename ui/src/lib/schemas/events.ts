@@ -24,11 +24,21 @@ export const StatusPayloadSchema = z.object({
 
 export const SharedCategorySchema = z.object({ category: z.string(), items: z.number() });
 
+/** v3: how a step runs (Relay's own tools, or an MCP server such as the browser). */
+export const ViaSchema = z.enum(["native", "mcp"]);
+/** v3: what did the work in a run (drives the coloured chips). */
+export const UsedKindSchema = z.enum(["local_ai", "cloud_ai", "native", "mcp"]);
+/** v3: what kind of request the router decided this is. */
+export const IntentSchema = z.enum(["chat", "action", "web"]);
+
 export const PlanStepSchema = z.object({
   id: z.string(),
   title: z.string(),
   tool: z.string(),
   risk: StepRiskSchema,
+  via: z.optional(ViaSchema),
+  server: z.optional(z.nullable(z.string())),
+  sensitive_data: z.optional(z.boolean()),
 });
 
 export const ProgressSchema = z.object({
@@ -47,7 +57,16 @@ export const UiEventSchema = z.discriminatedUnion("type", [
     strategy: RouteStrategySchema,
     provider: z.nullable(z.string()),
     reason: z.string(),
+    intent: z.optional(IntentSchema),
   }),
+  z.object({
+    type: z.literal("used"),
+    run_id: runId,
+    kind: UsedKindSchema,
+    label: z.string(),
+    detail: z.optional(z.nullable(z.string())),
+  }),
+  z.object({ type: z.literal("step_added"), run_id: runId, step: PlanStepSchema }),
   z.object({ type: z.literal("engine"), run_id: runId, kind: z.enum(["local", "cloud"]), name: z.string() }),
   z.object({
     type: z.literal("context_shared"),
@@ -73,7 +92,7 @@ export const UiEventSchema = z.discriminatedUnion("type", [
     summary: z.string(),
   }),
   z.object({ type: z.literal("assistant_delta"), run_id: runId, text: z.string() }),
-  z.object({ type: z.literal("assistant_message"), run_id: runId, text: z.string() }),
+  z.object({ type: z.literal("assistant_message"), run_id: runId, text: z.string(), needs_user: z.optional(z.boolean()) }),
   z.object({ type: z.literal("tool_started"), run_id: runId, tool_id: z.string(), name: z.string(), summary: z.string() }),
   z.object({ type: z.literal("tool_finished"), run_id: runId, tool_id: z.string(), ok: z.boolean(), summary: z.string() }),
   z.object({
@@ -105,10 +124,15 @@ export type StatusPayload = z.infer<typeof StatusPayloadSchema>;
 export type PlanStep = z.infer<typeof PlanStepSchema>;
 export type SharedCategory = z.infer<typeof SharedCategorySchema>;
 export type Progress = z.infer<typeof ProgressSchema>;
+export type Via = z.infer<typeof ViaSchema>;
+export type UsedKind = z.infer<typeof UsedKindSchema>;
+export type Intent = z.infer<typeof IntentSchema>;
 
 export const EVENT_TYPES: readonly UiEventType[] = [
   "run_started",
   "route",
+  "used",
+  "step_added",
   "engine",
   "context_shared",
   "plan_proposed",

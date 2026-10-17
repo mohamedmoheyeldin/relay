@@ -47,8 +47,11 @@ impl Hybrid {
             approvals: Vec::new(),
             errors: Vec::new(),
             notes: None,
+            intent: None,
+            used: Vec::new(),
         };
         let mut outcome = UiOutcome::Completed;
+        let mut needs_user = false;
         let text: String = match strategy {
             Strategy::ChatLocal | Strategy::ChatCloud(_) => {
                 record.plan_source = if matches!(strategy, Strategy::ChatLocal) {
@@ -126,6 +129,7 @@ impl Hybrid {
                     .run_web(engine, run_id, task, history, &confirmer, cancel)
                     .await;
                 outcome = r.outcome;
+                needs_user = r.needs_user;
                 record.outcome = r.record_outcome.into();
                 record.steps = r.steps;
                 record.shared = r.shared;
@@ -143,11 +147,21 @@ impl Hybrid {
             .filter(|s| s.status == "verified")
             .count();
         record.updated_at = now_ms();
+        record.intent = Some(
+            if strategy_name.starts_with("web") {
+                "web"
+            } else {
+                "chat"
+            }
+            .to_string(),
+        );
+        record.used = self.used_tags();
         self.workflows.save(&record);
         if !text.is_empty() {
             self.emit(UiEvent::AssistantMessage {
                 run_id,
                 text: text.clone(),
+                needs_user,
             });
         }
         let mut hist = history.to_vec();

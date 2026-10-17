@@ -238,7 +238,9 @@ impl Policy {
                     Risk::Destructive => {
                         "This changes or removes data and may not be easy to undo.".into()
                     }
-                    Risk::Sensitive => "This touches sensitive information (passwords, keys or ID numbers).".into(),
+                    Risk::Sensitive => {
+                        "This touches sensitive information (passwords, keys or ID numbers).".into()
+                    }
                     Risk::Safe => "Confirmation is required for every action.".into(),
                 },
             }

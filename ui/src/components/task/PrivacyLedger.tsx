@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { go, paths } from "@/lib/nav";
 
 /** "Shared with <provider>" row: what local context went into a cloud request (expandable). */
-export function PrivacyLedger({ shares, staysLocal }: { shares: TaskShare[]; staysLocal: boolean }) {
+export function PrivacyLedger({ shares, staysLocal, compact = false }: { shares: TaskShare[]; staysLocal: boolean; compact?: boolean }) {
   const [open, setOpen] = useState(false);
   if (!shares.length) {
     if (!staysLocal) return null;
@@ -28,7 +28,7 @@ export function PrivacyLedger({ shares, staysLocal }: { shares: TaskShare[]; sta
         aria-expanded={open}
         aria-controls={id}
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-caption text-fg-2 transition-colors hover:bg-hover"
+        className={cn("flex w-full items-center gap-2 text-left text-caption text-fg-2 transition-colors hover:bg-hover", compact ? "rounded-md px-1.5 py-1" : "px-4 py-2.5")}
       >
         <CloudUpload className="size-4 shrink-0 text-info" aria-hidden="true" />
         <span className="min-w-0 flex-1 truncate">
@@ -38,7 +38,7 @@ export function PrivacyLedger({ shares, staysLocal }: { shares: TaskShare[]; sta
         <ChevronRight aria-hidden="true" className={cn("size-4 shrink-0 text-fg-muted transition-transform duration-(--relay-dur-fast)", open && "rotate-90")} />
       </button>
       {open && (
-        <div id={id} className="rise-in px-4 pb-3">
+        <div id={id} className={cn("rise-in pb-3", compact ? "px-1.5 pt-1" : "px-4")}>
           <table className="w-full text-caption">
             <caption className="sr-only">Local information included in the cloud request</caption>
             <thead>

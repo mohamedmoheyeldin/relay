@@ -8,7 +8,9 @@ Research behind it: `docs/research/design-language.md` (palettes, contrast, moti
 ## 1. Principles
 
 - **Calm and warm.** Warm paper and charcoal neutrals, a serif for headings, one restrained accent.
-  Separation comes from value steps and 1px hairlines, not from gradients or heavy shadows.
+  Separation comes from value steps first (sidebar, canvas, cards are different tones; there is no
+  line between the sidebar and the content) and soft 1px hairlines only inside cards, never from
+  gradients or heavy shadows.
 - **Proposal, ran, verified.** The interface always shows the difference between what an AI
   proposed, what Relay ran, and what Relay checked afterwards. Only "Verified" means checked.
 - **Fast to drive.** Every action is reachable from the keyboard (palette, shortcuts, roving lists),
@@ -49,7 +51,9 @@ before the first paint (no flash); the appearance store keeps them current.
 | `--relay-danger` / `-soft` | `text-danger` / `bg-danger-soft` | #A63A32 / #F6E4E1 | #F0877D / #3B2220 | failures, destructive |
 | `--relay-success` / `-soft` | | #3A6A27 / #E5EEDC | #86C060 / #23301B | verified |
 | `--relay-warning` / `-soft` | | #7A5A12 / #F3EAD3 | #D9A93F / #352B14 | approvals, sensitive |
-| `--relay-info` / `-soft` | | #2F5F9A / #E1EAF5 | #8AB4E8 / #1F2A38 | cloud, shared context |
+| `--relay-info` / `-soft` | | #2F5F9A / #E1EAF5 | #8AB4E8 / #1F2A38 | cloud, shared context, Cloud AI chips |
+| `--relay-violet` / `-soft` | `text-violet` / `bg-violet-soft` | #6A4AA6 / #ECE6F6 | #B9A4EE / #2A2438 | MCP chips (e.g. Playwright browser) |
+| `--relay-code-bg` | | = surface | = surface-sunk | code blocks (keeps syntax colours >= 4.5:1) |
 
 The accent is a deeper terracotta than the reference product's clay (#D97757/#CC785C fail AA as a
 fill with a light label); it is Relay's own value. Alternative accents (sage, indigo, plum, ink)
@@ -93,7 +97,11 @@ tool output stay sans for density.
   the sidebar becomes an overlay drawer.
 - Title bar: `--relay-titlebar-inset` (76px) and `--relay-titlebar-top` (28px) are non-zero only
   for the macOS overlay title bar, reserving the traffic lights; top bars carry
-  `data-tauri-drag-region`. Windows keeps the native title bar (Snap layouts keep working).
+  `data-tauri-drag-region`. On Windows the window is frameless (`data-titlebar="custom"`): the
+  app draws minimise/maximise/close (`components/shell/WindowControls.tsx`) and top bars reserve
+  `--relay-controls-w` (138px) on the right.
+- Hairlines: inside cards they use `--relay-border` at 60-70% (`border-line/60`, `/70`); the
+  sidebar, settings navigation and code-block header separate by tone only.
 
 ### 2.4 Elevation
 
@@ -157,14 +165,27 @@ Relay tokens; they live in `ui/src/components/ui/`.
 Product components:
 
 - **Task timeline** (`components/task/TaskTimeline.tsx`): route badge (On this PC / Relay Local
-  AI / Cloud / Unavailable) and the route reason; privacy ledger row "Shared with <provider> ·
-  N categories · N items · size" (expandable table) or "Nothing was shared"; the plan labelled
-  "Proposed by <source> · AI-generated, checked step by step"; numbered steps with risk chips
-  (Sensitive, Destructive); live states pending, running (sweep), verified (filled success check),
-  done (neutral outlined tick, tooltip "nothing to verify against"), failed (red, opens with the
-  reason), skipped, stopped; inline approval line with countdown; verdict footer that separates
-  "Verified · 3 of 3 steps", "Ran but not verified", "Ran, 2 of 3 verified", "Failed at step 2",
-  "Stopped" and "Not done: you declined a step"; Retry task; raw log behind "Details".
+  AI / Cloud / Unavailable), the route reason and the "what did the work" chips (`UsedChips.tsx`:
+  Local AI green, Cloud AI blue, Native tools neutral, MCP servers such as "Playwright browser"
+  violet; icon + words, never colour only); privacy ledger row "Shared with <provider> · N
+  categories · N items · size" (expandable table) or "Nothing was shared"; the plan labelled
+  "Proposed by <source> · Relay checks each step as it goes"; numbered steps with their `via` chip
+  and only two risk badges: "Changes or deletes data" (destructive) and "Sensitive info" (only when
+  the step has `sensitive_data`; `risk: "sensitive"` alone shows nothing); live states Up next,
+  Working (sweep), Checked (filled success check), "Done, not checked" (neutral outlined tick),
+  "Didn't work" / "Blocked" (red, opens with the reason), Skipped, Stopped; lists longer than 6
+  steps collapse to the latest step plus failures ("Show all N steps") for web tasks and finished
+  runs; inline approval line with countdown; verdict footer in plain words ("Done · all 3 steps
+  checked", "Done · 2 of 3 steps checked", "Done, but not checked", "Step 2 didn't work",
+  "Blocked at step 2", "Stopped", "Not done: you said no", "Waiting for you") with a one-line hint;
+  Retry task; raw log behind "Details".
+- **Chat answers** (`components/chat/Messages.tsx`): a question (`route.intent === "chat"`) is a
+  plain assistant message with its chips and, for cloud answers, a compact privacy ledger; no task
+  card. A message that asks the user to act (web tasks) is a "Your turn" callout.
+- **Code blocks** (`components/chat/CodeBlock.tsx`): language label, Copy button ("Copied" state,
+  `aria-label`, keyboard reachable), shiki highlighting loaded on demand and applied once when the
+  fence closes (no re-highlight per streamed token), `white-space: pre` with horizontal scroll,
+  Geist Mono without ligatures, `--relay-code-bg`. Inline code is a small tinted chip.
 - **Permission dialog** (`PermissionDialog.tsx`): blocking alert dialog, risk wording, detail in
   mono, 2-minute countdown with a bar, Decline focused first for destructive actions, Esc declines.
 - **Agent group** (`ToolGroup.tsx`): "Worked for 12s · 7 steps", collapsible, tool names inside.
@@ -195,6 +216,7 @@ Product components:
 | accent-text on bg | 5.97 | 6.75 |
 | accent-text on accent-soft | 5.12 | 5.32 |
 | danger / success / warning / info on their soft fills | 5.23 / 5.38 / 5.31 / 5.36 | 5.90 / 6.44 / 6.43 / 6.76 |
+| violet on violet-soft / on surface | 5.48 / 6.62 | 6.82 / 7.15 |
 | on-danger on danger (destructive button) | 6.42 | 7.00 |
 | border-strong on bg (control boundary) | 3.29 | 3.69 |
 | focus ring on bg | 4.66 | 6.75 |

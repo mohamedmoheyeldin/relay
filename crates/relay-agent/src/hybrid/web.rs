@@ -460,6 +460,8 @@ pub(super) struct WebResult {
     pub record_outcome: &'static str,
     pub shared: Vec<SharedInfo>,
     pub bytes: usize,
+    /// The run stopped because the owner has to do something first.
+    pub needs_user: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -562,6 +564,7 @@ impl Hybrid {
             record_outcome: "failed",
             shared: Vec::new(),
             bytes: 0,
+            needs_user: false,
         };
         let finish = |mut r: WebResult, text: String, outcome: UiOutcome, rec: &'static str| {
             r.text = text;
@@ -694,6 +697,7 @@ impl Hybrid {
                     return finish(result, answer, UiOutcome::Completed, "completed");
                 }
                 Next::Ask(question) => {
+                    result.needs_user = true;
                     return finish(result, question, UiOutcome::Completed, "completed");
                 }
                 Next::Act(a) => a,
@@ -704,6 +708,7 @@ impl Hybrid {
                 last_sigs.remove(0);
             }
             if last_sigs.len() == MAX_REPEATS && last_sigs.iter().all(|s| *s == act.signature) {
+                result.needs_user = true;
                 return finish(result, format!("I kept trying “{}” and nothing changed, so I stopped instead of repeating it. Tell me what to do differently, or do that step yourself in the browser window and say continue.", act.title), UiOutcome::Completed, "failed");
             }
             // The same address twice in one task is a repeat, not progress.
@@ -742,6 +747,7 @@ impl Hybrid {
                 result
                     .steps
                     .push(step_out(&info, "failed", "Refused: sensitive field", 0));
+                result.needs_user = true;
                 return finish(result, "That field asks for something private (a password, card or ID number), so I won't type it. Please enter it yourself in the browser window, then say continue.".into(), UiOutcome::Completed, "denied");
             }
             if risk == Risk::Destructive {
@@ -882,6 +888,7 @@ impl Hybrid {
                 }
             }
         }
+        result.needs_user = true;
         finish(
             result,
             format!("I took {MAX_WEB_STEPS} steps and stopped to be safe. Say continue if you want me to go on from where I am."),

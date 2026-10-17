@@ -35,7 +35,10 @@ export const useSearch = (q: string) =>
     placeholderData: (prev) => prev,
   });
 
-export const useHybrid = () => useQuery({ queryKey: qk.hybrid, queryFn: () => api.getHybrid() });
+// get_hybrid probes the CLIs and can take seconds. Load it once in the background (Bootstrap) and keep
+// it: set_hybrid and refresh_providers update the cache, so no screen ever waits on a re-probe. Every
+// consumer shows a skeleton until the first answer and nothing (composer, send) depends on it.
+export const useHybrid = () => useQuery({ queryKey: qk.hybrid, queryFn: () => api.getHybrid(), staleTime: Infinity });
 
 export const useWorkflows = (convId?: string) =>
   useQuery({ queryKey: qk.workflows(convId), queryFn: () => api.workflowList({ convId, limit: 500 }) });

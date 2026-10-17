@@ -92,12 +92,32 @@ export function ChatView({ convId }: { convId: string }) {
       (last.kind === "assistant" && !last.streaming) ||
       (last.kind === "tools" && last.finished_at !== null));
 
+  // Runs with a task card show their chips in the card header, not again under the answer.
+  // (Look only within the same turn: run ids can repeat after the app restarts.)
+  const hasTaskCard = (idx: number, runId: number | null): boolean => {
+    if (runId == null) return false;
+    for (let i = idx - 1; i >= 0; i--) {
+      const it = items[i]!;
+      if (it.kind === "user") return false;
+      if (it.kind === "task" && it.run_id === runId) return true;
+    }
+    return false;
+  };
+
   const renderItem = (it: Item, idx: number): ReactNode => {
     switch (it.kind) {
       case "user":
         return <UserMessage item={it} />;
       case "assistant":
-        return <AssistantMessage item={it} convId={convId} isLast={idx === lastAssistantIdx && idx >= items.length - 1} canRetry={!working} />;
+        return (
+          <AssistantMessage
+            item={it}
+            convId={convId}
+            isLast={idx === lastAssistantIdx && idx >= items.length - 1}
+            canRetry={!working}
+            showTags={!hasTaskCard(idx, it.run_id)}
+          />
+        );
       case "tools":
         return <ToolGroup item={it} />;
       case "task":

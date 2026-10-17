@@ -41,6 +41,8 @@
   --color-warning-soft: var(--relay-warning-soft);
   --color-info: var(--relay-info);
   --color-info-soft: var(--relay-info-soft);
+  --color-violet: var(--relay-violet);
+  --color-violet-soft: var(--relay-violet-soft);
   --color-focus: var(--relay-focus);
   --color-scrim: var(--relay-scrim);
   --color-tooltip: var(--relay-tooltip-bg);
@@ -419,9 +421,14 @@
 .md :not(pre) > code {
   font-family: var(--relay-font-mono);
   font-size: 0.86em;
+  font-feature-settings: normal;
+  font-variant-ligatures: none;
+  color: var(--relay-text);
   background: var(--relay-surface-sunk);
+  border: 1px solid color-mix(in srgb, var(--relay-border) 70%, transparent);
   border-radius: var(--relay-radius-xs);
-  padding: 0.12em 0.36em;
+  padding: 0.08em 0.34em;
+  overflow-wrap: anywhere;
 }
 .md .table-wrap {
   overflow-x: auto;
@@ -452,24 +459,75 @@
   text-align: right;
 }
 
+/* Code blocks: one tonal surface (no inner divider), a quiet header with the language and Copy,
+   never wrapped (horizontal scroll), monospace without ligatures or Inter's stylistic sets. */
 .codeblock {
-  margin: 0 0 1em;
+  margin: 0.4em 0 1.1em;
   border-radius: var(--relay-radius-lg);
   overflow: hidden;
-  background: var(--relay-surface-sunk);
-  border: 1px solid var(--relay-border);
+  background: var(--relay-code-bg);
+  border: 1px solid color-mix(in srgb, var(--relay-border) 70%, transparent);
+  overflow-wrap: normal;
+}
+.codeblock-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 36px;
+  padding: 0 6px 0 14px;
+  font-family: var(--relay-font-sans);
+  font-size: var(--relay-text-caption);
+  line-height: var(--relay-leading-caption);
+  color: var(--relay-text-2);
+  user-select: none;
+  background: color-mix(in srgb, var(--relay-text) 3.5%, transparent);
+}
+.codeblock-lang {
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+.codeblock-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: var(--relay-radius-sm);
+  color: var(--relay-text-2);
+  transition: background-color var(--relay-dur-fast) var(--relay-ease), color var(--relay-dur-fast) var(--relay-ease);
+}
+.codeblock-copy:hover {
+  background: var(--relay-hover);
+  color: var(--relay-text);
+}
+.codeblock-copy svg {
+  width: 14px;
+  height: 14px;
 }
 .codeblock pre {
   margin: 0;
-  padding: 14px 16px;
+  padding: 12px 16px 14px;
   overflow-x: auto;
+  white-space: pre;
+  overflow-wrap: normal;
+  word-break: normal;
+  tab-size: 4;
   font-family: var(--relay-font-mono);
   font-size: var(--relay-text-code);
   line-height: var(--relay-leading-code);
+  font-feature-settings: normal;
+  font-variant-ligatures: none;
+  color: var(--relay-text);
   background: transparent !important;
+}
+.codeblock pre:focus-visible {
+  outline-offset: -2px;
 }
 .codeblock code {
   font-family: inherit;
+  font-size: inherit;
+  white-space: inherit;
 }
 .codeblock .shiki span {
   color: var(--shiki-dark);

@@ -40,7 +40,7 @@ use crate::browser::BrowserDriver;
 use crate::context::ConvStore;
 use crate::local::{ChatMessage, LocalProvider};
 use prompts::{cloud_user_prompt, local_user_prompt, PLANNER_SYSTEM};
-pub use record::{NullWorkflowStore, StepOut, WorkflowRecord, WorkflowStore};
+pub use record::{NullWorkflowStore, StepOut, UsedTag, WorkflowRecord, WorkflowStore};
 pub use relay_orchestrator::report::final_message;
 
 const MAX_REPLANS: u32 = 2;
@@ -362,6 +362,21 @@ impl Hybrid {
             label: label.to_string(),
             detail,
         });
+    }
+
+    /// Tags reported in the current run, for the history record.
+    fn used_tags(&self) -> Vec<UsedTag> {
+        let mut tags: Vec<UsedTag> = Self::lock(&self.used_labels)
+            .1
+            .iter()
+            .filter_map(|k| k.split_once(':'))
+            .map(|(kind, label)| UsedTag {
+                kind: kind.to_string(),
+                label: label.to_string(),
+            })
+            .collect();
+        tags.sort_by(|a, b| (&a.kind, &a.label).cmp(&(&b.kind, &b.label)));
+        tags
     }
 
     /// The local model to use, or why there is none.
@@ -795,6 +810,8 @@ impl Hybrid {
             approvals: Vec::new(),
             errors: Vec::new(),
             notes: None,
+            intent: None,
+            used: Vec::new(),
         };
 
         let mut final_text = String::new();
@@ -1045,11 +1062,14 @@ impl Hybrid {
             .filter(|s| s.status == "verified")
             .count();
         record.updated_at = now_ms();
+        record.intent = Some(decision.intent.as_str().to_string());
+        record.used = self.used_tags();
         self.workflows.save(&record);
         if !final_text.is_empty() {
             self.emit(UiEvent::AssistantMessage {
                 run_id,
                 text: final_text.clone(),
+                needs_user: false,
             });
         }
         let mut history = ctx.history.clone();

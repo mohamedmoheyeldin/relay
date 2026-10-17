@@ -236,6 +236,8 @@ fn summary_of(rec: &WorkflowRecord) -> Value {
         "steps_verified": rec.steps_verified,
         "created_at": rec.created_at,
         "updated_at": rec.updated_at,
+        "intent": rec.intent,
+        "used": rec.used,
     })
 }
 

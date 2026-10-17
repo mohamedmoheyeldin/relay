@@ -8,6 +8,8 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Progress } from "@/components/ui/progress";
+import { Badge } from "@/components/ui/badge";
+import { DESTRUCTIVE_BADGE, SENSITIVE_BADGE } from "@/lib/task";
 
 export function PermissionDialog() {
   const req = useApp((s) => s.confirms[0] ?? null);
@@ -47,8 +49,16 @@ export function PermissionDialogView({ req, more, onAnswer }: { req: ConfirmReq 
             {destructive ? <TriangleAlert className="size-5" /> : <ShieldAlert className="size-5" />}
           </span>
           <div className="min-w-0 flex-1">
-            <p className={cn("text-caption font-medium", destructive ? "text-danger" : "text-warning")}>
-              {destructive ? "Needs your approval · may not be undoable" : "Needs your approval"}
+            <p className="flex flex-wrap items-center gap-1.5">
+              <span className={cn("text-caption font-medium", destructive ? "text-danger" : "text-warning")}>
+                {destructive ? `${DESTRUCTIVE_BADGE.label} · needs your OK` : "Needs your OK"}
+              </span>
+              {req?.sensitive && (
+                <Badge tone="warning" title={SENSITIVE_BADGE.description} data-testid="sensitive-badge">
+                  <ShieldAlert aria-hidden="true" />
+                  {SENSITIVE_BADGE.label}
+                </Badge>
+              )}
             </p>
             <AlertDialogTitle className="mt-1 font-sans text-heading font-semibold break-words">{req?.title}</AlertDialogTitle>
             <AlertDialogDescription asChild>
@@ -58,7 +68,7 @@ export function PermissionDialogView({ req, more, onAnswer }: { req: ConfirmReq 
                     {req.detail}
                   </pre>
                 ) : (
-                  <p>Relay will only continue if you approve.</p>
+                  <p>Relay will only go on if you say yes.</p>
                 )}
               </div>
             </AlertDialogDescription>
@@ -66,7 +76,7 @@ export function PermissionDialogView({ req, more, onAnswer }: { req: ConfirmReq 
         </div>
         <div className="mt-5 px-6">
           <div className="mb-1.5 flex items-center justify-between text-caption text-fg-muted">
-            <span>{destructive ? "Declining keeps everything as it is." : "Declining skips this step."}</span>
+            <span>{destructive ? "Decline to keep everything as it is." : "Decline to skip this step."}</span>
             <span className="tabular-nums" aria-label={`${Math.ceil(leftMs / 1000)} seconds left`}>
               Declines in {formatClock(leftMs)}
             </span>

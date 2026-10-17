@@ -3,13 +3,23 @@
 import { applyEvent, emptyChat, type ChatEvent, type TaskItem } from "./chat";
 import type { PlanStep, StepFinishStatus } from "./schemas";
 
-export type FixtureName = "running" | "verified" | "unverified" | "failed" | "refused" | "declined" | "stopped" | "awaiting" | "local" | "native";
+export type FixtureName = "running" | "verified" | "unverified" | "failed" | "refused" | "declined" | "stopped" | "awaiting" | "local" | "native" | "web" | "sensitive";
 
 const STEPS: PlanStep[] = [
-  { id: "a", title: "List files in Downloads", tool: "list_files", risk: "safe" },
-  { id: "b", title: "Find installers older than 30 days", tool: "find_files", risk: "safe" },
-  { id: "c", title: "Move 23 files to the Recycle Bin", tool: "recycle_files", risk: "destructive" },
+  { id: "a", title: "List files in Downloads", tool: "list_files", risk: "safe", via: "native" },
+  { id: "b", title: "Find installers older than 30 days", tool: "find_files", risk: "safe", via: "native" },
+  { id: "c", title: "Move 23 files to the Recycle Bin", tool: "recycle_files", risk: "destructive", via: "native" },
 ];
+
+/** A web task: 12 browser steps through the Playwright MCP server. */
+export const WEB_STEPS: PlanStep[] = Array.from({ length: 12 }, (_, i) => ({
+  id: `w${i + 1}`,
+  title: i === 0 ? "Open dice.com" : i === 11 ? "Open Easy Apply for the top match" : `Browser action ${i + 1}`,
+  tool: i === 0 ? "browser_navigate" : "browser_click",
+  risk: "safe",
+  via: "mcp",
+  server: "playwright",
+}));
 
 function build(events: ChatEvent[], t0 = Date.now() - 20_000): TaskItem {
   let s = emptyChat();
@@ -22,7 +32,8 @@ function build(events: ChatEvent[], t0 = Date.now() - 20_000): TaskItem {
 function head(run: number, strategy: "cloud_plan" | "local_plan" | "native" = "cloud_plan"): ChatEvent[] {
   const ev: ChatEvent[] = [{ type: "run_started", run_id: run, conv_id: "c" }];
   if (strategy === "cloud_plan") {
-    ev.push({ type: "route", run_id: run, strategy, provider: "claude", reason: "Hybrid: Claude Code plans it, Relay runs it here" });
+    ev.push({ type: "route", run_id: run, strategy, provider: "claude", reason: "Claude Code makes the plan; Relay does the steps on this PC" });
+    ev.push({ type: "used", run_id: run, kind: "cloud_ai", label: "Claude Code" });
     ev.push({
       type: "context_shared",
       run_id: run,
@@ -35,10 +46,12 @@ function head(run: number, strategy: "cloud_plan" | "local_plan" | "native" = "c
       bytes: 12_480,
     });
   } else if (strategy === "local_plan") {
-    ev.push({ type: "route", run_id: run, strategy, provider: "local", reason: "Private: Relay Local AI plans it on this PC" });
+    ev.push({ type: "route", run_id: run, strategy, provider: "local", reason: "Relay Local AI makes the plan on this PC; nothing leaves it" });
+    ev.push({ type: "used", run_id: run, kind: "local_ai", label: "Qwen3 14B" });
   } else {
-    ev.push({ type: "route", run_id: run, strategy, provider: null, reason: "Relay can do this directly: open an app and type" });
+    ev.push({ type: "route", run_id: run, strategy, provider: null, reason: "Relay can do this itself: open an app and type" });
   }
+  ev.push({ type: "used", run_id: run, kind: "native", label: "Windows" });
   ev.push({
     type: "plan_proposed",
     run_id: run,
@@ -119,5 +132,35 @@ export function taskFixture(name: FixtureName): TaskItem {
       return build([...head(r, "local_plan"), ...step(r, "a", "verified", "1,284 files"), ...step(r, "b", "done", "14 matches"), ...step(r, "c", "verified", "Moved"), { type: "run_finished", run_id: r, outcome: "completed" }]);
     case "native":
       return build([...head(r, "native"), ...step(r, "a", "verified", "OK"), ...step(r, "b", "verified", "OK"), ...step(r, "c", "verified", "OK"), { type: "run_finished", run_id: r, outcome: "completed" }]);
+    case "web": {
+      const ev: ChatEvent[] = [
+        { type: "run_started", run_id: r, conv_id: "c" },
+        { type: "route", run_id: r, strategy: "cloud_plan", provider: "claude", reason: "Claude Code works out each browser step; Relay does them", intent: "web" },
+        { type: "used", run_id: r, kind: "cloud_ai", label: "Claude Code" },
+        { type: "used", run_id: r, kind: "mcp", label: "Playwright browser" },
+        { type: "plan_proposed", run_id: r, source: "claude", objective: "Find remote Rust jobs on Dice", notes: null, steps: [] },
+      ];
+      for (const s of WEB_STEPS) ev.push({ type: "step_added", run_id: r, step: s }, ...step(r, s.id, s.id === "w12" ? "done" : "verified", "OK"));
+      ev.push({ type: "assistant_message", run_id: r, text: "Sign in to Dice in the Relay browser window, then say continue." });
+      ev.push({ type: "run_finished", run_id: r, outcome: "completed" });
+      return build(ev);
+    }
+    case "sensitive":
+      return build([
+        { type: "run_started", run_id: r, conv_id: "c" },
+        { type: "route", run_id: r, strategy: "native", provider: null, reason: "Relay can do this itself" },
+        {
+          type: "plan_proposed",
+          run_id: r,
+          source: "native",
+          objective: "Fill in the form",
+          notes: null,
+          steps: [
+            { id: "s1", title: "Type the note", tool: "type_text", risk: "sensitive" },
+            { id: "s2", title: "Paste the saved password", tool: "type_text", risk: "sensitive", sensitive_data: true },
+            { id: "s3", title: "Delete the draft", tool: "delete_files", risk: "destructive" },
+          ],
+        },
+      ]);
   }
 }

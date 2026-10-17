@@ -40,17 +40,45 @@ describe("app store event pipeline", () => {
     expect(s.activeRun).toMatchObject({ run_id: 41, conv_id: "c-1" });
     const task = s.chats["c-1"]!.items.find((i) => i.kind === "task");
     expect(task).toMatchObject({ kind: "task", steps: [{ status: "running" }] });
-    expect(s.live).toMatch(/Plan proposed/);
+    expect(s.live).toMatch(/Relay has a plan/);
   });
 
   it("queues approvals globally and removes them when resolved", async () => {
     await send({ type: "confirm", id: 7, run_id: 41, title: "Delete?", detail: "", risk: "destructive" });
     expect(useApp.getState().confirms.map((c) => c.id)).toEqual([7]);
-    expect(useApp.getState().live).toMatch(/needs your approval/);
+    expect(useApp.getState().live).toMatch(/needs your OK/);
     await send({ type: "confirm_resolved", id: 7, approved: true });
     expect(useApp.getState().confirms).toEqual([]);
     const task = useApp.getState().chats["c-1"]!.items.find((i) => i.kind === "task");
     expect(task && task.kind === "task" && task.confirms[0]!.state).toBe("approved");
+  });
+
+  it("marks an approval as sensitive only when its step touches sensitive data", async () => {
+    await send(
+      { type: "run_started", run_id: 43, conv_id: "c-3" },
+      {
+        type: "plan_proposed",
+        run_id: 43,
+        source: "native",
+        objective: "o",
+        notes: null,
+        steps: [
+          { id: "p", title: "Type the password", tool: "type_text", risk: "sensitive", sensitive_data: true },
+          { id: "q", title: "Type a note", tool: "type_text", risk: "sensitive" },
+        ],
+      },
+      { type: "step_started", run_id: 43, step_id: "p" },
+      { type: "confirm", id: 8, run_id: 43, title: "Type it?", detail: "", risk: "reversible" },
+    );
+    expect(useApp.getState().confirms.find((c) => c.id === 8)?.sensitive).toBe(true);
+    await send(
+      { type: "confirm_resolved", id: 8, approved: true },
+      { type: "step_finished", run_id: 43, step_id: "p", status: "done", summary: "" },
+      { type: "step_started", run_id: 43, step_id: "q" },
+      { type: "confirm", id: 9, run_id: 43, title: "Type it?", detail: "", risk: "reversible" },
+    );
+    expect(useApp.getState().confirms.find((c) => c.id === 9)?.sensitive).toBe(false);
+    await send({ type: "confirm_resolved", id: 9, approved: true }, { type: "run_finished", run_id: 43, outcome: "completed" });
   });
 
   it("status events land in the query cache", async () => {

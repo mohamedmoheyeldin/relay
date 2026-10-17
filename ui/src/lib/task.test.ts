@@ -58,7 +58,7 @@ describe("task timeline reducer", () => {
     ]);
     const v = verdictOf(t);
     expect(v).toMatchObject({ kind: "failed", at: 2 });
-    expect(verdictText(v)).toBe("Refused at step 2"); // a refusal reads differently from a failed check
+    expect(verdictText(v)).toBe("Blocked at step 2"); // a refusal reads differently from a failed check
     expect(s.run).toBeNull();
   });
 
@@ -96,7 +96,7 @@ describe("task timeline reducer", () => {
   it("a declined step makes the verdict 'declined', not 'failed'", () => {
     const t = taskFixture("declined");
     expect(verdictOf(t).kind).toBe("declined");
-    expect(verdictText(verdictOf(t))).toMatch(/declined/i);
+    expect(verdictText(verdictOf(t))).toBe("Not done: you said no");
   });
 
   it("stopping marks the running step stopped and pending approvals declined", () => {
@@ -135,13 +135,15 @@ describe("task timeline reducer", () => {
 
 describe("verdicts", () => {
   it("distinguishes verified, ran-but-not-verified and failed", () => {
-    expect(verdictText(verdictOf(taskFixture("verified")))).toBe("Verified · 3 of 3 steps");
-    expect(verdictText(verdictOf(taskFixture("unverified")))).toBe("Ran, 2 of 3 verified");
+    expect(verdictText(verdictOf(taskFixture("verified")))).toBe("Done · all 3 steps checked");
+    expect(verdictText(verdictOf(taskFixture("unverified")))).toBe("Done · 2 of 3 steps checked");
     expect(verdictOf(taskFixture("failed"))).toMatchObject({ kind: "failed", at: 2 });
     expect(verdictOf(taskFixture("refused"))).toMatchObject({ kind: "failed", at: 3 });
-    expect(verdictText(verdictOf(taskFixture("refused")))).toBe("Refused at step 3");
+    expect(verdictText(verdictOf(taskFixture("refused")))).toBe("Blocked at step 3");
     const none = { ...taskFixture("unverified"), steps: taskFixture("unverified").steps.map((s) => ({ ...s, status: "done" as const })) };
-    expect(verdictText(verdictOf(none))).toBe("Ran but not verified · 3 of 3 steps");
+    expect(verdictText(verdictOf(none))).toBe("Done, but none of the 3 steps could be checked");
+    // Never jargon like "step(s)" or "0 verified".
+    for (const f of ["verified", "unverified", "failed", "refused", "declined", "stopped", "running", "web"] as const) expect(verdictText(verdictOf(taskFixture(f)))).not.toMatch(/\(s\)|\b0 verified|verified/);
   });
   it("a run without a plan that completes is 'answered'", () => {
     expect(verdictOf({ steps: [], outcome: "completed", confirms: [] }).kind).toBe("answered");

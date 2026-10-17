@@ -168,6 +168,7 @@ pub fn map_event(run_id: RunId, event: &AiEvent) -> Vec<UiEvent> {
         AiEvent::Text(text) => vec![UiEvent::AssistantMessage {
             run_id,
             text: text.clone(),
+            needs_user: false,
         }],
         AiEvent::ToolUse { id, name, input } => {
             let (name, summary) = tool_display(name, input);

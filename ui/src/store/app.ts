@@ -22,7 +22,7 @@ import { chatIdOf, getCurrentPath, getRequestedPath, go, paths } from "../lib/na
 import type { ConvSummary, Progress, Project, Risk, StatusPayload, UiEvent } from "../lib/types";
 
 export type Chat = ChatState & { loaded: boolean; error: string | null };
-export type ConfirmReq = { id: number; run_id: number; title: string; detail: string; risk: Risk; at: number };
+export type ConfirmReq = { id: number; run_id: number; title: string; detail: string; risk: Risk; at: number; sensitive?: boolean };
 export type Toast = { id: number; text: string; tone: "info" | "error"; action?: { label: string; run: () => void } };
 export type ProjectDialogState = { mode: "create" } | { mode: "edit"; project: Project } | null;
 export type ConfirmDialogState = {
@@ -227,32 +227,36 @@ export const useApp = create<AppState>()((set, get) => {
               sending: null,
             };
             apply(ev.conv_id, ev);
-            announce = "Relay started the task";
+            announce = "Relay is working on it";
             break;
           }
           case "plan_proposed": {
             const conv = routeConv(s, ev.run_id);
             if (conv) apply(conv, ev);
-            announce = `Plan proposed with ${ev.steps.length} ${ev.steps.length === 1 ? "step" : "steps"}`;
+            if (ev.steps.length) announce = `Relay has a plan with ${ev.steps.length} ${ev.steps.length === 1 ? "step" : "steps"}`;
             break;
           }
           case "step_finished": {
             const conv = routeConv(s, ev.run_id);
             if (conv) apply(conv, ev);
-            if (ev.status === "failed") announce = `A step failed: ${ev.summary}`;
+            if (ev.status === "failed") announce = `A step didn't work: ${ev.summary}`;
             break;
           }
           case "confirm": {
+            const conv = routeConv(s, ev.run_id);
+            if (conv) apply(conv, ev);
+            // The step asking (if any) says whether it touches really sensitive information.
+            const task = conv ? chats[conv]?.items.find((it) => it.kind === "task" && it.run_id === ev.run_id) : undefined;
+            const c = task && task.kind === "task" ? task.confirms.find((x) => x.confirm_id === ev.id) : undefined;
+            const step = c && task && task.kind === "task" ? task.steps.find((x) => x.id === c.step_id) : undefined;
             s = {
               ...s,
               confirms: [
-                ...s.confirms.filter((c) => c.id !== ev.id),
-                { id: ev.id, run_id: ev.run_id, title: ev.title, detail: ev.detail, risk: ev.risk, at: now },
+                ...s.confirms.filter((x) => x.id !== ev.id),
+                { id: ev.id, run_id: ev.run_id, title: ev.title, detail: ev.detail, risk: ev.risk, at: now, sensitive: step?.sensitive_data === true },
               ],
             };
-            const conv = routeConv(s, ev.run_id);
-            if (conv) apply(conv, ev);
-            announce = `Relay needs your approval: ${ev.title}`;
+            announce = `Relay needs your OK: ${ev.title}`;
             break;
           }
           case "confirm_resolved": {

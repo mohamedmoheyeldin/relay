@@ -11,9 +11,11 @@
 //   empty              no saved chats, projects or task history
 //   fast               short delays (tests)
 //   slow               long steps (to try Stop)
+//   slow-probe         get_hybrid / refresh_providers take 3 s (probing the CLIs); the UI must not wait
+//   no-node            browser control unavailable (Node.js not found)
 //   mac | mica         platform: macOS vibrancy + overlay title bar, or Windows Mica
 // Flows (?flow=): native, local, cloud, download, verify-fail, refused, declined, cloud-fail, agent,
-//   not-installed, not-signed-in, chat
+//   not-installed, not-signed-in, chat, web
 
 export type Flow =
   | "native"
@@ -27,7 +29,8 @@ export type Flow =
   | "agent"
   | "not-installed"
   | "not-signed-in"
-  | "chat";
+  | "chat"
+  | "web";
 
 export const FLOWS: readonly Flow[] = [
   "native",
@@ -42,6 +45,7 @@ export const FLOWS: readonly Flow[] = [
   "not-installed",
   "not-signed-in",
   "chat",
+  "web",
 ];
 
 export type Scenario = { flags: Set<string>; flow: Flow | null };
@@ -68,6 +72,9 @@ export function flowFor(text: string, forced: Flow | null): Flow {
   if (/system32|\brefuse/.test(t)) return "refused";
   if (/\bdecline/.test(t)) return "declined";
   if (/offline|fallback|cloud fail/.test(t)) return "cloud-fail";
+  // Questions are answered in chat (no task card), even when they mention a website.
+  if (/\?\s*$/.test(t) || /^(what|how|why|who|when|which|explain|give me an example|example of|show me an example)\b/.test(t)) return "chat";
+  if (/\b(dice|amazon|job search|jobs on|web task)\b/.test(t)) return "web";
   if (/e-?mail|inbox|browse|website/.test(t)) return "agent";
   if (/notepad|calculator|^open\b/.test(t)) return "native";
   if (/download/.test(t)) return "download";

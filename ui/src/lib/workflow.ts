@@ -16,15 +16,15 @@ export function strategyOf(s: string): RouteStrategy {
 export function routeReason(strategy: string, provider: string | null): string {
   switch (strategyOf(strategy)) {
     case "native":
-      return "Relay did this directly on this PC";
+      return "Relay did this itself, on this PC";
     case "local_plan":
-      return "Private: Relay Local AI planned it on this PC";
+      return "Relay Local AI made the plan on this PC; nothing left it";
     case "cloud_plan":
-      return `Hybrid: ${providerLabel(provider)} planned it, Relay ran it here`;
+      return `${providerLabel(provider)} made the plan; Relay did the steps on this PC`;
     case "cloud_agent":
-      return `Agent mode: ${providerLabel(provider)} drove the desktop`;
+      return `${providerLabel(provider)} worked the desktop directly`;
     case "unavailable":
-      return "No engine was available for this task";
+      return "No AI was available for this task";
   }
 }
 
@@ -33,7 +33,7 @@ export const OUTCOME_META: Record<WorkflowOutcome, { label: string; tone: "succe
   failed: { label: "Failed", tone: "danger" },
   cancelled: { label: "Stopped", tone: "neutral" },
   declined: { label: "Declined", tone: "warning" },
-  denied: { label: "Refused", tone: "danger" },
+  denied: { label: "Blocked", tone: "danger" },
   timed_out: { label: "Timed out", tone: "warning" },
   unavailable: { label: "Unavailable", tone: "neutral" },
 };
@@ -93,11 +93,16 @@ export function workflowToTask(w: Workflow): TaskItem {
       started_at: null,
       finished_at: null,
       attempts: s.attempts,
+      via: s.via === "mcp" || s.via === "native" ? s.via : null,
+      server: s.server ?? null,
+      sensitive_data: s.sensitive_data === true,
     })),
     confirms,
     started_at: w.created_at,
     finished_at: w.updated_at,
     outcome,
+    intent: w.intent === "chat" || w.intent === "action" || w.intent === "web" ? w.intent : null,
+    used: (w.used ?? []).map((u) => ({ kind: u.kind, label: u.label, detail: u.detail ?? null })),
   };
 }
 

@@ -294,7 +294,8 @@ async fn a_task_streams_progress_and_completes() {
     }));
     assert!(events.contains(&UiEvent::AssistantMessage {
         run_id,
-        text: "Hello".into()
+        text: "Hello".into(),
+        needs_user: false,
     }));
     assert!(events.iter().any(|e| matches!(e, UiEvent::ToolStarted { name, summary, .. } if name == "screenshot" && summary == "Take a screenshot")));
     assert!(events

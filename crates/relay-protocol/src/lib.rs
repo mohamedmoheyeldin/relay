@@ -117,6 +117,9 @@ pub enum UiEvent {
     AssistantMessage {
         run_id: RunId,
         text: String,
+        /// The run ended by asking the owner to do something (sign in, solve a captcha, then say continue).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        needs_user: bool,
     },
     ToolStarted {
         run_id: RunId,

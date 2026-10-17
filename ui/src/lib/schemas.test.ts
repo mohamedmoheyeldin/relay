@@ -22,6 +22,12 @@ const valid: unknown[] = [
   { type: "run_finished", run_id: 1, outcome: "timed_out" },
   { type: "status", provider: "p", ready: true, detail: "d", busy: false, kill_hotkey: "k", local_model: null, route_mode: "hybrid_auto" },
   { type: "progress", id: "local-ai", label: "l", percent: null, done: false, error: null },
+  // v3 additions
+  { type: "route", run_id: 1, strategy: "cloud_plan", provider: "claude", reason: "q", intent: "chat" },
+  { type: "used", run_id: 1, kind: "local_ai", label: "Qwen3 14B" },
+  { type: "used", run_id: 1, kind: "mcp", label: "Playwright browser", detail: "server playwright" },
+  { type: "step_added", run_id: 1, step: { id: "w1", title: "Open", tool: "browser_navigate", risk: "safe", via: "mcp", server: "playwright" } },
+  { type: "plan_proposed", run_id: 1, source: "claude", objective: "x", steps: [{ id: "a", title: "A", tool: "t", risk: "sensitive", via: "native", sensitive_data: true }], notes: null },
 ];
 
 const malformed: [string, unknown][] = [
@@ -36,6 +42,9 @@ const malformed: [string, unknown][] = [
   ["categories not an array", { type: "context_shared", run_id: 1, provider: "claude", categories: {}, bytes: 1 }],
   ["confirm risk", { type: "confirm", id: 1, run_id: 1, title: "", detail: "", risk: "safe" }],
   ["outcome", { type: "run_finished", run_id: 1, outcome: "exploded" }],
+  ["bad used kind", { type: "used", run_id: 1, kind: "magic", label: "x" }],
+  ["bad intent", { type: "route", run_id: 1, strategy: "native", provider: null, reason: "", intent: "dance" }],
+  ["step_added without step", { type: "step_added", run_id: 1 }],
   ["null payload", null],
   ["string payload", "hello"],
 ];
@@ -125,5 +134,13 @@ describe("command schemas", () => {
     expect(next.share).toMatchObject({ screenshots: true, window_titles: true });
     expect(next.providers[0]!.model).toBe("opus");
     expect(next.providers[0]!.reasoning).toBeNull();
+  });
+  it("accepts the v3 browser block (optional) and applies browserEnabled only when available", () => {
+    const withBrowser: Hybrid = { ...hybrid, browser: { enabled: false, available: true, server: "playwright", detail: "Ready" } };
+    expect(HybridSchema.safeParse(withBrowser).success).toBe(true);
+    expect(applyHybridPatch(withBrowser, { browserEnabled: true }).browser?.enabled).toBe(true);
+    const unavailable: Hybrid = { ...hybrid, browser: { enabled: false, available: false, server: "playwright", detail: "Node.js was not found" } };
+    expect(applyHybridPatch(unavailable, { browserEnabled: true }).browser?.enabled).toBe(false);
+    expect("browser" in applyHybridPatch(hybrid, { browserEnabled: true })).toBe(false);
   });
 });

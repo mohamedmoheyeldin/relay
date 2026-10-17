@@ -138,6 +138,8 @@
   --relay-warning-soft: #f3ead3;
   --relay-info: #2f5f9a;
   --relay-info-soft: #e1eaf5;
+  --relay-violet: #6a4aa6;
+  --relay-violet-soft: #ece6f6;
   --relay-scrim: rgba(31, 29, 26, 0.32);
   --relay-tooltip-bg: #1f1d1a;
   --relay-tooltip-text: #faf7f2;
@@ -175,6 +177,8 @@
   --relay-warning-soft: #352b14;
   --relay-info: #8ab4e8;
   --relay-info-soft: #1f2a38;
+  --relay-violet: #b9a4ee;
+  --relay-violet-soft: #2a2438;
   --relay-scrim: rgba(0, 0, 0, 0.5);
   --relay-tooltip-bg: #f2ede4;
   --relay-tooltip-text: #1c1a17;
@@ -333,6 +337,15 @@
 :root {
   --relay-focus: var(--relay-accent);
   --relay-selection: color-mix(in srgb, var(--relay-accent) 24%, transparent);
+}
+
+/* Code blocks: the lightest surface in light mode (syntax colours keep >= 4.5:1 on it), the
+   deepest one in dark mode. */
+:root:not([data-mode="dark"]) {
+  --relay-code-bg: var(--relay-surface);
+}
+:root[data-mode="dark"] {
+  --relay-code-bg: var(--relay-surface-sunk);
 }
 
 /* ---------------------------------------------------------------- Window materials */

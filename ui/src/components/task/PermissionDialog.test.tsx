@@ -13,11 +13,18 @@ describe("PermissionDialog", () => {
     renderUi(<PermissionDialogView req={req("destructive")} more={1} onAnswer={() => undefined} />);
     const dlg = screen.getByRole("alertdialog");
     expect(dlg).toHaveAccessibleName("Move 23 files to the Recycle Bin?");
-    expect(screen.getByText(/may not be undoable/)).toBeInTheDocument();
+    expect(screen.getByText(/Changes or deletes data/)).toBeInTheDocument();
+    expect(screen.queryByTestId("sensitive-badge")).toBeNull();
     expect(screen.getByText("C:\\Users\\you\\Downloads")).toBeInTheDocument();
     expect(screen.getByText("1 more waiting")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Approve" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Decline" })).toBeInTheDocument();
+  });
+
+  it("shows Sensitive info only when the step touches sensitive data", () => {
+    renderUi(<PermissionDialogView req={{ ...req("reversible"), sensitive: true }} more={0} onAnswer={() => undefined} />);
+    expect(screen.getByTestId("sensitive-badge")).toHaveTextContent("Sensitive info");
+    expect(screen.queryByText(/Changes or deletes data/)).toBeNull();
   });
 
   it("approves and declines by click", async () => {

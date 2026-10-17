@@ -1,5 +1,6 @@
 // In-browser mock of the Relay backend, used when the page is not inside the Tauri window.
-// It follows docs/ui-contract.md v2: hybrid routing (native / Relay Local AI / cloud), plans with
+// It follows docs/ui-contract.md v2 plus the v3 additions (`used` tags, chat answers with
+// `intent: "chat"`, web tasks with `step_added`, browser control in get_hybrid): hybrid routing (native / Relay Local AI / cloud), plans with
 // verified, done, failed and refused steps, approvals, the privacy ledger, provider install and
 // sign-in states, cloud failure with local fallback, agent mode, task history, Relay Local AI
 // setup progress and the setup/uninstall screens. Scenarios: see ./scenario.ts.
@@ -22,6 +23,7 @@ import {
   type StatusPayload,
   type StepRisk,
   type UiEvent,
+  type UsedTag,
   type Workflow,
   type WorkflowOutcome,
 } from "../schemas";
@@ -46,7 +48,58 @@ type StepDef = {
   result: "verified" | "done" | "failed";
   summary: string;
   confirm?: { title: string; detail: string };
+  via?: "native" | "mcp";
+  server?: string;
+  sensitive_data?: boolean;
 };
+
+/** The contract's step info for a mock step (v3 adds via/server/sensitive_data). */
+function stepInfo({ id, title, tool, risk, via, server, sensitive_data }: StepDef) {
+  return { id, title, tool, risk, via: via ?? "native", ...(server ? { server } : {}), ...(sensitive_data ? { sensitive_data } : {}) };
+}
+
+const LOCAL_MODEL_LABEL = "Qwen3 14B";
+
+// v3 chat answer: a question gets a normal reply with a code block (no plan, no task card).
+const CODE_ANSWER = `Here is a small Playwright test that searches a store and checks the results. It uses the test runner, so you can run it with \`npx playwright test\`.
+
+\`\`\`ts
+import { test, expect } from "@playwright/test";
+
+test("search shows matching results", async ({ page }) => {
+  await page.goto("https://www.example-shop.com/");
+  await page.getByRole("searchbox", { name: "Search" }).fill("wireless headphones");
+  await page.keyboard.press("Enter");
+
+  const results = page.getByTestId("search-result");
+  await expect(results.first()).toBeVisible();
+  await expect(results).not.toHaveCount(0);
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("wireless headphones");
+});
+\`\`\`
+
+A few tips:
+
+- Prefer \`getByRole\` and \`getByTestId\` over CSS selectors; they survive layout changes.
+- Real stores often block automated traffic, so test against a staging site you control.
+- Run \`npx playwright codegen <url>\` to record a first draft of a test.`;
+
+const CHAT_GREETING = "Hi! I can work on this PC for you: tidy folders, find files, open apps and check the result of every step. What should we do?";
+
+// v3 web task: the step list grows one browser action at a time, then the run asks the user to act.
+const WEB_STEPS: StepDef[] = [
+  { id: "w1", title: "Open dice.com in the Relay browser", tool: "browser_navigate", risk: "safe", result: "verified", summary: "The Dice home page is open", via: "mcp", server: "playwright" },
+  { id: "w2", title: "Accept only the necessary cookies", tool: "browser_click", risk: "safe", result: "done", summary: "Clicked “Necessary only”", via: "mcp", server: "playwright" },
+  { id: "w3", title: "Type “Rust developer” into the job search", tool: "browser_type", risk: "safe", result: "verified", summary: "The search box shows “Rust developer”", via: "mcp", server: "playwright" },
+  { id: "w4", title: "Set the location to Remote", tool: "browser_select", risk: "safe", result: "verified", summary: "Location filter: Remote", via: "mcp", server: "playwright" },
+  { id: "w5", title: "Run the search", tool: "browser_click", risk: "safe", result: "verified", summary: "86 jobs found", via: "mcp", server: "playwright" },
+  { id: "w6", title: "Filter to jobs posted in the last 7 days", tool: "browser_click", risk: "safe", result: "verified", summary: "23 jobs left", via: "mcp", server: "playwright" },
+  { id: "w7", title: "Read the first page of results", tool: "browser_snapshot", risk: "safe", result: "done", summary: "Read 20 job cards", via: "mcp", server: "playwright" },
+  { id: "w8", title: "Save the 5 best matches to a note", tool: "write_file", risk: "sensitive", result: "verified", summary: "Saved Documents\\dice-rust-jobs.md and opened it to check", via: "native" },
+  { id: "w9", title: "Open “Easy Apply” for the top match", tool: "browser_click", risk: "safe", result: "done", summary: "Dice asks you to sign in first", via: "mcp", server: "playwright" },
+];
+const WEB_ANSWER =
+  "I found **23 remote Rust jobs** posted this week and saved the 5 best matches to `Documents\\dice-rust-jobs.md`.\n\nTo apply, Dice needs you to sign in. **Sign in to Dice in the Relay browser window, then say continue** and I'll fill in the application for the top match. I won't submit anything without asking you first.";
 type PlanDef = { source: PlanSource; objective: string; notes: string | null; steps: StepDef[]; answer: string };
 
 const SHARE_DEFAULT = [
@@ -242,8 +295,34 @@ function replay(text: string, events: UiEvent[], t0: number): unknown[] {
   return s.items;
 }
 
+const PROVIDER_NAMES: Record<string, string> = { claude: "Claude Code", codex: "Codex" };
+
+/** `used` events for a run: the planner, then the tools its steps use (once per label). */
+function usedEvents(runId: number, planner: "native" | "local" | "cloud", provider: string | null, steps: StepDef[]): UiEvent[] {
+  const out: UiEvent[] = [];
+  if (planner === "local") out.push({ type: "used", run_id: runId, kind: "local_ai", label: LOCAL_MODEL_LABEL, detail: "qwen3:14b on this PC" });
+  if (planner === "cloud") out.push({ type: "used", run_id: runId, kind: "cloud_ai", label: PROVIDER_NAMES[provider ?? "claude"] ?? "Cloud AI" });
+  if (planner === "native" || steps.some((s) => (s.via ?? "native") === "native")) out.push({ type: "used", run_id: runId, kind: "native", label: "Windows" });
+  if (steps.some((s) => s.via === "mcp")) out.push({ type: "used", run_id: runId, kind: "mcp", label: "Playwright browser", detail: "MCP server: playwright" });
+  return out;
+}
+
+const NATIVE_STEP: StepDef[] = [{ id: "-", title: "", tool: "", risk: "safe", result: "done", summary: "" }];
+
+/** The same tags as `usedEvents`, in the shape workflow_get returns. */
+function usedTags(planner: "native" | "local" | "cloud", provider: string | null, steps: StepDef[]): UsedTag[] {
+  const out: UsedTag[] = [];
+  for (const e of usedEvents(0, planner, provider, steps)) if (e.type === "used") out.push({ kind: e.kind, label: e.label, detail: e.detail ?? null });
+  return out;
+}
+
+function plannerOf(strategy: string): "native" | "local" | "cloud" {
+  return strategy === "native" ? "native" : strategy === "local_plan" ? "local" : "cloud";
+}
+
 function planEvents(runId: number, route: Extract<UiEvent, { type: "route" }>, plan: PlanDef, share: boolean, outcome: RunOutcome): UiEvent[] {
   const ev: UiEvent[] = [{ type: "run_started", run_id: runId, conv_id: "seed" }, route];
+  ev.push(...usedEvents(runId, plannerOf(route.strategy), route.provider, plan.steps));
   if (share) ev.push({ type: "context_shared", run_id: runId, provider: route.provider ?? "claude", categories: SHARE_DEFAULT, bytes: 12_480 });
   ev.push({
     type: "plan_proposed",
@@ -251,7 +330,7 @@ function planEvents(runId: number, route: Extract<UiEvent, { type: "route" }>, p
     source: plan.source,
     objective: plan.objective,
     notes: plan.notes,
-    steps: plan.steps.map(({ id, title, tool, risk }) => ({ id, title, tool, risk })),
+    steps: plan.steps.map(stepInfo),
   });
   for (const st of plan.steps) {
     ev.push({ type: "step_started", run_id: runId, step_id: st.id });
@@ -264,6 +343,38 @@ function planEvents(runId: number, route: Extract<UiEvent, { type: "route" }>, p
   }
   ev.push({ type: "assistant_message", run_id: runId, text: plan.answer });
   ev.push({ type: "run_finished", run_id: runId, outcome });
+  return ev;
+}
+
+/** A chat answer: route with intent "chat", the engine tag, then the streamed reply. No plan. */
+function chatEvents(runId: number, provider: string, text: string): UiEvent[] {
+  return [
+    { type: "run_started", run_id: runId, conv_id: "seed" },
+    { type: "route", run_id: runId, strategy: "cloud_plan", provider, reason: "A question: answered in chat", intent: "chat" },
+    { type: "used", run_id: runId, kind: "cloud_ai", label: PROVIDER_NAMES[provider] ?? "Cloud AI" },
+    { type: "context_shared", run_id: runId, provider, categories: [{ category: "task", items: 1 }], bytes: 96 },
+    { type: "assistant_delta", run_id: runId, text: text.slice(0, 60) },
+    { type: "assistant_message", run_id: runId, text },
+    { type: "run_finished", run_id: runId, outcome: "completed" },
+  ];
+}
+
+/** A web task: a short plan, then one step_added + started + finished per browser action. */
+function webEvents(runId: number, provider: string): UiEvent[] {
+  const ev: UiEvent[] = [
+    { type: "run_started", run_id: runId, conv_id: "seed" },
+    { type: "route", run_id: runId, strategy: "cloud_plan", provider, reason: `${PROVIDER_NAMES[provider] ?? "Cloud AI"} works out each browser step; Relay does them`, intent: "web" },
+    ...usedEvents(runId, "cloud", provider, WEB_STEPS),
+    { type: "context_shared", run_id: runId, provider, categories: [{ category: "task", items: 1 }, { category: "ui_tree", items: 9 }], bytes: 18_200 },
+    { type: "plan_proposed", run_id: runId, source: provider === "codex" ? "codex" : "claude", objective: "Find remote Rust jobs on Dice and get ready to apply", notes: null, steps: [] },
+  ];
+  for (const st of WEB_STEPS) {
+    ev.push({ type: "step_added", run_id: runId, step: stepInfo(st) });
+    ev.push({ type: "step_started", run_id: runId, step_id: st.id });
+    ev.push({ type: "step_finished", run_id: runId, step_id: st.id, status: st.result, summary: st.summary });
+  }
+  ev.push({ type: "assistant_message", run_id: runId, text: WEB_ANSWER });
+  ev.push({ type: "run_finished", run_id: runId, outcome: "completed" });
   return ev;
 }
 
@@ -331,7 +442,12 @@ export function createMockTransport(scenario: Scenario = readScenario()): Transp
       { id: "empty_recycle_bin", label: "Empty the Recycle Bin", risk: "destructive" },
       { id: "run_powershell", label: "Run PowerShell commands", risk: "destructive" },
     ],
+    browser: sc.flags.has("no-node")
+      ? { enabled: false, available: false, server: "playwright", detail: "Node.js was not found. Install Node.js 20 or newer, then restart Relay." }
+      : { enabled: true, available: true, server: "playwright", detail: "Ready" },
   };
+  // Probing the CLIs takes seconds in the real app; `slow-probe` simulates it (not shortened by `fast`).
+  const probe = (ms: number) => new Promise<void>((r) => setTimeout(r, sc.flags.has("slow-probe") ? 3000 : Math.max(1, ms * speed)));
 
   let models: ModelInfo[] = sc.flags.has("local-setup") ? [] : [{ name: "qwen3:14b", size_bytes: 9.3e9, vision: false, tools: true }];
   let selected: string | null = null;
@@ -397,6 +513,13 @@ export function createMockTransport(scenario: Scenario = readScenario()): Transp
         now - 5 * HOUR,
       ),
     );
+    seedConv(
+      "Playwright test for a store search",
+      3 * HOUR,
+      {},
+      replay("Example of Playwright code for testing a store search?", chatEvents(3, "claude", CODE_ANSWER), now - 3 * HOUR),
+    );
+    const webConv = seedConv("Find remote Rust jobs on Dice", 4 * HOUR, {}, replay("Find remote Rust jobs on Dice and help me apply", webEvents(4, "claude"), now - 4 * HOUR));
     seedConv("Uninstall old games from D:", 26 * HOUR, { project_id: "p-games" });
     seedConv("Compare SSD prices", 28 * HOUR);
     seedConv("Export calendar to CSV", 3 * DAY, { project_id: "p-work" });
@@ -460,10 +583,33 @@ export function createMockTransport(scenario: Scenario = readScenario()): Transp
         shared: strategy === "cloud_plan" ? SHARE_DEFAULT : [],
         shared_bytes: strategy === "cloud_plan" ? 12_480 : 0,
         approvals: outcome === "declined" ? ["Declined: Empty the Recycle Bin"] : i % 4 === 0 ? ["Approved: Move 23 files to the Recycle Bin"] : [],
-        errors: outcome === "failed" ? ["Verification failed: the setting did not change"] : outcome === "timed_out" ? ["No progress for 5 minutes"] : [],
+        errors: outcome === "failed" ? ["The setting didn't change, so the check failed"] : outcome === "timed_out" ? ["No progress for 5 minutes"] : [],
         notes: null,
+        used: usedTags(plannerOf(strategy), provider, NATIVE_STEP),
       });
     }
+    // A web task (v3): browser steps through the Playwright MCP server, ending with the user's turn.
+    workflows.push({
+      id: "wf-web",
+      conv_id: webConv.id,
+      objective: "Find remote Rust jobs on Dice and get ready to apply",
+      strategy: "cloud_plan",
+      provider: "claude",
+      outcome: "completed",
+      steps_total: WEB_STEPS.length,
+      steps_verified: WEB_STEPS.filter((s) => s.result === "verified").length,
+      created_at: now - 4 * HOUR,
+      updated_at: now - 4 * HOUR + 48_000,
+      plan_source: "claude",
+      steps: WEB_STEPS.map((s) => ({ ...stepInfo(s), status: s.result, summary: s.summary, attempts: 1 })),
+      shared: [{ category: "task", items: 1 }, { category: "ui_tree", items: 9 }],
+      shared_bytes: 18_200,
+      approvals: [],
+      errors: [],
+      notes: null,
+      used: usedTags("cloud", "claude", WEB_STEPS),
+      intent: "web",
+    });
     // The newest entry is the seeded Downloads chat, so history and chat tell the same story.
     Object.assign(workflows[0]!, {
       strategy: "cloud_plan",
@@ -472,7 +618,8 @@ export function createMockTransport(scenario: Scenario = readScenario()): Transp
       plan_source: "claude",
       steps_total: downloads.steps.length,
       steps_verified: downloads.steps.filter((s) => s.result === "verified").length,
-      steps: downloads.steps.map((s) => ({ id: s.id, title: s.title, tool: s.tool, risk: s.risk, status: s.result, summary: s.summary, attempts: 1 })),
+      steps: downloads.steps.map((s) => ({ ...stepInfo(s), status: s.result, summary: s.summary, attempts: 1 })),
+      used: usedTags("cloud", "claude", downloads.steps),
       shared: SHARE_DEFAULT,
       shared_bytes: 12_480,
       approvals: ["Approved: Move 23 files to the Recycle Bin?"],
@@ -553,16 +700,22 @@ export function createMockTransport(scenario: Scenario = readScenario()): Transp
     return approved;
   };
 
-  type Record_ = { route: Extract<UiEvent, { type: "route" }> | null; plan: PlanDef | null; stepStatus: Map<string, string>; stepSummary: Map<string, string>; approvals: string[]; errors: string[]; shared: boolean };
+  type Record_ = {
+    route: Extract<UiEvent, { type: "route" }> | null;
+    plan: PlanDef | null;
+    stepStatus: Map<string, string>;
+    stepSummary: Map<string, string>;
+    approvals: string[];
+    errors: string[];
+    shared: boolean;
+    used: UsedTag[];
+  };
 
   function recordWorkflow(convId: string, text: string, rec: Record_, outcome: WorkflowOutcome, started: number) {
     const plan = rec.plan;
     const steps =
       plan?.steps.map((s) => ({
-        id: s.id,
-        title: s.title,
-        tool: s.tool,
-        risk: s.risk,
+        ...stepInfo(s),
         status: rec.stepStatus.get(s.id) ?? "skipped",
         summary: rec.stepSummary.get(s.id) ?? "",
         attempts: 1,
@@ -585,6 +738,8 @@ export function createMockTransport(scenario: Scenario = readScenario()): Transp
       approvals: rec.approvals,
       errors: rec.errors,
       notes: plan?.notes ?? null,
+      used: rec.used,
+      intent: rec.route?.intent ?? "action",
     });
   }
 
@@ -597,7 +752,7 @@ export function createMockTransport(scenario: Scenario = readScenario()): Transp
       source: plan.source,
       objective: plan.objective,
       notes: plan.notes,
-      steps: plan.steps.map(({ id, title, tool, risk }) => ({ id, title, tool, risk })),
+      steps: plan.steps.map(stepInfo),
     });
     await sleep(500);
     for (let i = 0; i < plan.steps.length; i++) {
@@ -651,7 +806,7 @@ export function createMockTransport(scenario: Scenario = readScenario()): Transp
     busy = true;
     cancel = false;
     const started = Date.now();
-    const rec: Record_ = { route: null, plan: null, stepStatus: new Map(), stepSummary: new Map(), approvals: [], errors: [], shared: false };
+    const rec: Record_ = { route: null, plan: null, stepStatus: new Map(), stepSummary: new Map(), approvals: [], errors: [], shared: false, used: [] };
     emit({ type: "status", ...status() });
     emit({ type: "run_started", run_id: runId, conv_id: convId });
     await sleep(300);
@@ -662,10 +817,21 @@ export function createMockTransport(scenario: Scenario = readScenario()): Transp
       emit({ type: "run_finished", run_id: runId, outcome });
       emit({ type: "status", ...status() });
     };
-    const route = (strategy: Extract<UiEvent, { type: "route" }>["strategy"], provider: string | null, reason: string) => {
-      const r = { type: "route" as const, run_id: runId, strategy, provider, reason };
+    const route = (strategy: Extract<UiEvent, { type: "route" }>["strategy"], provider: string | null, reason: string, intent: "chat" | "action" | "web" = "action") => {
+      const r = { type: "route" as const, run_id: runId, strategy, provider, reason, intent };
       rec.route = r;
       emit(r);
+    };
+    /** Emits the `used` tags (once per label) and keeps them for the task history. */
+    const tagUsed = (planner: "native" | "local" | "cloud", prov: string | null, steps: StepDef[]) => {
+      for (const e of usedEvents(runId, planner, prov, steps)) {
+        if (e.type !== "used") continue;
+        const model = selected ?? models[0]?.name ?? null;
+        const label = e.kind === "local_ai" && model && model !== "qwen3:14b" ? model : e.label;
+        if (rec.used.some((u) => u.kind === e.kind && u.label === label)) continue;
+        rec.used.push({ kind: e.kind, label, detail: e.detail ?? null });
+        emit({ ...e, label });
+      }
     };
     const share = (provider: string) => {
       const cats = SHARE_DEFAULT.filter((c) => c.category === "task" || hybrid.share[c.category as keyof Hybrid["share"]]);
@@ -679,8 +845,21 @@ export function createMockTransport(scenario: Scenario = readScenario()): Transp
     const mode = hybrid.privacy_mode;
 
     if (flow === "chat") {
-      route("native", null, "A short reply: no tools needed");
-      const ok = await stream(runId, "Hi! I can work on this PC for you: tidy folders, find files, open apps and check the result of every step. What should we do?");
+      // A question: answered in chat by Local AI or the cloud provider; no plan, no task card.
+      const local = mode === "local_only" || !ready(provider);
+      const answer = /\b(code|example|playwright|script|test)\b/i.test(text) ? CODE_ANSWER : CHAT_GREETING;
+      if (local) {
+        route("local_plan", "local", "A question: answered in chat", "chat");
+        tagUsed("local", null, []);
+      } else {
+        route("cloud_plan", provider.id, "A question: answered in chat", "chat");
+        tagUsed("cloud", provider.id, []);
+        emit({ type: "context_shared", run_id: runId, provider: provider.id, categories: [{ category: "task", items: 1 }], bytes: new TextEncoder().encode(text).length + 64 });
+      }
+      await sleep(250);
+      // Streaming providers send deltas first; the final assistant_message replaces the streamed text.
+      const ok = local || provider.caps.streaming_deltas ? await stream(runId, answer) : true;
+      if (ok) emit({ type: "assistant_message", run_id: runId, text: answer });
       return finish(ok ? "completed" : "cancelled", null);
     }
 
@@ -698,7 +877,8 @@ export function createMockTransport(scenario: Scenario = readScenario()): Transp
     }
 
     if (flow === "native") {
-      route("native", null, "Relay can do this directly: open an app and type");
+      route("native", null, "Relay can do this itself: open an app and type");
+      tagUsed("native", null, PLANS.native("native").steps);
       const wf = await executePlan(runId, PLANS.native("native"), rec);
       if (wf === "completed") emit({ type: "assistant_message", run_id: runId, text: PLANS.native("native").answer });
       return finish(outcomeOf(wf), wf);
@@ -724,9 +904,10 @@ export function createMockTransport(scenario: Scenario = readScenario()): Transp
     const planner: PlanSource = useLocal || !cloudReady ? "local" : provider.id;
 
     if (flow === "agent" && planner !== "local") {
-      route("cloud_agent", provider.id, `Agent mode: ${provider.label} drives the desktop step by step`);
+      route("cloud_agent", provider.id, `${provider.label} works the desktop directly, one step at a time`);
       share(provider.id);
       emit({ type: "engine", run_id: runId, kind: "cloud", name: provider.label });
+      tagUsed("cloud", provider.id, NATIVE_STEP);
       const streams = provider.caps.streaming_deltas;
       if (streams && !(await stream(runId, "I'll open Mail and read your unread emails. "))) return finish("cancelled", "cancelled");
       for (let i = 0; i < AGENT_TOOLS.length; i++) {
@@ -747,24 +928,49 @@ export function createMockTransport(scenario: Scenario = readScenario()): Transp
     }
 
     if (flow === "cloud-fail" && planner !== "local") {
-      route("cloud_plan", provider.id, `Hybrid: ${provider.label} plans it, Relay runs it here`);
+      route("cloud_plan", provider.id, `${provider.label} makes the plan; Relay does the steps on this PC`);
       share(provider.id);
       await sleep(900);
-      emit({ type: "notice", text: `${provider.label} didn't answer (network error). Relay Local AI is planning instead; nothing more was shared.` });
+      emit({ type: "notice", text: `${provider.label} didn't answer (network error), so Relay Local AI is making the plan instead. Nothing more was sent.` });
       rec.errors.push(`${provider.label}: network error`);
-      route("local_plan", "local", "Fallback: the cloud provider failed, so Relay Local AI plans it on this PC");
+      route("local_plan", "local", "Relay Local AI makes the plan on this PC, because the cloud provider didn't answer");
       emit({ type: "engine", run_id: runId, kind: "local", name: "qwen3:14b" });
       const plan = genericPlan("local", text);
+      tagUsed("local", null, plan.steps);
       const wf = await executePlan(runId, plan, rec);
-      if (wf === "completed") emit({ type: "assistant_message", run_id: runId, text: "Done with Relay Local AI after the cloud provider failed. Every step was checked afterwards." });
+      if (wf === "completed") emit({ type: "assistant_message", run_id: runId, text: "Done with Relay Local AI after the cloud provider didn't answer. Relay checked every step." });
       return finish(outcomeOf(wf), wf);
     }
 
+    if (flow === "web") {
+      // Web task: the step list grows one browser action at a time; the run ends with the user's turn.
+      const cloud = planner !== "local";
+      route(cloud ? "cloud_plan" : "local_plan", cloud ? provider.id : "local", `${cloud ? provider.label : "Relay Local AI"} works out each browser step; Relay does them`, "web");
+      tagUsed(cloud ? "cloud" : "local", cloud ? provider.id : null, WEB_STEPS);
+      if (cloud) share(provider.id);
+      const plan: PlanDef = { source: planner, objective: "Find remote Rust jobs on Dice and get ready to apply", notes: null, steps: WEB_STEPS, answer: WEB_ANSWER };
+      rec.plan = plan;
+      emit({ type: "plan_proposed", run_id: runId, source: planner, objective: plan.objective, notes: null, steps: [] });
+      for (const st of WEB_STEPS) {
+        await sleep(350);
+        if (cancel) return finish("cancelled", "cancelled");
+        emit({ type: "step_added", run_id: runId, step: stepInfo(st) });
+        emit({ type: "step_started", run_id: runId, step_id: st.id });
+        await sleep(450);
+        if (cancel) return finish("cancelled", "cancelled");
+        emit({ type: "step_finished", run_id: runId, step_id: st.id, status: st.result, summary: st.summary });
+        rec.stepStatus.set(st.id, st.result);
+        rec.stepSummary.set(st.id, st.summary);
+      }
+      emit({ type: "assistant_message", run_id: runId, text: WEB_ANSWER });
+      return finish("completed", "completed");
+    }
+
     if (planner === "local") {
-      route("local_plan", "local", mode === "local_only" ? "Local only: Relay Local AI plans it on this PC" : "Private: Relay Local AI plans it on this PC");
+      route("local_plan", "local", mode === "local_only" ? "Local only: Relay Local AI makes the plan on this PC" : "Relay Local AI makes the plan on this PC; nothing leaves it");
       emit({ type: "engine", run_id: runId, kind: "local", name: selected ?? models[0]?.name ?? "Relay Local AI" });
     } else {
-      route("cloud_plan", provider.id, `Hybrid: ${provider.label} plans it, Relay runs it here`);
+      route("cloud_plan", provider.id, `${provider.label} makes the plan; Relay does the steps on this PC`);
       share(provider.id);
       emit({ type: "engine", run_id: runId, kind: "cloud", name: provider.label });
     }
@@ -774,6 +980,7 @@ export function createMockTransport(scenario: Scenario = readScenario()): Transp
       flow === "download" || flow === "verify-fail" || flow === "refused" || flow === "declined" || flow === "local"
         ? PLANS[flow](planner)
         : genericPlan(planner, text);
+    tagUsed(planner === "local" ? "local" : "cloud", planner === "local" ? null : provider.id, plan.steps);
     const wf = await executePlan(runId, plan, rec);
     if (wf === "completed" || wf === "failed" || wf === "denied") {
       if (provider.caps.streaming_deltas && planner === "claude") await stream(runId, plan.answer);
@@ -925,19 +1132,20 @@ export function createMockTransport(scenario: Scenario = readScenario()): Transp
       for (const c of convs) if (c.project_id === a.id) c.project_id = null;
     },
     get_hybrid: async () => {
-      await sleep(250);
+      await probe(250);
       return structuredClone(hybrid);
     },
     set_hybrid: async (a) => {
       await sleep(60);
       const patch = a as HybridPatch;
       if (patch.defaultProvider && !hybrid.providers.some((p) => p.id === patch.defaultProvider)) throw new Error("unknown provider");
+      if (patch.browserEnabled !== undefined && !hybrid.browser?.available) throw new Error(`Browser control isn't available: ${hybrid.browser?.detail ?? "unknown reason"}`);
       hybrid = applyHybridPatch(hybrid, patch);
       emit({ type: "status", ...status() });
       return structuredClone(hybrid);
     },
     refresh_providers: async () => {
-      await sleep(1200);
+      await probe(1200);
       return structuredClone(hybrid.providers);
     },
     workflow_list: (a) => {
