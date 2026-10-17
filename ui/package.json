@@ -12,7 +12,8 @@
     "lint": "eslint . --max-warnings 0",
     "test:visual": "playwright test --project=visual",
     "test:visual:update": "playwright test --project=visual --update-snapshots",
-    "test:e2e-browser": "playwright test --project=e2e"
+    "test:e2e-browser": "playwright test --project=e2e",
+    "test:desktop": "node tests/desktop/desktop-e2e.mjs"
   },
   "dependencies": {
     "@fontsource-variable/geist-mono": "5.3.0",

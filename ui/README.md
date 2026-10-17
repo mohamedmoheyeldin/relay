@@ -5,7 +5,7 @@ React 19 + TypeScript (strict) + Vite 8, Tailwind CSS v4 (CSS-first tokens), sha
 Zustand (client state), TanStack Query v5 (all backend data), Zod (every IPC payload), React Router
 (HashRouter), TanStack Virtual, Lucide. It talks to the Rust backend only through the commands and
 the `relay-event` event in `../docs/ui-contract.md` (v2). Design system:
-`../docs/design-system/Design-System.md`.
+`../docs/Design-System.md`.
 
 ## Commands (Node 24 via fnm, pnpm only)
 
