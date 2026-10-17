@@ -38,8 +38,19 @@ export const ShareSchema = z.object({
 
 export const HybridToolSchema = z.object({ id: z.string(), label: z.string(), risk: StepRiskSchema });
 
-/** v3: browser control through an MCP server (Playwright). */
-export const BrowserInfoSchema = z.object({ enabled: z.boolean(), available: z.boolean(), server: z.string(), detail: z.string() });
+/** v3: browser control through an MCP server (Playwright). `mode` and `action_url` are newer and
+ *  optional: "yours" = the owner's own browser through the Playwright extension, "separate" = a
+ *  browser profile Relay keeps for itself, "none" = not usable. `action_url` fixes or improves the
+ *  setup (the extension's store page, nodejs.org) and is opened with `open_url`. */
+export const BrowserModeSchema = z.enum(["yours", "separate", "none"]);
+export const BrowserInfoSchema = z.object({
+  enabled: z.boolean(),
+  available: z.boolean(),
+  server: z.string(),
+  detail: z.string(),
+  mode: z.optional(BrowserModeSchema),
+  action_url: z.optional(z.nullable(z.string())),
+});
 
 export const HybridSchema = z.object({
   privacy_mode: PrivacyModeSchema,
@@ -109,6 +120,7 @@ export type WorkflowSummary = z.infer<typeof WorkflowSummarySchema>;
 export type WorkflowStep = z.infer<typeof WorkflowStepSchema>;
 export type Workflow = z.infer<typeof WorkflowSchema>;
 export type BrowserInfo = z.infer<typeof BrowserInfoSchema>;
+export type BrowserMode = z.infer<typeof BrowserModeSchema>;
 export type UsedTag = z.infer<typeof UsedTagSchema>;
 
 /** `set_hybrid` argument: every field optional (camelCase, converted by Tauri). */

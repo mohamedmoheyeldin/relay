@@ -1,11 +1,12 @@
 // Settings › AI & Privacy: privacy mode, cloud providers (status, model, reasoning), what context
 // may be shared, confirmation level, allowed/protected folders and the tool allowlist.
 import { useEffect, useId, useState } from "react";
-import { Cloud, FolderLock, FolderOpen, Globe, Plus, RefreshCw, Route, ShieldCheck, Trash2, TriangleAlert } from "lucide-react";
+import { AppWindow, Cloud, ExternalLink, FolderLock, FolderOpen, Globe, Plus, RefreshCw, Route, ShieldCheck, Trash2, TriangleAlert, UserRound } from "lucide-react";
 import { useHybrid, useRefreshProviders, useSetHybrid } from "@/hooks/queries";
 import type { BrowserInfo, ConfirmLevel, Hybrid, ProviderInfo, Share } from "@/lib/types";
 import { DESTRUCTIVE_BADGE } from "@/lib/task";
 import { cn } from "@/lib/utils";
+import { isWebUrl, openExternal, setupLinkLabel } from "@/lib/links";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -139,27 +140,42 @@ function LoadStateWithTitle({ error, retry }: { error: unknown; retry: () => voi
   );
 }
 
+const BROWSER_MODE_LABEL: Record<NonNullable<BrowserInfo["mode"]>, string | null> = {
+  yours: "Uses your browser",
+  separate: "Separate Relay browser",
+  none: null,
+};
+
 function BrowserControl({ browser, onChange }: { browser: BrowserInfo; onChange: (v: boolean) => void }) {
   const id = useId();
+  const mode = browser.mode ? BROWSER_MODE_LABEL[browser.mode] : null;
+  const action = browser.action_url && isWebUrl(browser.action_url) ? browser.action_url : null;
+  const detail = browser.detail.trim();
   return (
     <>
-      <SectionTitle description="Web tasks use a separate browser window that Relay controls. Your own browser, its tabs and logins are not touched.">Web tasks</SectionTitle>
+      <SectionTitle description="Relay can open web pages, click and fill in forms to finish web tasks. It asks before anything that changes or deletes data.">Web tasks</SectionTitle>
       <Card>
         <Row
           label={
-            <span className="inline-flex items-center gap-2">
+            <span className="inline-flex flex-wrap items-center gap-2">
               <Globe className="size-4 text-violet" aria-hidden="true" /> Browser control (Playwright)
+              {browser.available && mode && (
+                <Badge tone="neutral" data-testid="browser-mode" data-mode={browser.mode}>
+                  {browser.mode === "yours" ? <UserRound aria-hidden="true" /> : <AppWindow aria-hidden="true" />}
+                  {mode}
+                </Badge>
+              )}
             </span>
           }
           htmlFor={browser.available ? id : undefined}
           desc={
             browser.available ? (
-              "Lets Relay open web pages, click and fill in forms to finish web tasks. It asks before anything that changes or deletes data."
+              <span data-testid="browser-detail">{detail || "Ready."}</span>
             ) : (
               <span className="flex items-start gap-1.5 text-warning" data-testid="browser-unavailable">
                 <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
                 <span>
-                  Not available on this PC{browser.detail ? `: ${browser.detail.replace(/\.$/, "")}` : ""}.
+                  Not available on this PC{detail ? `: ${detail.replace(/.$/, "")}` : ""}.
                 </span>
               </span>
             )
@@ -174,6 +190,13 @@ function BrowserControl({ browser, onChange }: { browser: BrowserInfo; onChange:
             data-testid="browser-switch"
           />
         </Row>
+        {action && (
+          <div className="flex justify-end py-3">
+            <Button size="sm" variant={browser.available ? "secondary" : "primary"} onClick={() => void openExternal(action)} data-testid="browser-action">
+              <ExternalLink aria-hidden="true" /> {setupLinkLabel(action)}
+            </Button>
+          </div>
+        )}
       </Card>
     </>
   );

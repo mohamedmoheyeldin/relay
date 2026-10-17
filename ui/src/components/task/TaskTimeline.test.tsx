@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from "vitest";
-import { screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, screen, within } from "@testing-library/react";
+import { useAppearance } from "@/store/appearance";
 import userEvent from "@testing-library/user-event";
 import { taskFixture } from "@/lib/fixtures";
 import { renderUi, axeViolations } from "@/test/render";
@@ -126,5 +127,29 @@ describe("TaskTimeline", () => {
   it("has no serious accessibility violations", async () => {
     const { container } = renderUi(<TaskTimeline item={taskFixture("failed")} onRetry={() => undefined} />);
     expect(await axeViolations(container)).toEqual([]);
+  });
+});
+
+describe("TaskTimeline task views (Settings › Appearance › Default task view)", () => {
+  afterEach(() => useAppearance.getState().set({ taskView: "detailed" }));
+
+  it("simple shows the verdict without the step list", () => {
+    useAppearance.getState().set({ taskView: "simple" });
+    renderUi(<TaskTimeline item={taskFixture("verified")} />);
+    expect(screen.getByTestId("task-timeline")).toHaveAttribute("data-view", "simple");
+    expect(screen.queryAllByTestId("plan-step")).toHaveLength(0);
+    expect(screen.getByTestId("task-verdict")).toHaveTextContent("Done · all 3 steps checked");
+  });
+
+  it("verbose opens every step and the raw log; switching applies at once", () => {
+    useAppearance.getState().set({ taskView: "verbose" });
+    renderUi(<TaskTimeline item={taskFixture("verified")} />);
+    for (const step of screen.getAllByTestId("plan-step")) expect(within(step).getByRole("button")).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByLabelText("Raw task log")).toBeInTheDocument();
+    expect(screen.getAllByTestId("plan-step")).toHaveLength(3);
+    act(() => useAppearance.getState().set({ taskView: "detailed" }));
+    expect(screen.getAllByTestId("task-timeline")).toHaveLength(1);
+    expect(screen.queryByLabelText("Raw task log")).toBeNull();
+    expect(screen.getAllByTestId("plan-step")).toHaveLength(3);
   });
 });

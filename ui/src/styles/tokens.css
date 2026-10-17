@@ -108,6 +108,53 @@
   --relay-controls-w: 138px;
 }
 
+/* ---------------------------------------------------------------- appearance options
+   Set by store/appearance.ts (and public/boot.js for the first paint):
+     data-ui-font="inter|system|atkinson"   interface font
+     data-text-size="small|medium|large"    conversation text (answers, your messages, code)
+     data-density="comfortable|compact"     list, step and settings row heights
+   plus inline variables: --relay-sidebar-w, --relay-font-code, --relay-code-bg / --relay-code-fg. */
+:root {
+  --relay-list-row: 32px;
+  --relay-step-min: 40px;
+  --relay-step-pad: 8px;
+  --relay-setting-pad: 14px;
+  --relay-text-message-serif: 16.5px;
+  --relay-leading-message-serif: 27px;
+}
+:root[data-ui-font="system"] {
+  --relay-font-sans: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+:root[data-ui-font="atkinson"] {
+  --relay-font-sans: "Atkinson Hyperlegible Next Variable", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+}
+:root[data-text-size="small"] {
+  --relay-text-message: 14.5px;
+  --relay-leading-message: 24px;
+  --relay-text-body: 14px;
+  --relay-leading-body: 22px;
+  --relay-text-code: 12.5px;
+  --relay-leading-code: 19px;
+  --relay-text-message-serif: 15.5px;
+  --relay-leading-message-serif: 25px;
+}
+:root[data-text-size="large"] {
+  --relay-text-message: 17.5px;
+  --relay-leading-message: 29px;
+  --relay-text-body: 17px;
+  --relay-leading-body: 27px;
+  --relay-text-code: 14.5px;
+  --relay-leading-code: 22px;
+  --relay-text-message-serif: 18.5px;
+  --relay-leading-message-serif: 30px;
+}
+:root[data-density="compact"] {
+  --relay-list-row: 28px;
+  --relay-step-min: 32px;
+  --relay-step-pad: 4px;
+  --relay-setting-pad: 10px;
+}
+
 :root[data-titlebar="overlay"] {
   --relay-titlebar-inset: 76px;
   --relay-titlebar-top: 28px;

@@ -5,6 +5,8 @@ import { HashRouter, Navigate, Outlet, Route, Routes, useLocation, useNavigate, 
 import { queryClient } from "@/lib/query";
 import { registerNavigate, setCurrentPath } from "@/lib/nav";
 import { useApp } from "@/store/app";
+import { syncAppearance, useAppearance } from "@/store/appearance";
+import { clampSidebarWidth } from "@/lib/theme";
 import { usePlatform, useHybrid, useStatus, useSettings, useConversations, useProjects } from "@/hooks/queries";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Sidebar } from "@/components/shell/Sidebar";
@@ -56,6 +58,9 @@ function RouterBridge() {
 function Bootstrap() {
   const init = useApp((s) => s.init);
   useEffect(() => init(), [init]);
+  useEffect(() => {
+    void syncAppearance();
+  }, []);
   usePlatform();
   useStatus();
   useSettings();
@@ -78,7 +83,8 @@ function Shell() {
     if (!el || prev.current === collapsed) return;
     prev.current = collapsed;
     if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
-    const delta = collapsed ? 224 : -224;
+    const travel = clampSidebarWidth(useAppearance.getState().appearance.sidebarWidth) - 56;
+    const delta = collapsed ? travel : -travel;
     el.style.transition = "none";
     el.style.transform = `translateX(${delta}px)`;
     void el.offsetWidth;

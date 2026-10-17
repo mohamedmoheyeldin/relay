@@ -4,7 +4,7 @@ import { useSettings, useSetSettings, useStatus, useConversations, useUpdateConv
 import { useAppearance } from "@/store/appearance";
 import { useApp } from "@/store/app";
 import { api, errorText, isTauri } from "@/lib/backend";
-import { ACCENTS, effectiveSwatch, normalizeHex, THEMES, type AccentName, type Mode, type ThemeName } from "@/lib/theme";
+import { ACCENTS, effectiveSwatch, normalizeHex, THEMES, type AccentName, type Density, type Mode, type TaskView, type TextSize, type ThemeName, type UiFont } from "@/lib/theme";
 import type { ApprovalMode, LinkKind } from "@/lib/types";
 import { OTHER_KEYS, SHORTCUTS } from "@/lib/platform";
 import { go, paths } from "@/lib/nav";
@@ -18,6 +18,13 @@ import { Kbd, Shortcut } from "@/components/ui/kbd";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { EmptyState, RelayMark } from "@/components/common";
 import { Card, LoadState, PageTitle, Row, SectionTitle } from "./parts";
+import { CodeFontField, CodeThemePicker } from "./CodeAppearance";
+
+const TASK_VIEW_DESC: Record<TaskView, string> = {
+  simple: "Simple: only the result and Relay's final message.",
+  detailed: "Detailed: the result and the list of steps.",
+  verbose: "Verbose: every step opened with its details, plus the raw log.",
+};
 
 function NameInput({ id }: { id: string }) {
   const settings = useSettings();
@@ -171,6 +178,7 @@ export function AppearanceSection() {
   const set = useAppearance((s) => s.set);
   const reset = useAppearance((s) => s.resetCustom);
   const hasCustom = Boolean(a.custom[scheme]?.bg || a.custom[scheme]?.fg);
+  const codeFontId = useId();
   return (
     <>
       <PageTitle>Appearance</PageTitle>
@@ -212,6 +220,72 @@ export function AppearanceSection() {
           </label>
         ))}
       </RadioGroup>
+
+      <SectionTitle>Interface</SectionTitle>
+      <Card>
+        <Row label="Interface font" desc="Used for menus, buttons, settings and answers in sans.">
+          <Segmented<UiFont>
+            label="Interface font"
+            size="sm"
+            value={a.uiFont}
+            onValueChange={(v) => set({ uiFont: v })}
+            options={[
+              { value: "inter", label: "Inter" },
+              { value: "system", label: "System" },
+              { value: "atkinson", label: "Atkinson Hyperlegible" },
+            ]}
+          />
+        </Row>
+        <Row label="Text size" desc="Size of the conversation: answers, your messages and code.">
+          <Segmented<TextSize>
+            label="Text size"
+            size="sm"
+            value={a.textSize}
+            onValueChange={(v) => set({ textSize: v })}
+            options={[
+              { value: "small", label: "Small" },
+              { value: "medium", label: "Medium" },
+              { value: "large", label: "Large" },
+            ]}
+          />
+        </Row>
+        <Row label="Density" desc="Compact fits more rows in the sidebar, task steps and settings.">
+          <Segmented<Density>
+            label="Density"
+            size="sm"
+            value={a.density}
+            onValueChange={(v) => set({ density: v })}
+            options={[
+              { value: "comfortable", label: "Comfortable" },
+              { value: "compact", label: "Compact" },
+            ]}
+          />
+        </Row>
+        <Row label="Default task view" desc={TASK_VIEW_DESC[a.taskView]}>
+          <Segmented<TaskView>
+            label="Default task view"
+            size="sm"
+            value={a.taskView}
+            onValueChange={(v) => set({ taskView: v })}
+            options={[
+              { value: "simple", label: "Simple" },
+              { value: "detailed", label: "Detailed" },
+              { value: "verbose", label: "Verbose" },
+            ]}
+          />
+        </Row>
+      </Card>
+
+      <SectionTitle description="Colours for code in answers. Relay uses the light theme in light mode and the dark theme in dark mode.">Code</SectionTitle>
+      <div className="grid gap-5 sm:grid-cols-2">
+        <CodeThemePicker scheme="light" />
+        <CodeThemePicker scheme="dark" />
+      </div>
+      <Card className="mt-4">
+        <Row label="Code font" desc="Any monospace font installed on this PC. Leave empty for Geist Mono." htmlFor={codeFontId}>
+          <CodeFontField id={codeFontId} />
+        </Row>
+      </Card>
 
       <SectionTitle>Text and colours</SectionTitle>
       <Card>

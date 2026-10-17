@@ -52,6 +52,9 @@ export const useSettings = () => useQuery({ queryKey: qk.settings, queryFn: () =
 
 export const useStatus = () => useQuery({ queryKey: qk.status, queryFn: () => api.getStatus(), staleTime: Infinity });
 
+// system_check probes the CLIs (1-3 s): load once in the background, refresh only on "Check again".
+export const useSystemCheck = () => useQuery({ queryKey: qk.systemCheck, queryFn: () => api.systemCheck(), staleTime: Infinity });
+
 export const useMcp = () => useQuery({ queryKey: qk.mcp, queryFn: () => api.mcpGet() });
 
 export function usePlatform() {

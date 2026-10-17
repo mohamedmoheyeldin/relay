@@ -7,6 +7,7 @@ import { RelayMark, FolderIcon } from "@/components/common";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Composer } from "./Composer";
 import { ContextControls } from "./ContextControls";
+import { SystemCheckBanner } from "./SystemCheckBanner";
 
 export const SUGGESTIONS = [
   { icon: Sparkles, label: "Tidy up my Downloads folder" },
@@ -30,6 +31,7 @@ export function Home() {
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 scroll-thin">
       <div className="m-auto flex w-full max-w-[680px] flex-col items-center pt-6 pb-[10vh]">
+        <SystemCheckBanner />
         <RelayMark size={34} className="mb-4" />
         <h1 className="mb-8 min-h-[42px] text-center font-display text-[30px] leading-[42px] tracking-[-0.015em] text-fg sm:text-display">{title}</h1>
         <Composer projectId={projectId} onClearProject={() => setProjectId(null)} autoFocus leading={!projectId ? <ProjectPicker value={projectId} onChange={setProjectId} /> : undefined} />

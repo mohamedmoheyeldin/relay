@@ -31,4 +31,5 @@ export const qk = {
   status: ["status"] as const,
   platform: ["platform"] as const,
   mcp: ["mcp"] as const,
+  systemCheck: ["system-check"] as const,
 };

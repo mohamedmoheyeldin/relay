@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { renderUi, useMockBackend, axeViolations } from "@/test/render";
 import type { Transport } from "@/lib/backend";
 import { PrivacySection } from "./PrivacySection";
+import { queryClient } from "@/lib/query";
 
 let t: Transport;
 
@@ -79,5 +80,40 @@ describe("Settings › AI & Privacy", () => {
     const { container } = renderUi(<PrivacySection />);
     await screen.findByTestId("provider-card-codex");
     expect(await axeViolations(container)).toEqual([]);
+  });
+});
+
+describe("Settings › AI & Privacy › Web tasks", () => {
+  // Mutations from earlier tests may still be settling into the shared query cache.
+  beforeEach(async () => {
+    await waitFor(() => expect(queryClient.isMutating()).toBe(0));
+    await new Promise((r) => setTimeout(r, 0));
+  });
+
+  it("browser control shows which browser it uses, and the extension link opens with open_url", async () => {
+    t = useMockBackend("browser-separate");
+    renderUi(<PrivacySection />);
+    expect(await screen.findByTestId("browser-mode")).toHaveTextContent("Separate Relay browser");
+    expect(screen.getByTestId("browser-detail")).toHaveTextContent("separate Google Chrome window");
+    const calls = vi.spyOn(t, "invoke");
+    await userEvent.click(screen.getByRole("button", { name: "Get the Playwright extension" }));
+    expect(calls).toHaveBeenCalledWith("open_url", { url: expect.stringContaining("chromewebstore.google.com") });
+  });
+
+  it("browser control without Node.js offers Get Node.js", async () => {
+    t = useMockBackend("no-node");
+    renderUi(<PrivacySection />);
+    expect(await screen.findByTestId("browser-unavailable")).toHaveTextContent("Node.js was not found");
+    expect(screen.queryByTestId("browser-mode")).toBeNull();
+    const calls = vi.spyOn(t, "invoke");
+    await userEvent.click(screen.getByRole("button", { name: "Get Node.js" }));
+    expect(calls).toHaveBeenCalledWith("open_url", { url: "https://nodejs.org/" });
+  });
+
+  it("browser control in your own browser shows that mode and no link", async () => {
+    useMockBackend("");
+    renderUi(<PrivacySection />);
+    expect(await screen.findByTestId("browser-mode")).toHaveTextContent("Uses your browser");
+    expect(screen.queryByTestId("browser-action")).toBeNull();
   });
 });

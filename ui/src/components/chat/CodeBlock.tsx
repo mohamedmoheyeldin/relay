@@ -6,6 +6,8 @@ import { memo, useEffect, useRef, useState } from "react";
 import { Check, Copy } from "lucide-react";
 import { copyText } from "@/hooks/dom";
 import { cn } from "@/lib/utils";
+import { codeTheme } from "@/lib/codeThemes";
+import { useAppearance } from "@/store/appearance";
 
 const LANG_NAMES: Record<string, string> = {
   js: "JavaScript",
@@ -83,7 +85,11 @@ type Props = {
 };
 
 export const CodeBlock = memo(function CodeBlock({ code, lang, complete = true }: Props) {
-  const [html, setHtml] = useState<{ code: string; lang: string; html: string } | null>(null);
+  const [html, setHtml] = useState<{ code: string; lang: string; themes: string; html: string } | null>(null);
+  // The chosen code themes (Settings > Appearance); changing them re-highlights in place.
+  const light = codeTheme(useAppearance((s) => s.appearance.codeThemeLight), "light").shiki;
+  const dark = codeTheme(useAppearance((s) => s.appearance.codeThemeDark), "dark").shiki;
+  const themes = `${light}/${dark}`;
   const [copied, setCopied] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -91,15 +97,15 @@ export const CodeBlock = memo(function CodeBlock({ code, lang, complete = true }
     if (!complete) return;
     let live = true;
     import("@/lib/highlight")
-      .then((m) => m.highlight(code, lang))
+      .then((m) => m.highlight(code, lang, { light, dark }))
       .then((h) => {
-        if (live && h) setHtml({ code, lang, html: h });
+        if (live && h) setHtml({ code, lang, themes, html: h });
       })
       .catch(() => undefined);
     return () => {
       live = false;
     };
-  }, [code, lang, complete]);
+  }, [code, lang, complete, light, dark, themes]);
 
   useEffect(() => () => void (timer.current && clearTimeout(timer.current)), []);
 
@@ -113,10 +119,11 @@ export const CodeBlock = memo(function CodeBlock({ code, lang, complete = true }
 
   const name = languageName(lang);
   // Only show highlighted HTML that matches the current code, never a stale version.
+  // While a new theme loads the previous colours stay (no flash back to plain text).
   const highlighted = html && html.code === code && html.lang === lang ? html.html : null;
 
   return (
-    <figure className="codeblock" data-testid="code-block" data-lang={lang || "text"} data-highlighted={highlighted ? "true" : "false"} aria-label={`${name} code`}>
+    <figure className="codeblock" data-testid="code-block" data-lang={lang || "text"} data-highlighted={highlighted ? "true" : "false"} data-code-themes={highlighted ? html!.themes : undefined} aria-label={`${name} code`}>
       <div className="codeblock-bar">
         <span className="codeblock-lang">{name}</span>
         <button type="button" onClick={() => void onCopy()} className="codeblock-copy" aria-label={copied ? "Copied to the clipboard" : `Copy ${name} code`}>

@@ -2,7 +2,7 @@
 // on the right; Esc returns to where you were. Code-split from the main bundle.
 import { useEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { useParams } from "react-router";
-import { Archive, ArrowLeft, ChevronLeft, CircleHelp, Cpu, HardDrive, Keyboard, Palette, Plug, Search, Settings as Gear, ShieldCheck } from "lucide-react";
+import { Archive, ArrowLeft, ChevronLeft, CircleHelp, Cpu, HardDrive, Keyboard, Palette, Plug, Search, Settings as Gear, ShieldCheck, Stethoscope } from "lucide-react";
 import { useApp } from "@/store/app";
 import { useNarrow } from "@/hooks/dom";
 import { useRovingList } from "@/hooks/roving";
@@ -12,12 +12,14 @@ import { AboutSection, AppearanceSection, ArchivedSection, DataSection, GeneralS
 import { PrivacySection } from "./PrivacySection";
 import { LocalAiSection } from "./LocalAiSection";
 import { ConnectionsSection } from "./ConnectionsSection";
+import { SystemCheckSection } from "./SystemCheckSection";
 
 type Section = { id: string; label: string; icon: ComponentType<{ className?: string }>; keywords: string; group: string; render: ComponentType };
 
 export const SECTIONS: Section[] = [
   { id: "general", label: "General", icon: Gear, group: "App", keywords: "name custom instructions about you emergency stop hotkey automatic setup agent approvals", render: GeneralSection },
-  { id: "appearance", label: "Appearance", icon: Palette, group: "App", keywords: "theme dark light mode accent colour color background text font serif", render: AppearanceSection },
+  { id: "system-check", label: "System check", icon: Stethoscope, group: "App", keywords: "system check status ready installed missing node nodejs browser extension playwright local ai setup health", render: SystemCheckSection },
+  { id: "appearance", label: "Appearance", icon: Palette, group: "App", keywords: "theme dark light mode accent colour color background text font serif code syntax highlighting monospace size density compact task view simple verbose", render: AppearanceSection },
   { id: "privacy", label: "AI & Privacy", icon: ShieldCheck, group: "AI", keywords: "privacy local hybrid cloud provider claude code codex model reasoning share context screenshots files folders tools confirm approval sign in login install", render: PrivacySection },
   { id: "local-ai", label: "Relay Local AI", icon: Cpu, group: "AI", keywords: "local model gpu download setup offline", render: LocalAiSection },
   { id: "connections", label: "Connections", icon: Plug, group: "AI", keywords: "mcp servers tools plugins json", render: ConnectionsSection },
@@ -114,7 +116,7 @@ export default function SettingsPage() {
                           setNavOpen(false);
                         }}
                         className={cn(
-                          "flex h-8 w-full items-center gap-2.5 rounded-md px-2 text-left text-ui text-fg transition-colors duration-(--relay-dur-fast) hover:bg-hover",
+                          "flex h-(--relay-list-row) w-full items-center gap-2.5 rounded-md px-2 text-left text-ui text-fg transition-colors duration-(--relay-dur-fast) hover:bg-hover",
                           active && "bg-active hover:bg-active",
                         )}
                       >

@@ -1,5 +1,5 @@
-// Sidebar: 280px panel that collapses to a 56px icon rail (slide by transform; state remembered),
-// or an overlay drawer below 768px. Sections: Pinned, Projects, Recents grouped by date.
+// Sidebar: a resizable panel (220-420px, default 280px; drag its right edge) that collapses to a
+// 56px icon rail (slide by transform; state remembered), or an overlay drawer below 768px. Sections: Pinned, Projects, Recents grouped by date.
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useLocation } from "react-router";
 import {
@@ -42,6 +42,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { ChatMenuItems, useChatActions } from "./ChatMenu";
+import { SidebarResizer } from "./SidebarResizer";
 
 export function Sidebar() {
   const narrow = useNarrow();
@@ -128,6 +129,7 @@ export function Sidebar() {
           <Rail />
         </div>
       </div>
+      {!collapsed && <SidebarResizer />}
     </aside>
   );
 }
@@ -181,7 +183,7 @@ function NavRow({ icon, label, shortcut, onClick, active, testId }: { icon: Reac
       aria-current={active ? "page" : undefined}
       data-testid={testId}
       className={cn(
-        "group flex h-8 w-full items-center gap-2.5 rounded-md px-2 text-left text-ui text-fg transition-colors duration-(--relay-dur-fast) hover:bg-hover",
+        "group flex h-(--relay-list-row) w-full items-center gap-2.5 rounded-md px-2 text-left text-ui text-fg transition-colors duration-(--relay-dur-fast) hover:bg-hover",
         active && "bg-active hover:bg-active",
       )}
     >
@@ -270,7 +272,7 @@ function SidebarPanel() {
             <button
               type="button"
               onClick={() => useApp.getState().setProjectDialog({ mode: "create" })}
-              className="flex h-8 w-full items-center gap-2.5 rounded-md px-2 text-ui text-fg-muted hover:bg-hover hover:text-fg"
+              className="flex h-(--relay-list-row) w-full items-center gap-2.5 rounded-md px-2 text-ui text-fg-muted hover:bg-hover hover:text-fg"
             >
               <Plus className="size-4" aria-hidden="true" /> New project
             </button>
@@ -349,7 +351,7 @@ const ChatRow = memo(function ChatRow({ conv }: { conv: ConvSummary }) {
       <ContextMenuTrigger asChild>
         <div
           className={cn(
-            "group relative flex h-8 items-center rounded-md transition-colors duration-(--relay-dur-fast) hover:bg-hover",
+            "group relative flex h-(--relay-list-row) items-center rounded-md transition-colors duration-(--relay-dur-fast) hover:bg-hover",
             (active || menuOpen) && "bg-active hover:bg-active",
           )}
           data-testid="chat-row"
@@ -420,7 +422,7 @@ function RenameInput({ initial, onDone }: { initial: string; onDone: (v: string 
     onDone(v && v.trim() ? v.trim() : null);
   };
   return (
-    <div className="flex h-8 items-center rounded-md bg-active px-1">
+    <div className="flex h-(--relay-list-row) items-center rounded-md bg-active px-1">
       <input
         ref={ref}
         defaultValue={initial}
@@ -475,7 +477,7 @@ function ProjectRow({ project, pinned }: { project: Project; pinned?: boolean })
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
-        <div className={cn("group relative flex h-8 items-center rounded-md hover:bg-hover", (active || menuOpen) && "bg-active hover:bg-active")}>
+        <div className={cn("group relative flex h-(--relay-list-row) items-center rounded-md hover:bg-hover", (active || menuOpen) && "bg-active hover:bg-active")}>
           <button
             type="button"
             data-roving

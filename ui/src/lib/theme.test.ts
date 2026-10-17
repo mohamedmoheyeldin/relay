@@ -69,6 +69,7 @@ describe("themes", () => {
     expect(parseAppearance(null)).toEqual(DEFAULT_APPEARANCE);
     expect(parseAppearance("{bad json")).toEqual(DEFAULT_APPEARANCE);
     expect(parseAppearance(JSON.stringify({ mode: "light", theme: "nope", accent: "sage", prose: "serif" }))).toEqual({
+      ...DEFAULT_APPEARANCE,
       mode: "light",
       theme: "relay",
       accent: "sage",

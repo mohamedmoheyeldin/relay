@@ -8,7 +8,7 @@ const SIZES = [
   { name: "520", width: 520, height: 740 },
 ];
 
-const SCREENS: { name: string; route: string; scenario?: string; prepare?: (page: Page, narrow: boolean) => Promise<void> }[] = [
+const SCREENS: { name: string; route: string; scenario?: string; only?: string; prepare?: (page: Page, narrow: boolean) => Promise<void> }[] = [
   { name: "home", route: "/" },
   {
     name: "chat-task",
@@ -46,11 +46,35 @@ const SCREENS: { name: string; route: string; scenario?: string; prepare?: (page
   { name: "settings-general", route: "/settings/general" },
   { name: "settings-privacy", route: "/settings/privacy", scenario: "codex-missing" },
   { name: "settings-appearance", route: "/settings/appearance" },
+  {
+    // The code theme pickers with their previews (scrolled into view).
+    name: "settings-appearance-code",
+    route: "/settings/appearance",
+    prepare: async (page) => {
+      const pickers = page.getByTestId("code-theme-light");
+      await pickers.scrollIntoViewIfNeeded();
+      await page.locator("[data-testid=code-theme-preview][data-highlighted=true]").nth(1).waitFor();
+    },
+  },
+  { name: "settings-system-check", route: "/settings/system-check", scenario: "needs-setup,local-setup" },
+  { name: "home-attention", route: "/", scenario: "needs-setup", prepare: async (page) => void (await page.getByTestId("system-check-banner").waitFor()) },
+  {
+    // The sidebar dragged wider (keyboard: End = the 420px maximum).
+    name: "home-wide-sidebar",
+    route: "/",
+    only: "1100",
+    prepare: async (page) => {
+      await page.getByRole("separator", { name: "Resize sidebar" }).focus();
+      await page.keyboard.press("End");
+      await page.getByRole("separator", { name: "Resize sidebar" }).blur();
+    },
+  },
 ];
 
 for (const theme of ["light", "dark"] as Theme[]) {
   for (const size of SIZES) {
     for (const s of SCREENS) {
+      if (s.only && s.only !== size.name) continue;
       test(`${s.name} ${theme} ${size.name}`, async ({ page }) => {
         await page.setViewportSize(size);
         await open(page, { theme, route: s.route, scenario: s.scenario, freeze: true });

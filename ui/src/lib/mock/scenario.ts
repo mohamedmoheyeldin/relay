@@ -13,6 +13,8 @@
 //   slow               long steps (to try Stop)
 //   slow-probe         get_hybrid / refresh_providers take 3 s (probing the CLIs); the UI must not wait
 //   no-node            browser control unavailable (Node.js not found)
+//   needs-setup        system check: Node.js and the browser extension are missing (Home shows a banner)
+//   browser-separate   browser control uses a separate Relay browser (the extension is not installed)
 //   mac | mica         platform: macOS vibrancy + overlay title bar, or Windows Mica
 // Flows (?flow=): native, local, cloud, download, verify-fail, refused, declined, cloud-fail, agent,
 //   not-installed, not-signed-in, chat, web

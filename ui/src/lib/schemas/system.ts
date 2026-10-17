@@ -61,6 +61,32 @@ export const McpConfigSchema = z.object({
 
 export const RunStartSchema = z.object({ run_id: z.number() });
 
+/** `system_check`: is everything Relay can use installed and ready? Slow (probes the CLIs).
+ *  Known ids: local_ai, claude, codex, node, browser (others are shown as they come). An action
+ *  either opens a web page (`kind: "url"`, via open_url) or runs a known command
+ *  (`kind: "command"`, value "local_ai_setup" = local_ai_setup {action: "start"}). */
+export const SystemCheckStatusSchema = z.enum(["ok", "warn", "missing"]);
+export const SystemCheckActionSchema = z.object({ kind: z.enum(["url", "command"]), value: z.string(), label: z.string() });
+export const SystemCheckItemSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  status: SystemCheckStatusSchema,
+  detail: z.string(),
+  action: z.nullable(SystemCheckActionSchema),
+});
+export const SystemCheckSchema = z.object({ items: z.array(SystemCheckItemSchema), ok: z.number(), total: z.number() });
+export type SystemCheckStatus = z.infer<typeof SystemCheckStatusSchema>;
+export type SystemCheckAction = z.infer<typeof SystemCheckActionSchema>;
+export type SystemCheckItem = z.infer<typeof SystemCheckItemSchema>;
+export type SystemCheck = z.infer<typeof SystemCheckSchema>;
+
+/** `get_appearance` / `set_appearance`: an object the backend stores without interpreting it (at
+ *  most 64 keys). The UI reads it leniently (lib/theme.ts `normalizeAppearance`). */
+export const APPEARANCE_MAX_KEYS = 64;
+export const AppearanceRecordSchema = z.record(z.string(), z.unknown());
+/** A `set_appearance` patch: keys replace, `null` removes a key. */
+export type AppearancePatch = Record<string, unknown>;
+
 export type ApprovalMode = z.infer<typeof ApprovalModeSchema>;
 export type Settings = z.infer<typeof SettingsSchema>;
 export type SettingsPatch = Partial<Pick<Settings, "approval_mode" | "user_name" | "custom_instructions" | "auto_setup">>;

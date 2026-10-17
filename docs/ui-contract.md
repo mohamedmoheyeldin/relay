@@ -164,3 +164,49 @@ type NewEvents =
   unavailable, e.g. "Node.js was not found"). `mcp_get` / `mcp_set` are unchanged.
 - **Code in answers**: fenced code blocks need a language label, a copy button ("Copy" → "Copied"), horizontal scroll (never wrap),
   syntax highlighting, and an accessible name. Inline code stays inline. Long answers stream.
+
+## v4 additions (2026-10-17): appearance, browser mode, system check
+Additive like v3: older backends without these commands or fields must not break the UI.
+
+| command | args | returns |
+|---|---|---|
+| `get_appearance` | – | `Appearance` (an object; `{}` until something was saved) |
+| `set_appearance` | `{ patch: object }` | the merged `Appearance`. Keys in `patch` replace stored ones; a `null` value removes the key; at most 64 keys (rejects otherwise) |
+| `system_check` | – | `SystemCheck` (slow: probes the CLIs, about 1-3 s; show skeletons) |
+
+```ts
+// Stored by the backend without interpretation (settings.json); the UI validates each key on read and falls
+// back to the default per key (ui/src/lib/theme.ts normalizeAppearance). Keys the UI writes today:
+type Appearance = {
+  mode?: "system" | "light" | "dark"; theme?: "relay" | "graphite" | "midnight";
+  accent?: "terracotta" | "sage" | "indigo" | "plum" | "ink"; prose?: "sans" | "serif";
+  custom?: { light?: { bg?: string; fg?: string }; dark?: { bg?: string; fg?: string } };
+  codeThemeLight?: string;   // id from ui/src/lib/codeThemes.ts, e.g. "relay-light", "github-light", "solarized-light"
+  codeThemeDark?: string;    // e.g. "relay-dark", "dracula", "tokyo-night"
+  codeFont?: string;         // monospace font family name; "" = bundled Geist Mono
+  uiFont?: "inter" | "system" | "atkinson";
+  textSize?: "small" | "medium" | "large";
+  density?: "comfortable" | "compact";
+  taskView?: "simple" | "detailed" | "verbose";
+  sidebarWidth?: number;     // px, 220..420 (default 280)
+};
+type SystemCheck = {
+  items: { id: "local_ai" | "claude" | "codex" | "node" | "browser" | string; label: string;
+           status: "ok" | "warn" | "missing"; detail: string;
+           action: null | { kind: "url" | "command"; value: string; label: string } }[];
+  ok: number; total: number;
+};
+// get_hybrid().browser gains:
+//   mode?: "yours" | "separate" | "none"   // your own browser via the Playwright extension / a browser Relay keeps for itself / unusable
+//   action_url?: string | null             // a page that fixes or improves the setup (extension store page, nodejs.org)
+```
+- **Appearance** applies instantly (attributes and CSS variables on `<html>`). localStorage `relay.appearance` is only a
+  first-paint cache; at start-up the backend copy wins, keys missing there are uploaded once, and every later change is sent
+  as a debounced patch of the changed keys. If the backend fails the local cache still applies and the UI says it couldn't save.
+- **Browser setting**: AI & Privacy shows `detail`, the active mode ("Uses your browser" / "Separate Relay browser") and,
+  when `action_url` is set, a button ("Get the Playwright extension", "Get Node.js") that calls `open_url {url}`.
+- **System check**: Settings › System check lists every item with an icon and the status in words, the detail and the action
+  (`url` -> `open_url {url: value}`; `command` with value `local_ai_setup` -> `local_ai_setup {action: "start"}`; unknown
+  commands are not offered), plus "Check again". Home shows a dismissible banner ("2 things need attention · Review") when
+  `local_ai`, `node` or `browser` is not ok; dismissal is remembered until the set of problems changes.
+- Mock scenarios: `needs-setup` (Node.js and the extension missing), `browser-separate`, `no-node`.

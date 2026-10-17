@@ -52,6 +52,8 @@ import { Tip } from "@/components/ui/tooltip";
 import { StepIcon } from "./StepIcon";
 import { PrivacyLedger } from "./PrivacyLedger";
 import { CONFIRM_TIMEOUT_S } from "@/store/app";
+import { useAppearance } from "@/store/appearance";
+import type { TaskView } from "@/lib/theme";
 
 type Props = {
   item: TaskItem;
@@ -71,6 +73,9 @@ export const TaskTimeline = memo(function TaskTimeline({ item, live = false, onS
   const badge = item.route ? routeBadge(item.route.strategy) : null;
   const staysLocal = badge === "native" || badge === "local";
   const used = useMemo(() => usedTagsOf(item), [item]);
+  // Settings > Appearance > Default task view. Changing it re-mounts the parts it controls, so it
+  // applies at once to every task on screen.
+  const view = useAppearance((s) => s.appearance.taskView);
 
   return (
     <section
@@ -79,6 +84,7 @@ export const TaskTimeline = memo(function TaskTimeline({ item, live = false, onS
       className="turn my-3 overflow-hidden rounded-xl border border-line/70 bg-surface shadow-card"
       data-testid="task-timeline"
       data-verdict={verdict.kind}
+      data-view={view}
     >
       <header className="flex items-start gap-3 px-4 pt-3.5 pb-3">
         <RouteBadge badge={badge} />
@@ -108,15 +114,17 @@ export const TaskTimeline = memo(function TaskTimeline({ item, live = false, onS
         <PrivacyLedger shares={item.shared} staysLocal={staysLocal} />
       </div>
 
-      {item.plan ? (
-        <PlanSection item={item} live={live && !readOnly} />
+      {view === "simple" ? (
+        <PendingConfirms item={item} live={live && !readOnly} />
+      ) : item.plan ? (
+        <PlanSection key={`plan-${view}`} item={item} live={live && !readOnly} view={view} />
       ) : running ? (
         <div className="border-t border-line/60 px-4 py-3 text-caption text-fg-muted">
           <span className="shimmer-text">Working out the steps…</span>
         </div>
       ) : null}
 
-      <VerdictFooter verdict={verdict} item={item} onRetry={readOnly ? undefined : onRetry} />
+      <VerdictFooter key={`verdict-${view}`} verdict={verdict} item={item} onRetry={readOnly ? undefined : onRetry} view={view} />
     </section>
   );
 });
@@ -133,7 +141,20 @@ function RouteBadge({ badge }: { badge: ReturnType<typeof routeBadge> | null }) 
   );
 }
 
-function PlanSection({ item, live }: { item: TaskItem; live: boolean }) {
+/** Simple view: no step list, but an approval Relay is waiting for stays visible. */
+function PendingConfirms({ item, live }: { item: TaskItem; live: boolean }) {
+  const pending = item.confirms.filter((c) => c.state === "pending");
+  if (!pending.length) return null;
+  return (
+    <div className="border-t border-line/60 pt-2 pb-0.5">
+      {pending.map((c) => (
+        <ConfirmLine key={c.confirm_id} c={c} live={live} />
+      ))}
+    </div>
+  );
+}
+
+function PlanSection({ item, live, view }: { item: TaskItem; live: boolean; view: TaskView }) {
   const plan = item.plan!;
   const listRef = useRef<HTMLOListElement>(null);
   const onKeyDown = useRovingList(listRef);
@@ -141,7 +162,7 @@ function PlanSection({ item, live }: { item: TaskItem; live: boolean }) {
   // Web tasks and finished long runs start collapsed; a plan that is about to run stays open so the
   // user can read every step before approving anything.
   const [expanded, setExpanded] = useState<boolean | null>(null);
-  const collapsed = long && !(expanded ?? !(item.intent === "web" || item.outcome !== null));
+  const collapsed = long && view !== "verbose" && !(expanded ?? !(item.intent === "web" || item.outcome !== null));
   const visible = collapsed ? collapsedStepIndexes(item.steps) : item.steps.map((_, i) => i);
   const hidden = item.steps.length - visible.length;
   const listId = `plan-steps-${item.id}`;
@@ -172,7 +193,7 @@ function PlanSection({ item, live }: { item: TaskItem; live: boolean }) {
       <ol id={listId} ref={listRef} onKeyDown={onKeyDown} aria-label={collapsed ? `Plan steps, ${visible.length} of ${item.steps.length} shown` : "Plan steps"} className="space-y-px">
         {visible.map((i) => {
           const s = item.steps[i]!;
-          return <StepRow key={s.id} step={s} index={i} confirms={item.confirms.filter((c) => c.step_id === s.id)} live={live} />;
+          return <StepRow key={s.id} step={s} index={i} confirms={item.confirms.filter((c) => c.step_id === s.id)} live={live} defaultOpen={view === "verbose"} />;
         })}
       </ol>
       {item.confirms
@@ -184,8 +205,20 @@ function PlanSection({ item, live }: { item: TaskItem; live: boolean }) {
   );
 }
 
-const StepRow = memo(function StepRow({ step, index, confirms, live }: { step: TaskStep; index: number; confirms: TaskConfirm[]; live: boolean }) {
-  const [open, setOpen] = useState(step.status === "failed");
+const StepRow = memo(function StepRow({
+  step,
+  index,
+  confirms,
+  live,
+  defaultOpen = false,
+}: {
+  step: TaskStep;
+  index: number;
+  confirms: TaskConfirm[];
+  live: boolean;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen || step.status === "failed");
   // A step that fails opens its details so the reason is visible without a click.
   useEffect(() => {
     if (step.status === "failed") setOpen(true);
@@ -203,7 +236,7 @@ const StepRow = memo(function StepRow({ step, index, confirms, live }: { step: T
         aria-expanded={open}
         aria-controls={id}
         onClick={() => setOpen((o) => !o)}
-        className="flex min-h-10 w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-hover"
+        className="flex min-h-(--relay-step-min) w-full items-center gap-3 rounded-lg px-2 py-(--relay-step-pad) text-left transition-colors hover:bg-hover"
       >
         <Tip label={meta.description} side="left">
           <span className="inline-flex">
@@ -311,8 +344,8 @@ function ConfirmLine({ c, live }: { c: TaskConfirm; live: boolean }) {
   );
 }
 
-function VerdictFooter({ verdict, item, onRetry }: { verdict: Verdict; item: TaskItem; onRetry?: () => void }) {
-  const [showLog, setShowLog] = useState(false);
+function VerdictFooter({ verdict, item, onRetry, view }: { verdict: Verdict; item: TaskItem; onRetry?: () => void; view: TaskView }) {
+  const [showLog, setShowLog] = useState(view === "verbose");
   if (verdict.kind === "running") {
     return (
       <footer className="flex items-center gap-2 border-t border-line/60 px-4 py-2.5 text-caption text-fg-muted" aria-live="off">

@@ -22,6 +22,7 @@ import {
   type Settings,
   type StatusPayload,
   type StepRisk,
+  type SystemCheckItem,
   type UiEvent,
   type UsedTag,
   type Workflow,
@@ -443,9 +444,63 @@ export function createMockTransport(scenario: Scenario = readScenario()): Transp
       { id: "run_powershell", label: "Run PowerShell commands", risk: "destructive" },
     ],
     browser: sc.flags.has("no-node")
-      ? { enabled: false, available: false, server: "playwright", detail: "Node.js was not found. Install Node.js 20 or newer, then restart Relay." }
-      : { enabled: true, available: true, server: "playwright", detail: "Ready" },
+      ? {
+          enabled: false,
+          available: false,
+          server: "Playwright browser",
+          detail: "Node.js was not found. Install it from nodejs.org to let Relay work in a browser.",
+          mode: "none",
+          action_url: "https://nodejs.org/",
+        }
+      : sc.flags.has("browser-separate")
+        ? {
+            enabled: true,
+            available: true,
+            server: "Playwright browser",
+            detail:
+              "Uses a separate Google Chrome window that Relay keeps for itself; sign in there once. To use your own browser and sign-ins instead, add the Playwright MCP Bridge extension.",
+            mode: "separate",
+            action_url: "https://chromewebstore.google.com/detail/playwright-mcp-bridge/mmlmfjhmonkocbjadbfplnigmagldckm",
+          }
+        : {
+            enabled: true,
+            available: true,
+            server: "Playwright browser",
+            detail: "Uses your Google Chrome with your sign-ins, through the Playwright extension. The first time in a session, allow the connection in the tab Relay opens.",
+            mode: "yours",
+            action_url: null,
+          },
   };
+  const systemCheckItems = (): SystemCheckItem[] => {
+    const noNode = sc.flags.has("no-node") || sc.flags.has("needs-setup");
+    const provider = (id: ProviderId): SystemCheckItem => {
+      const p = hybrid.providers.find((x) => x.id === id);
+      const label = id === "claude" ? "Claude Code" : "Codex";
+      if (!p || !p.installed)
+        return { id, label, status: "missing", detail: `${label} is not installed. Relay can still work with Relay Local AI.`, action: null };
+      if (!p.logged_in) return { id, label, status: "warn", detail: `${label} is installed but not signed in.`, action: null };
+      return { id, label, status: "ok", detail: `${label} ${p.version ?? ""} is ready.`.replace("  ", " "), action: null };
+    };
+    return [
+      localAvailable
+        ? { id: "local_ai", label: "Relay Local AI", status: "ok", detail: "Running qwen3:14b on this PC.", action: null }
+        : { id: "local_ai", label: "Relay Local AI", status: "missing", detail: "Not set up yet. Relay downloads and runs it on this PC.", action: { kind: "command", value: "local_ai_setup", label: "Set up Relay Local AI" } },
+      provider("claude"),
+      provider("codex"),
+      noNode
+        ? { id: "node", label: "Node.js", status: "missing", detail: "Node.js was not found. Browser control needs it.", action: { kind: "url", value: "https://nodejs.org/", label: "Get Node.js" } }
+        : { id: "node", label: "Node.js", status: "ok", detail: "Node.js 24.21.0", action: null },
+      sc.flags.has("needs-setup")
+        ? { id: "browser", label: "Browser control", status: "missing", detail: "The Playwright MCP Bridge extension is not installed in Google Chrome.", action: { kind: "url", value: "https://chromewebstore.google.com/detail/playwright-mcp-bridge/mmlmfjhmonkocbjadbfplnigmagldckm", label: "Get the Playwright extension" } }
+        : noNode
+          ? { id: "browser", label: "Browser control", status: "missing", detail: "Needs Node.js.", action: null }
+          : sc.flags.has("browser-separate")
+            ? { id: "browser", label: "Browser control", status: "warn", detail: "Uses a separate Relay browser. Add the Playwright extension to use your own browser and sign-ins.", action: { kind: "url", value: "https://chromewebstore.google.com/detail/playwright-mcp-bridge/mmlmfjhmonkocbjadbfplnigmagldckm", label: "Get the Playwright extension" } }
+            : { id: "browser", label: "Browser control", status: "ok", detail: "Uses your Google Chrome through the Playwright extension.", action: null },
+    ];
+  };
+  // get_appearance / set_appearance: an opaque object, merged key by key (null removes a key).
+  let appearance: Record<string, unknown> = {};
   // Probing the CLIs takes seconds in the real app; `slow-probe` simulates it (not shortened by `fast`).
   const probe = (ms: number) => new Promise<void>((r) => setTimeout(r, sc.flags.has("slow-probe") ? 3000 : Math.max(1, ms * speed)));
 
@@ -1209,6 +1264,25 @@ export function createMockTransport(scenario: Scenario = readScenario()): Transp
     },
     open_link: () => undefined,
     open_url: () => undefined,
+    system_check: async () => {
+      await probe(900);
+      const items = systemCheckItems();
+      return { items, ok: items.filter((i) => i.status === "ok").length, total: items.length };
+    },
+    get_appearance: () => structuredClone(appearance),
+    set_appearance: (a) => {
+      const patch = a.patch;
+      if (!patch || typeof patch !== "object" || Array.isArray(patch)) throw new Error("appearance must be an object");
+      const entries = Object.entries(patch as Record<string, unknown>);
+      if (entries.length > 64 || entries.some(([k]) => k.length > 64)) throw new Error("too many appearance settings");
+      const next = { ...appearance };
+      for (const [k, v] of entries) {
+        if (v === null) delete next[k];
+        else next[k] = structuredClone(v);
+      }
+      appearance = next;
+      return structuredClone(appearance);
+    },
     installer_info: () => {
       const q = new URLSearchParams(typeof location !== "undefined" ? location.search : "");
       const m = q.get("mode");

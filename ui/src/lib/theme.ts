@@ -2,11 +2,24 @@
 // src/styles/tokens.css; this module holds labels, preview swatches (kept equal to the CSS by
 // tokens.test.ts), colour maths and the derivation for custom background/foreground colours.
 
+import { isCodeThemeId, RELAY_CODE_DARK, RELAY_CODE_LIGHT } from "./codeThemes";
+
 export type Mode = "system" | "light" | "dark";
 export type ThemeName = "relay" | "graphite" | "midnight";
 export type AccentName = "terracotta" | "sage" | "indigo" | "plum" | "ink";
 export type Scheme = "light" | "dark";
 export type ProseFont = "sans" | "serif";
+
+export type UiFont = "inter" | "system" | "atkinson";
+export type TextSize = "small" | "medium" | "large";
+export type Density = "comfortable" | "compact";
+/** How much of a task the timeline shows: verdict only, the step list, or every detail and the raw log. */
+export type TaskView = "simple" | "detailed" | "verbose";
+
+export const SIDEBAR_MIN = 220;
+export const SIDEBAR_MAX = 420;
+export const SIDEBAR_DEFAULT = 280;
+export const CODE_FONT_MAX = 80;
 
 export type Appearance = {
   mode: Mode;
@@ -16,9 +29,50 @@ export type Appearance = {
   prose: ProseFont;
   /** Optional background / foreground overrides, per resolved scheme. */
   custom: Partial<Record<Scheme, { bg?: string; fg?: string }>>;
+  /** Code theme ids (lib/codeThemes.ts) for light and dark mode. */
+  codeThemeLight: string;
+  codeThemeDark: string;
+  /** A monospace font family name for code; "" = the bundled Geist Mono. */
+  codeFont: string;
+  uiFont: UiFont;
+  textSize: TextSize;
+  density: Density;
+  taskView: TaskView;
+  /** Expanded sidebar width in px (SIDEBAR_MIN..SIDEBAR_MAX). */
+  sidebarWidth: number;
 };
 
-export const DEFAULT_APPEARANCE: Appearance = { mode: "system", theme: "relay", accent: "terracotta", prose: "sans", custom: {} };
+export const DEFAULT_APPEARANCE: Appearance = {
+  mode: "system",
+  theme: "relay",
+  accent: "terracotta",
+  prose: "sans",
+  custom: {},
+  codeThemeLight: RELAY_CODE_LIGHT,
+  codeThemeDark: RELAY_CODE_DARK,
+  codeFont: "",
+  uiFont: "inter",
+  textSize: "medium",
+  density: "comfortable",
+  taskView: "detailed",
+  sidebarWidth: SIDEBAR_DEFAULT,
+};
+
+export const APPEARANCE_KEYS = Object.keys(DEFAULT_APPEARANCE) as (keyof Appearance)[];
+
+export function clampSidebarWidth(w: number): number {
+  if (!Number.isFinite(w)) return SIDEBAR_DEFAULT;
+  return Math.round(Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, w)));
+}
+
+/** A font family name safe to put in CSS: no quotes, semicolons, braces or angle brackets. */
+export function sanitizeFontName(v: string): string {
+  return v
+    .replace(/["'`;{}<>\\]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, CODE_FONT_MAX);
+}
 
 export type Swatch = { bg: string; sidebar: string; surface: string; fg: string; muted: string };
 
@@ -187,18 +241,47 @@ export const CUSTOM_VAR_NAMES = [
   "--relay-sidebar-translucent",
 ];
 
+function oneOf<T extends string>(v: unknown, options: readonly T[], fallback: T): T {
+  return typeof v === "string" && (options as readonly string[]).includes(v) ? (v as T) : fallback;
+}
+
+/** Reads stored appearance (localStorage cache or get_appearance) leniently: unknown or invalid
+ *  values fall back to the defaults one field at a time, so a bad key never resets the rest. */
+export function normalizeAppearance(input: unknown): Appearance {
+  const v = (input && typeof input === "object" && !Array.isArray(input) ? input : {}) as Record<string, unknown>;
+  const d = DEFAULT_APPEARANCE;
+  const custom = v.custom && typeof v.custom === "object" && !Array.isArray(v.custom) ? (v.custom as Appearance["custom"]) : {};
+  return {
+    mode: oneOf(v.mode, ["system", "light", "dark"], d.mode),
+    theme: oneOf(v.theme, Object.keys(THEMES) as ThemeName[], d.theme),
+    accent: oneOf(v.accent, Object.keys(ACCENTS) as AccentName[], d.accent),
+    prose: oneOf(v.prose, ["sans", "serif"], d.prose),
+    custom,
+    codeThemeLight: isCodeThemeId(v.codeThemeLight, "light") ? v.codeThemeLight : d.codeThemeLight,
+    codeThemeDark: isCodeThemeId(v.codeThemeDark, "dark") ? v.codeThemeDark : d.codeThemeDark,
+    codeFont: typeof v.codeFont === "string" ? sanitizeFontName(v.codeFont) : d.codeFont,
+    uiFont: oneOf(v.uiFont, ["inter", "system", "atkinson"], d.uiFont),
+    textSize: oneOf(v.textSize, ["small", "medium", "large"], d.textSize),
+    density: oneOf(v.density, ["comfortable", "compact"], d.density),
+    taskView: oneOf(v.taskView, ["simple", "detailed", "verbose"], d.taskView),
+    sidebarWidth: typeof v.sidebarWidth === "number" ? clampSidebarWidth(v.sidebarWidth) : d.sidebarWidth,
+  };
+}
+
 export function parseAppearance(raw: string | null): Appearance {
   if (!raw) return DEFAULT_APPEARANCE;
   try {
-    const v = JSON.parse(raw) as Partial<Appearance>;
-    return {
-      mode: v.mode === "light" || v.mode === "dark" || v.mode === "system" ? v.mode : DEFAULT_APPEARANCE.mode,
-      theme: v.theme && v.theme in THEMES ? v.theme : DEFAULT_APPEARANCE.theme,
-      accent: v.accent && v.accent in ACCENTS ? v.accent : DEFAULT_APPEARANCE.accent,
-      prose: v.prose === "serif" ? "serif" : "sans",
-      custom: v.custom && typeof v.custom === "object" ? v.custom : {},
-    };
+    return normalizeAppearance(JSON.parse(raw));
   } catch {
     return DEFAULT_APPEARANCE;
   }
+}
+
+/** The keys whose value differs between `a` and `b`, with `b`'s values (a set_appearance patch). */
+export function appearanceDiff(a: Appearance, b: Appearance): Partial<Appearance> {
+  const out: Partial<Appearance> = {};
+  for (const k of APPEARANCE_KEYS) {
+    if (JSON.stringify(a[k]) !== JSON.stringify(b[k])) (out as Record<string, unknown>)[k] = b[k];
+  }
+  return out;
 }

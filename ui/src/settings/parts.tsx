@@ -48,7 +48,7 @@ export function Row({
   id?: string;
 }) {
   return (
-    <div className={cn("flex gap-4 py-3.5", stack ? "flex-col items-stretch" : "items-center")}>
+    <div className={cn("flex gap-4 py-(--relay-setting-pad)", stack ? "flex-col items-stretch" : "items-center")}>
       <div className="min-w-0 flex-1">
         {htmlFor ? (
           <label htmlFor={htmlFor} id={id} className="block text-ui font-medium text-fg">

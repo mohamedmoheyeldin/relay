@@ -93,7 +93,7 @@ tool output stay sans for density.
   composer 22, full for pills.
 - Lines: 1px hairlines in `--relay-border` (decorative, ~1.5:1); control boundaries use
   `--relay-border-strong` (>= 3:1, WCAG 1.4.11).
-- Layout: sidebar 280px (rail 56px), transcript column 768px, header 48px. Narrow below 768px:
+- Layout: sidebar 280px by default, resizable 220-420px (`--relay-sidebar-w`, saved as `sidebarWidth`; rail 56px), transcript column 768px, header 48px. Narrow below 768px:
   the sidebar becomes an overlay drawer.
 - Title bar: `--relay-titlebar-inset` (76px) and `--relay-titlebar-top` (28px) are non-zero only
   for the macOS overlay title bar, reserving the traffic lights; top bars carry
@@ -192,6 +192,30 @@ Product components:
 - **Composer and context controls** (`components/chat/`): centred card with attach, project chip,
   round send/stop; under it the privacy-mode segmented control and the provider picker (status
   per provider, unavailable ones stay listed with the reason and the command to fix it).
+- **Appearance options** (Settings › Appearance, `store/appearance.ts`): interface font (Inter /
+  System / Atkinson Hyperlegible, `data-ui-font`), text size (Small / Medium / Large scale the
+  message, body and code tokens, `data-text-size`), density (`data-density`), default task view
+  (Simple: verdict and final message, pending approvals stay visible; Detailed: the step list;
+  Verbose: every step opened and the raw log), mode, theme, accent and custom colours. All apply at
+  once; saved through `set_appearance` with localStorage as the first-paint cache.
+- **Code appearance** (`settings/CodeAppearance.tsx`, `lib/codeThemes.ts`): a searchable combobox
+  per scheme (light themes: Relay, GitHub Light, One Light, Catppuccin Latte, Solarized Light,
+  Vitesse Light, Min Light, Rosé Pine Dawn; dark: Relay, GitHub Dark, GitHub Dark Dimmed, One Dark
+  Pro, Dracula, Dracula Soft, Catppuccin Mocha, Vitesse Dark, Min Dark, Monokai, Tokyo Night, Night
+  Owl, Rosé Pine, Ayu Dark, Solarized Dark), each with a live preview (TypeScript snippet, line
+  numbers, one removed line on a red tint and one added line on a green tint, marked "-"/"+" so it is
+  not colour only). The themes ship with shiki and load lazily; "Relay" keeps `--relay-code-bg` and
+  the previous syntax colours. A chosen theme sets `--relay-code-bg`/`--relay-code-fg` so code
+  blocks use the theme's own background (its syntax colours were designed for it). Code font:
+  any installed monospace family (`--relay-font-code`), empty = Geist Mono.
+- **Sidebar resize handle** (`components/shell/SidebarResizer.tsx`): 8px hit area on the sidebar's
+  right edge, col-resize cursor, a 2px line on hover/focus/drag, tooltip "Drag to resize"; a
+  vertical separator with its value; arrows ±16px (Shift ±48), Home/End limits, Enter or
+  double-click resets 280px. Hidden while collapsed; Ctrl+B still toggles. The settings navigation
+  keeps its fixed 260px column (it is a different component).
+- **System check** (`settings/SystemCheckSection.tsx`, Home `SystemCheckBanner.tsx`): rows with an
+  icon and the status in words (Ready / Needs attention / Missing), detail and fix button; skeletons
+  while probing; the Home banner is a small warning-tinted line with "Review" and Dismiss.
 - **Sidebar** (`components/shell/Sidebar.tsx`), **search palette**, **task history** page,
   **settings** page, **installer** screens.
 
@@ -253,14 +277,17 @@ ships in `ui/public/licenses/`.
 | Inter (variable, wght) | `@fontsource-variable/inter` | 5.3.0 | SIL OFL 1.1 | 2016 The Inter Project Authors |
 | Newsreader (variable, opsz+wght) | `@fontsource-variable/newsreader` | 5.3.0 | SIL OFL 1.1 | 2020 The Newsreader Project Authors (Production Type) |
 | Geist Mono (variable, wght) | `@fontsource-variable/geist-mono` | 5.3.0 | SIL OFL 1.1 | 2024 The Geist Project Authors |
+| Atkinson Hyperlegible Next (variable, wght) | `@fontsource-variable/atkinson-hyperlegible-next` | 5.3.0 | SIL OFL 1.1 | 2020-2024 The Atkinson Hyperlegible Next Project Authors |
 
-Fallbacks: Segoe UI Variable / system-ui, Georgia, Cascadia Mono / Consolas. Fontsource splits
+Atkinson Hyperlegible Next is only downloaded when it is chosen as the interface font (font files
+load on first use). Fallbacks: Segoe UI Variable / system-ui, Georgia, Cascadia Mono / Consolas. Fontsource splits
 each font by unicode range, so only the subsets a page uses are loaded.
 
 ## 6. Decisions and trade-offs
 
-- **Density control: not added.** Rows are already 32px and the transcript is reading-oriented;
-  a second density would double the visual-regression surface for little gain.
+- **Density control: added (October 2026, owner request).** It supersedes the earlier "not added"
+  decision. Compact changes only three variables (`--relay-list-row` 32 -> 28px, `--relay-step-min` /
+  `--relay-step-pad` 40/8 -> 32/4px, `--relay-setting-pad` 14 -> 10px); visual baselines cover the default.
 - **TanStack Table: not used.** Task history is a single-column virtualised listbox with a
   filter; it has no sortable columns, so a table abstraction would add weight without benefit.
 - **Transcript virtualisation** switches on above 40 items (TanStack Virtual, loaded lazily);

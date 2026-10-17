@@ -4,6 +4,8 @@
 // visibly in development (console error + toast), softly in production (warning, data kept).
 import * as z from "zod/mini";
 import {
+  AppearanceRecordSchema,
+  SystemCheckSchema,
   ConvSummarySchema,
   ConversationSchema,
   EnginesSchema,
@@ -21,6 +23,7 @@ import {
   UiEventSchema,
   WorkflowSchema,
   WorkflowSummarySchema,
+  type AppearancePatch,
   type HybridPatch,
   type LinkKind,
   type SettingsPatch,
@@ -195,6 +198,9 @@ export const api = {
   pickFiles: () => callAs("pick_files", StringList),
   openLink: (kind: LinkKind) => call("open_link", { kind }).then(() => undefined),
   openUrl: (url: string) => call("open_url", { url }).then(() => undefined),
+  systemCheck: () => callAs("system_check", SystemCheckSchema),
+  getAppearance: () => callAs("get_appearance", AppearanceRecordSchema),
+  setAppearance: (patch: AppearancePatch) => callAs("set_appearance", AppearanceRecordSchema, { patch }),
 
   installerInfo: () => callAs("installer_info", InstallerInfoSchema),
   installerInstall: (desktopShortcut: boolean, startWithWindows: boolean) =>

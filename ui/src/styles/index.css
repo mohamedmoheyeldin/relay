@@ -419,7 +419,7 @@
   margin: 1.4em 0;
 }
 .md :not(pre) > code {
-  font-family: var(--relay-font-mono);
+  font-family: var(--relay-font-code, var(--relay-font-mono));
   font-size: 0.86em;
   font-feature-settings: normal;
   font-variant-ligatures: none;
@@ -513,12 +513,12 @@
   overflow-wrap: normal;
   word-break: normal;
   tab-size: 4;
-  font-family: var(--relay-font-mono);
+  font-family: var(--relay-font-code, var(--relay-font-mono));
   font-size: var(--relay-text-code);
   line-height: var(--relay-leading-code);
   font-feature-settings: normal;
   font-variant-ligatures: none;
-  color: var(--relay-text);
+  color: var(--relay-code-fg, var(--relay-text));
   background: transparent !important;
 }
 .codeblock pre:focus-visible {
@@ -538,15 +538,22 @@
 
 :root[data-prose="serif"] .md {
   font-family: var(--relay-font-serif);
-  font-size: 16.5px;
-  line-height: 27px;
+  font-size: var(--relay-text-message-serif);
+  line-height: var(--relay-leading-message-serif);
 }
 :root[data-prose="serif"] .md code,
 :root[data-prose="serif"] .md table {
   font-family: var(--relay-font-sans);
 }
 :root[data-prose="serif"] .md :not(pre) > code {
-  font-family: var(--relay-font-mono);
+  font-family: var(--relay-font-code, var(--relay-font-mono));
+}
+
+/* Sidebar resize in progress: keep the column cursor everywhere and don't select text. */
+.is-resizing,
+.is-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
 }
 
 /* ---------------------------------------------------------------- reduced motion */

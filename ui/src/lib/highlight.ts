@@ -1,6 +1,7 @@
 // Lazy syntax highlighting with shiki (JavaScript regex engine: no WASM, CSP friendly).
 // Only this module imports shiki, and it is loaded on first use, so the main bundle stays small.
 import type { HighlighterCore } from "shiki/core";
+import { SHIKI_THEME_LOADERS } from "./codeThemes";
 
 const LANGS: Record<string, () => Promise<unknown>> = {
   javascript: () => import("shiki/dist/langs/javascript.mjs"),
@@ -66,45 +67,60 @@ export function canonicalLang(lang: string): string | null {
 
 let hlP: Promise<HighlighterCore> | null = null;
 const loaded = new Set<string>();
+const loadedThemes = new Set<string>();
 
 function highlighter(): Promise<HighlighterCore> {
   hlP ??= (async () => {
-    const [{ createHighlighterCore }, { createJavaScriptRegexEngine }, dark, light] = await Promise.all([
-      import("shiki/core"),
-      import("shiki/engine/javascript"),
-      import("shiki/dist/themes/github-dark-default.mjs"),
-      import("shiki/dist/themes/github-light-default.mjs"),
-    ]);
-    return createHighlighterCore({
-      themes: [dark.default, light.default],
-      langs: [],
-      engine: createJavaScriptRegexEngine({ forgiving: true }),
-    });
+    const [{ createHighlighterCore }, { createJavaScriptRegexEngine }] = await Promise.all([import("shiki/core"), import("shiki/engine/javascript")]);
+    return createHighlighterCore({ themes: [], langs: [], engine: createJavaScriptRegexEngine({ forgiving: true }) });
   })();
   return hlP;
 }
 
+async function ensureLang(hl: HighlighterCore, name: string) {
+  if (loaded.has(name)) return;
+  const mod = (await LANGS[name]!()) as { default: Parameters<HighlighterCore["loadLanguage"]>[0] };
+  await hl.loadLanguage(mod.default);
+  loaded.add(name);
+}
+
+async function ensureTheme(hl: HighlighterCore, name: string): Promise<string> {
+  const theme = SHIKI_THEME_LOADERS[name] ? name : "github-dark-default";
+  if (loadedThemes.has(theme)) return theme;
+  const mod = (await SHIKI_THEME_LOADERS[theme]!()) as { default: Parameters<HighlighterCore["loadTheme"]>[0] };
+  await hl.loadTheme(mod.default);
+  loadedThemes.add(theme);
+  return theme;
+}
+
 const cache = new Map<string, string>();
 
-/** Returns highlighted HTML, or null when the language is unknown. */
-export async function highlight(code: string, lang: string): Promise<string | null> {
+/** shiki theme names for the two colour schemes. */
+export type ThemePair = { light: string; dark: string };
+const DEFAULT_PAIR: ThemePair = { light: "github-light-default", dark: "github-dark-default" };
+
+/** Returns highlighted HTML (both schemes as CSS variables), or null when the language is unknown. */
+export async function highlight(code: string, lang: string, themes: ThemePair = DEFAULT_PAIR): Promise<string | null> {
   const name = canonicalLang(lang);
   if (!name) return null;
-  const key = `${name}\u0000${code}`;
+  const key = `${name}\u0000${themes.light}\u0000${themes.dark}\u0000${code}`;
   const hit = cache.get(key);
   if (hit) return hit;
   const hl = await highlighter();
-  if (!loaded.has(name)) {
-    const mod = (await LANGS[name]!()) as { default: Parameters<HighlighterCore["loadLanguage"]>[0] };
-    await hl.loadLanguage(mod.default);
-    loaded.add(name);
-  }
-  const html = hl.codeToHtml(code, {
-    lang: name,
-    themes: { dark: "github-dark-default", light: "github-light-default" },
-    defaultColor: false,
-  });
+  const [light, dark] = await Promise.all([ensureTheme(hl, themes.light), ensureTheme(hl, themes.dark), ensureLang(hl, name)]);
+  const html = hl.codeToHtml(code, { lang: name, themes: { dark, light }, defaultColor: false });
   if (cache.size > 200) cache.delete(cache.keys().next().value!);
   cache.set(key, html);
   return html;
+}
+
+export type Token = { content: string; color?: string };
+
+/** Tokens per line in one theme (used by the theme previews in Settings). */
+export async function tokenize(code: string, lang: string, theme: string): Promise<Token[][] | null> {
+  const name = canonicalLang(lang);
+  if (!name) return null;
+  const hl = await highlighter();
+  const [resolved] = await Promise.all([ensureTheme(hl, theme), ensureLang(hl, name)]);
+  return hl.codeToTokensBase(code, { lang: name, theme: resolved }).map((line) => line.map((t) => ({ content: t.content, color: t.color })));
 }
