@@ -30,5 +30,9 @@ tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
+[features]
+# Test-only: keeps the WebView2 debugging switch for the desktop E2E run. Never in a release build.
+e2e = []
+
 [lints]
 workspace = true

@@ -6,11 +6,19 @@
   "build": {
     "frontendDist": "../ui/dist",
     "devUrl": "http://127.0.0.1:1420",
-    "beforeDevCommand": { "script": "pnpm dev", "cwd": "../ui", "wait": false },
-    "beforeBuildCommand": { "script": "pnpm build", "cwd": "../ui", "wait": true }
+    "beforeDevCommand": {
+      "script": "pnpm dev",
+      "cwd": "../ui",
+      "wait": false
+    },
+    "beforeBuildCommand": {
+      "script": "pnpm build",
+      "cwd": "../ui",
+      "wait": true
+    }
   },
   "app": {
-    "withGlobalTauri": true,
+    "withGlobalTauri": false,
     "windows": [
       {
         "label": "main",
@@ -26,7 +34,8 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost ws://127.0.0.1:1420 http://127.0.0.1:1420"
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
+      "devCsp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost ws://127.0.0.1:1420 http://127.0.0.1:1420"
     }
   },
   "bundle": {
