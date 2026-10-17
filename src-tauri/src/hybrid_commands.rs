@@ -203,7 +203,7 @@ pub async fn set_hybrid(
         };
         settings.approval_mode = crate::settings::mode_to_str(approval).to_string();
         settings.save(&state.paths.settings_file).map_err(err)?;
-        let engine = settings.hybrid.to_engine();
+        let engine = crate::settings::engine_settings(&settings.hybrid);
         drop(settings);
         state.hybrid.update_settings(|s| *s = engine);
         state.host.set_approval_mode(approval);

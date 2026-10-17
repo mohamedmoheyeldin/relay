@@ -9,10 +9,12 @@
 //! * [`services`]: the native execution layer interface.
 //! * [`executor`]: permission check, confirmation, execution, verification, retry.
 
+pub mod config;
 pub mod context;
 pub mod executor;
 pub mod permissions;
 pub mod plan;
+pub mod report;
 pub mod router;
 pub mod services;
 pub mod system;

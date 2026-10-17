@@ -286,7 +286,7 @@ fn setup(app: &mut tauri::App) -> Result<()> {
         conv_store: conv_store.clone(),
         workflows: conv_store.clone(),
         work_dir: paths.work_dir.clone(),
-        settings: start.hybrid.to_engine(),
+        settings: crate::settings::engine_settings(&start.hybrid),
         sink: sink.clone(),
     });
     let agent = Agent::new(
