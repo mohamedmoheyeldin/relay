@@ -71,7 +71,7 @@ Contract between UI and backend: `docs/ui-contract.md`. Design tokens: `docs/Des
 - D38 Preferred browser is the owner's own (their sign-ins) via the official Playwright MCP Bridge extension (`--extension`);
   fallback is a separate Chrome/Edge profile. Brave Origin cannot be used with a fresh profile (purchase screen), so on PCs
   with only Brave Origin the extension is required. Relay never reads the browser profile beyond checking the extension folder.
-- D39 Cloud planning defaults: browser steps use a fast model at low effort, plans a mid model at low effort, written answers a
+- D39 Cloud defaults: website tasks prefer the cloud model in Hybrid; browser steps and plans use a mid model at low effort, written answers a
   mid model at medium effort, unless the owner picked a model. Transient CLI errors (sign-in refresh races, overload) retry once.
 - D40 "Sensitive" means real sensitive information (passwords, keys, ID/card numbers, key files), detected in
   `relay-orchestrator::sensitivity`; ordinary file reads no longer ask. Tags (`used` events) are emitted only for components that

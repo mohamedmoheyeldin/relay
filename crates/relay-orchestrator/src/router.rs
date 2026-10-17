@@ -484,6 +484,15 @@ pub fn route(task: &str, privacy: PrivacyMode, a: Abilities) -> Route {
             "Browser control is not available on this PC yet. It needs Node.js; see Settings, AI & Privacy.".into(),
         ),
         (Intent::Web, Strategy::CloudPlan(p) | Strategy::CloudAgent(p)) => Strategy::WebCloud(p),
+        // Reading unfamiliar websites goes better with the stronger cloud model when the owner allows it.
+        (Intent::Web, Strategy::LocalPlan)
+            if privacy == PrivacyMode::HybridAuto && !is_sensitive(task) && a.provider.is_some() =>
+        {
+            match a.provider {
+                Some(p) => Strategy::WebCloud(p),
+                None => Strategy::WebLocal,
+            }
+        }
         (Intent::Web, _) => Strategy::WebLocal,
         (_, other) => other,
     };

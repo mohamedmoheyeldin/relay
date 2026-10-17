@@ -424,7 +424,7 @@ impl Hybrid {
             .cloned()
             .unwrap_or_default();
         let (model, effort) = match (kind, purpose) {
-            (ProviderKind::Claude, Purpose::Step) => (Some("haiku"), Some("low")),
+            (ProviderKind::Claude, Purpose::Step) => (Some("sonnet"), Some("low")),
             (ProviderKind::Claude, Purpose::Plan) => (Some("sonnet"), Some("low")),
             (ProviderKind::Claude, Purpose::Answer) => (Some("sonnet"), Some("medium")),
             (ProviderKind::Codex, Purpose::Answer) => (None, Some("medium")),

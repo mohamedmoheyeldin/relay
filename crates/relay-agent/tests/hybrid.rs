@@ -1275,8 +1275,8 @@ async fn a_cloud_driven_website_task_shares_redacted_pages_only_when_allowed() {
     ));
     assert_eq!(
         r.claude.seen()[0].model.as_deref(),
-        Some("haiku"),
-        "browser steps use a fast model"
+        Some("sonnet"),
+        "browser steps use a capable model at low effort"
     );
 
     let off = rig(Opts {
