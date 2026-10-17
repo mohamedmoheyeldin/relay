@@ -151,8 +151,8 @@ pub fn line_for_ref<'a>(snapshot: &'a str, target: &str) -> Option<&'a str> {
 
 fn clean_ref(r: &str) -> String {
     r.trim()
-        .trim_start_matches("ref=")
         .trim_matches(['[', ']'])
+        .trim_start_matches("ref=")
         .to_string()
 }
 
