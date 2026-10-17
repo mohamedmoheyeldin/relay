@@ -7,6 +7,7 @@ members = [
     "crates/relay-mcp",
     "crates/relay-agent",
     "crates/relay-store",
+    "crates/relay-orchestrator",
     "src-tauri",
 ]
 
