@@ -231,6 +231,8 @@ pub enum BrowserPlan {
     /// The only browsers here need the extension to be usable (e.g. Brave Origin).
     NeedsBridge(InstalledBrowser),
     NoBrowser,
+    /// Playwright's own Chromium in a throw-away profile. Test builds only.
+    Bundled,
 }
 
 pub fn plan_browser(browsers: &[InstalledBrowser]) -> BrowserPlan {
@@ -247,6 +249,28 @@ pub fn plan_browser(browsers: &[InstalledBrowser]) -> BrowserPlan {
         Some(b) => BrowserPlan::NeedsBridge(b.clone()),
         None => BrowserPlan::NoBrowser,
     }
+}
+
+/// The newest Chromium that Playwright has downloaded on this PC, if any.
+pub fn playwright_chromium() -> Option<PathBuf> {
+    let base = std::env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)?
+        .join("ms-playwright");
+    let mut dirs: Vec<PathBuf> = std::fs::read_dir(&base)
+        .ok()?
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("chromium-"))
+        })
+        .collect();
+    dirs.sort();
+    dirs.into_iter()
+        .rev()
+        .map(|d| d.join("chrome-win64").join("chrome.exe"))
+        .find(|p| p.is_file())
 }
 
 /// Arguments for the Playwright MCP server.
@@ -268,6 +292,21 @@ pub fn server_args(plan: &BrowserPlan, profile: &Path) -> Option<Vec<String>> {
             profile.display().to_string(),
             "--block-service-workers".into(),
         ]),
+        BrowserPlan::Bundled => {
+            let mut args = vec!["-y".to_string(), PLAYWRIGHT_MCP.to_string()];
+            match playwright_chromium() {
+                Some(exe) => {
+                    args.push("--executable-path".into());
+                    args.push(exe.display().to_string());
+                }
+                None => {
+                    args.push("--browser".into());
+                    args.push("chromium".into());
+                }
+            }
+            args.push("--isolated".into());
+            Some(args)
+        }
         _ => None,
     }
 }
@@ -312,6 +351,12 @@ pub fn status_for(plan: &BrowserPlan, node: bool) -> BrowserStatus {
             action_url: Some(BRIDGE_URL.into()),
             mode: "none",
         },
+        BrowserPlan::Bundled => BrowserStatus {
+            available: true,
+            detail: "Test browser (Playwright Chromium, nothing saved).".into(),
+            action_url: None,
+            mode: "separate",
+        },
         BrowserPlan::NoBrowser => BrowserStatus {
             available: false,
             detail: "No Chrome, Edge or Brave browser was found on this PC.".into(),
@@ -344,6 +389,7 @@ fn extension_token() -> Option<String> {
 
 pub struct PlaywrightBrowser {
     profile: PathBuf,
+    forced: Option<BrowserPlan>,
     client: AsyncMutex<Option<(Arc<McpClient>, BrowserPlan)>>,
 }
 
@@ -351,8 +397,32 @@ impl PlaywrightBrowser {
     pub fn new(profile_dir: PathBuf) -> Self {
         Self {
             profile: profile_dir,
+            forced: None,
             client: AsyncMutex::new(None),
         }
+    }
+
+    /// Always use Playwright's own Chromium (end-to-end tests; never the owner's browser).
+    pub fn bundled_for_tests(profile_dir: PathBuf) -> Self {
+        Self {
+            profile: profile_dir,
+            forced: Some(BrowserPlan::Bundled),
+            client: AsyncMutex::new(None),
+        }
+    }
+
+    /// Where the server writes large page snapshots (they are read back and deleted).
+    fn work_dir(&self) -> PathBuf {
+        self.profile
+            .parent()
+            .map(|p| p.join("browser-work"))
+            .unwrap_or_else(|| std::env::temp_dir().join("relay-browser-work"))
+    }
+
+    fn plan(&self) -> BrowserPlan {
+        self.forced
+            .clone()
+            .unwrap_or_else(|| plan_browser(&installed_browsers()))
     }
 
     async fn client(&self) -> Result<(Arc<McpClient>, BrowserPlan), String> {
@@ -361,7 +431,7 @@ impl PlaywrightBrowser {
             return Ok(c.clone());
         }
         let npx = find_npx().ok_or("Node.js was not found")?;
-        let plan = plan_browser(&installed_browsers());
+        let plan = self.plan();
         let args =
             server_args(&plan, &self.profile).ok_or_else(|| status_for(&plan, true).detail)?;
         if matches!(plan, BrowserPlan::Separate(_)) {
@@ -374,11 +444,12 @@ impl PlaywrightBrowser {
                 env.push(("PLAYWRIGHT_MCP_EXTENSION_TOKEN".to_string(), t));
             }
         }
+        let _ = std::fs::create_dir_all(self.work_dir());
         let cmd = ServerCommand {
             program: npx,
             args,
             env,
-            ..ServerCommand::default()
+            cwd: Some(self.work_dir()),
         };
         let client = McpClient::start("playwright", &cmd, Duration::from_secs(120))
             .await
@@ -391,7 +462,7 @@ impl PlaywrightBrowser {
 #[async_trait]
 impl BrowserDriver for PlaywrightBrowser {
     async fn status(&self) -> BrowserStatus {
-        status_for(&plan_browser(&installed_browsers()), find_npx().is_some())
+        status_for(&self.plan(), find_npx().is_some())
     }
 
     async fn call(
@@ -403,7 +474,7 @@ impl BrowserDriver for PlaywrightBrowser {
         let (client, plan) = self.client().await?;
         match client.call(tool, args, timeout).await {
             Ok(r) => Ok(BrowserOutput {
-                text: r.text,
+                text: inline_snapshot(&r.text, &self.work_dir()),
                 is_error: r.is_error,
             }),
             Err(McpError::Timeout(_)) if matches!(plan, BrowserPlan::Yours(_)) => {
@@ -432,7 +503,7 @@ impl BrowserDriver for PlaywrightBrowser {
         let client = self.client.lock().await.take();
         if let Some((c, plan)) = client {
             // Never close the owner's own browser; only the separate one Relay started.
-            if matches!(plan, BrowserPlan::Separate(_)) {
+            if matches!(plan, BrowserPlan::Separate(_) | BrowserPlan::Bundled) {
                 let _ = c
                     .call(
                         "browser_close",
@@ -443,6 +514,76 @@ impl BrowserDriver for PlaywrightBrowser {
             }
             c.shutdown().await;
         }
+    }
+}
+
+/// Large pages come back as a link to a snapshot file (`- [Snapshot](.playwright-mcp\page-….yml)`).
+/// Put the file's content back in place so the planner sees the page, then delete the file.
+pub fn inline_snapshot(text: &str, work: &Path) -> String {
+    let Some(start) = text.find("[Snapshot](") else {
+        return text.to_string();
+    };
+    let rest = &text[start + "[Snapshot](".len()..];
+    let Some(end) = rest.find(')') else {
+        return text.to_string();
+    };
+    let rel = &rest[..end];
+    let path = {
+        let p = PathBuf::from(rel);
+        if p.is_absolute() {
+            p
+        } else {
+            work.join(p)
+        }
+    };
+    // Only files inside the work folder are read.
+    let inside = path
+        .canonicalize()
+        .ok()
+        .zip(work.canonicalize().ok())
+        .is_some_and(|(p, w)| p.starts_with(w));
+    if !inside {
+        return text.to_string();
+    }
+    let Ok(body) = std::fs::read_to_string(&path) else {
+        return text.to_string();
+    };
+    let _ = std::fs::remove_file(&path);
+    let line_start = text[..start].rfind('\n').map(|i| i + 1).unwrap_or(0);
+    let line_end = text[start..]
+        .find('\n')
+        .map(|i| start + i)
+        .unwrap_or(text.len());
+    format!(
+        "{}```yaml\n{}\n```{}",
+        &text[..line_start],
+        body.trim_end(),
+        &text[line_end..]
+    )
+}
+
+#[cfg(test)]
+mod snapshot_tests {
+    use super::*;
+
+    #[test]
+    fn file_snapshots_are_put_back_inline_and_removed() {
+        let work = std::env::temp_dir().join(format!("relay-snap-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(work.join(".playwright-mcp"));
+        let file = work.join(".playwright-mcp").join("page-1.yml");
+        let _ = std::fs::write(&file, "- button \"Easy Apply\" [ref=e12]\n");
+        let text = "### Page\n- Page URL: https://www.dice.com/jobs\n### Snapshot\n- [Snapshot](.playwright-mcp\\page-1.yml)\n### Events\n- x";
+        let out = inline_snapshot(text, &work);
+        assert!(
+            out.contains("[ref=e12]") && out.contains("### Events"),
+            "{out}"
+        );
+        assert!(!out.contains("[Snapshot]("));
+        assert!(!file.exists(), "the file is cleaned up");
+        // Paths outside the work folder are never read.
+        let outside = "### Snapshot\n- [Snapshot](C:\\Windows\\win.ini)\n";
+        assert_eq!(inline_snapshot(outside, &work), outside);
+        let _ = std::fs::remove_dir_all(&work);
     }
 }
 

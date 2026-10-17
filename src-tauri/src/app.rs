@@ -281,10 +281,19 @@ fn setup(app: &mut tauri::App) -> Result<()> {
     let setup = LocalSetup::new(handle.clone(), engine, local.clone());
     let conv_store = Arc::new(StoreAdapter::new(store.clone(), settings.clone()));
     relay_agent::browser::set_extension_token(start.hybrid.browser_token.clone());
-    let browser = Arc::new(relay_agent::browser::SwitchableBrowser::new(
-        Arc::new(relay_agent::browser::PlaywrightBrowser::new(
+    // Test builds can be told to use Playwright's own Chromium so end-to-end runs never touch the
+    // owner's browser. Release builds ignore the variable.
+    let test_browser =
+        cfg!(feature = "e2e") && std::env::var("RELAY_TEST_BROWSER").is_ok_and(|v| v == "bundled");
+    let driver = if test_browser {
+        relay_agent::browser::PlaywrightBrowser::bundled_for_tests(
             paths.data_dir.join("browser-profile"),
-        )),
+        )
+    } else {
+        relay_agent::browser::PlaywrightBrowser::new(paths.data_dir.join("browser-profile"))
+    };
+    let browser = Arc::new(relay_agent::browser::SwitchableBrowser::new(
+        Arc::new(driver),
         start.hybrid.browser_enabled,
     ));
     let hybrid = Hybrid::new(HybridParts {
