@@ -1,9 +1,12 @@
+// Appearance preferences (per PC, localStorage) applied to <html> as data attributes; tokens.css
+// does the rest. Imported by main.tsx before the first render so there is no flash of the wrong theme.
 import { create } from "zustand";
 import {
+  CUSTOM_VAR_NAMES,
+  customVars,
   DEFAULT_APPEARANCE,
   parseAppearance,
   resolveScheme,
-  themeVars,
   type Appearance,
   type Scheme,
 } from "../lib/theme";
@@ -18,7 +21,7 @@ function load(): Appearance {
   }
 }
 
-const media = typeof window !== "undefined" ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+const media = typeof window !== "undefined" && typeof window.matchMedia === "function" ? window.matchMedia("(prefers-color-scheme: dark)") : null;
 
 type S = {
   appearance: Appearance;
@@ -28,14 +31,21 @@ type S = {
   resetCustom: () => void;
 };
 
-function apply(a: Appearance): Scheme {
-  const scheme = resolveScheme(a.mode, media?.matches ?? true);
+export function applyAppearance(a: Appearance): Scheme {
+  const scheme = resolveScheme(a.mode, media?.matches ?? false);
+  if (typeof document === "undefined") return scheme;
   const root = document.documentElement;
-  const vars = themeVars(a, scheme);
-  for (const [k, v] of Object.entries(vars)) root.style.setProperty(k, v);
   root.dataset.mode = scheme;
   root.dataset.theme = a.theme;
+  root.dataset.accent = a.accent;
+  root.dataset.prose = a.prose;
   root.style.colorScheme = scheme;
+  const vars = customVars(a, scheme);
+  for (const name of CUSTOM_VAR_NAMES) {
+    const v = vars?.[name];
+    if (v) root.style.setProperty(name, v);
+    else root.style.removeProperty(name);
+  }
   return scheme;
 }
 
@@ -51,11 +61,11 @@ const initial = load();
 
 export const useAppearance = create<S>()((set, get) => ({
   appearance: initial,
-  scheme: typeof document !== "undefined" ? apply(initial) : "dark",
+  scheme: applyAppearance(initial),
   set: (p) => {
     const appearance = { ...get().appearance, ...p };
     persist(appearance);
-    set({ appearance, scheme: apply(appearance) });
+    set({ appearance, scheme: applyAppearance(appearance) });
   },
   setCustom: (key, value) => {
     const { appearance, scheme } = get();
@@ -74,5 +84,5 @@ export const useAppearance = create<S>()((set, get) => ({
 
 media?.addEventListener("change", () => {
   const { appearance } = useAppearance.getState();
-  if (appearance.mode === "system") useAppearance.setState({ scheme: apply(appearance) });
+  if (appearance.mode === "system") useAppearance.setState({ scheme: applyAppearance(appearance) });
 });

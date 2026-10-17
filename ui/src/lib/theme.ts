@@ -1,76 +1,65 @@
-// Appearance: themes, accents and custom colours resolved to CSS variables. Pure; tested in theme.test.ts.
+// Appearance: themes, accents and custom colours. The palettes themselves live in
+// src/styles/tokens.css; this module holds labels, preview swatches (kept equal to the CSS by
+// tokens.test.ts), colour maths and the derivation for custom background/foreground colours.
 
 export type Mode = "system" | "light" | "dark";
-export type ThemeName = "relay" | "midnight" | "graphite" | "paper";
-export type AccentName = "blue" | "green" | "yellow" | "pink" | "orange" | "purple" | "gray";
+export type ThemeName = "relay" | "graphite" | "midnight";
+export type AccentName = "terracotta" | "sage" | "indigo" | "plum" | "ink";
 export type Scheme = "light" | "dark";
+export type ProseFont = "sans" | "serif";
 
 export type Appearance = {
   mode: Mode;
   theme: ThemeName;
   accent: AccentName;
+  /** Font for assistant answers. Chrome and tool output always use the sans face. */
+  prose: ProseFont;
   /** Optional background / foreground overrides, per resolved scheme. */
   custom: Partial<Record<Scheme, { bg?: string; fg?: string }>>;
 };
 
-export const DEFAULT_APPEARANCE: Appearance = { mode: "dark", theme: "relay", accent: "blue", custom: {} };
+export const DEFAULT_APPEARANCE: Appearance = { mode: "system", theme: "relay", accent: "terracotta", prose: "sans", custom: {} };
 
-type Palette = {
-  bg: string;
-  sidebar: string;
-  surface: string; // composer, user bubble
-  elevated: string; // menus, dialogs
-  fg: string;
-  muted: string;
-  subtle: string;
-};
+export type Swatch = { bg: string; sidebar: string; surface: string; fg: string; muted: string };
 
-export const THEMES: Record<ThemeName, { label: string; description: string; dark: Palette; light: Palette }> = {
+export const THEMES: Record<ThemeName, { label: string; description: string; light: Swatch; dark: Swatch }> = {
   relay: {
     label: "Relay",
-    description: "Soft charcoal, the default",
-    dark: { bg: "#212121", sidebar: "#181818", surface: "#303030", elevated: "#353535", fg: "#ececec", muted: "#b4b4b4", subtle: "#8f8f8f" },
-    light: { bg: "#ffffff", sidebar: "#f9f9f9", surface: "#f4f4f4", elevated: "#ffffff", fg: "#0d0d0d", muted: "#5d5d5d", subtle: "#8f8f8f" },
-  },
-  midnight: {
-    label: "Midnight",
-    description: "True black with crisp text",
-    dark: { bg: "#000000", sidebar: "#000000", surface: "#1f1f1f", elevated: "#1c1c1c", fg: "#ededed", muted: "#ababab", subtle: "#7d7d7d" },
-    light: { bg: "#ffffff", sidebar: "#ffffff", surface: "#f2f2f2", elevated: "#ffffff", fg: "#000000", muted: "#555555", subtle: "#8a8a8a" },
+    description: "Warm paper and charcoal, the default",
+    light: { bg: "#faf7f2", sidebar: "#f1ede4", surface: "#fffefb", fg: "#1f1d1a", muted: "#6b665b" },
+    dark: { bg: "#1c1a17", sidebar: "#151311", surface: "#262320", fg: "#f2ede4", muted: "#9a9385" },
   },
   graphite: {
     label: "Graphite",
-    description: "Cool blue-grey",
-    dark: { bg: "#1b1d21", sidebar: "#141619", surface: "#2a2d33", elevated: "#2e3138", fg: "#e6e8ec", muted: "#a5aab4", subtle: "#7e8490" },
-    light: { bg: "#f6f7f9", sidebar: "#eceef2", surface: "#e7eaef", elevated: "#ffffff", fg: "#15171b", muted: "#555b66", subtle: "#878d98" },
+    description: "Cool, neutral greys",
+    light: { bg: "#f7f7f8", sidebar: "#eeeff1", surface: "#ffffff", fg: "#17181b", muted: "#62666e" },
+    dark: { bg: "#18191c", sidebar: "#121315", surface: "#222327", fg: "#ecedef", muted: "#969aa3" },
   },
-  paper: {
-    label: "Paper",
-    description: "Warm and calm",
-    dark: { bg: "#1f1d1a", sidebar: "#181613", surface: "#2f2c27", elevated: "#34312b", fg: "#ede7dc", muted: "#b6ae9f", subtle: "#8c8577" },
-    light: { bg: "#faf8f3", sidebar: "#f1eee6", surface: "#eeeae0", elevated: "#fffdf8", fg: "#23201b", muted: "#6a6457", subtle: "#958e80" },
+  midnight: {
+    label: "Midnight",
+    description: "True black, crisp white",
+    light: { bg: "#ffffff", sidebar: "#f7f7f7", surface: "#ffffff", fg: "#0d0d0d", muted: "#666666" },
+    dark: { bg: "#000000", sidebar: "#0a0a0a", surface: "#161616", fg: "#ededed", muted: "#9a9a9a" },
   },
 };
 
-export const ACCENTS: Record<AccentName, { label: string; dark: string; light: string }> = {
-  blue: { label: "Blue", dark: "#4d8eff", light: "#1f6feb" },
-  green: { label: "Green", dark: "#3fbf7f", light: "#17834f" },
-  yellow: { label: "Yellow", dark: "#e6b422", light: "#946b00" },
-  pink: { label: "Pink", dark: "#f2669b", light: "#c93670" },
-  orange: { label: "Orange", dark: "#f5853f", light: "#c2530f" },
-  purple: { label: "Purple", dark: "#a78bfa", light: "#7445d6" },
-  gray: { label: "Gray", dark: "#a3a3a3", light: "#636363" },
+export const ACCENTS: Record<AccentName, { label: string; light: string; dark: string }> = {
+  terracotta: { label: "Terracotta", light: "#b4532f", dark: "#e58a67" },
+  sage: { label: "Sage", light: "#4e6b3a", dark: "#9cc07e" },
+  indigo: { label: "Indigo", light: "#4b5bb0", dark: "#9aa6ee" },
+  plum: { label: "Plum", light: "#8a4a78", dark: "#d597c2" },
+  ink: { label: "Ink", light: "#1f1d1a", dark: "#f2ede4" },
 };
 
 export const FOLDER_COLORS: Record<string, string> = {
-  green: "#3fae6a",
-  red: "#e5534b",
-  blue: "#4c8dff",
-  yellow: "#d9a521",
-  purple: "#a371f7",
-  orange: "#ec7a35",
-  pink: "#e2609a",
-  gray: "#8e8e8e",
+  green: "#5c8a3e",
+  red: "#c4553f",
+  blue: "#4a77b8",
+  yellow: "#c49a2c",
+  purple: "#8a63b8",
+  orange: "#d27a3b",
+  pink: "#c25a8a",
+  gray: "#8a857a",
 };
 export const PROJECT_COLORS = Object.keys(FOLDER_COLORS);
 export const folderColor = (c: string): string => FOLDER_COLORS[c] ?? FOLDER_COLORS.gray!;
@@ -80,7 +69,11 @@ export const folderColor = (c: string): string => FOLDER_COLORS[c] ?? FOLDER_COL
 /** "#abc" / "abc" / "#aabbcc" -> "#aabbcc" (lowercase), or null if invalid. */
 export function normalizeHex(input: string): string | null {
   let h = input.trim().replace(/^#/, "").toLowerCase();
-  if (/^[0-9a-f]{3}$/.test(h)) h = h.split("").map((c) => c + c).join("");
+  if (/^[0-9a-f]{3}$/.test(h))
+    h = h
+      .split("")
+      .map((c) => c + c)
+      .join("");
   return /^[0-9a-f]{6}$/.test(h) ? `#${h}` : null;
 }
 
@@ -90,7 +83,10 @@ export function hexToRgb(hex: string): [number, number, number] {
 }
 
 export function rgbToHex([r, g, b]: [number, number, number]): string {
-  const c = (n: number) => Math.round(Math.min(255, Math.max(0, n))).toString(16).padStart(2, "0");
+  const c = (n: number) =>
+    Math.round(Math.min(255, Math.max(0, n)))
+      .toString(16)
+      .padStart(2, "0");
   return `#${c(r)}${c(g)}${c(b)}`;
 }
 
@@ -120,70 +116,76 @@ export function alpha(hex: string, a: number): string {
   return `rgba(${r}, ${g}, ${b}, ${a})`;
 }
 
+/** Moves `fg` towards `bg` until it no longer meets `min` contrast, returning the last colour that does. */
+export function softenTo(fg: string, bg: string, min: number, maxT = 0.6): string {
+  let best = fg;
+  for (let t = 0.05; t <= maxT; t += 0.05) {
+    const c = mix(fg, bg, t);
+    if (contrast(c, bg) < min) break;
+    best = c;
+  }
+  return best;
+}
+
 // --- resolution ---------------------------------------------------------------------------
 
 export function resolveScheme(mode: Mode, systemDark: boolean): Scheme {
   return mode === "system" ? (systemDark ? "dark" : "light") : mode;
 }
 
-export function basePalette(theme: ThemeName, scheme: Scheme): Palette {
-  return (THEMES[theme] ?? THEMES.relay)[scheme];
-}
-
-/** Final palette after applying the user's background/foreground overrides. */
-export function effectivePalette(a: Appearance, scheme: Scheme): Palette {
-  const base = basePalette(a.theme, scheme);
+/** CSS variables overriding the theme when the user picked their own background/foreground.
+ *  Secondary and muted text are derived so they keep AA contrast against the chosen background. */
+export function customVars(a: Appearance, scheme: Scheme): Record<string, string> | null {
   const o = a.custom[scheme] ?? {};
   const bg = o.bg ? normalizeHex(o.bg) : null;
   const fg = o.fg ? normalizeHex(o.fg) : null;
-  if (!bg && !fg) return base;
+  if (!bg && !fg) return null;
+  const base = THEMES[a.theme][scheme];
   const B = bg ?? base.bg;
   const F = fg ?? base.fg;
-  const dark = luminance(B) < 0.35;
+  const dark = luminance(B) < 0.2;
+  const surface = mix(B, F, dark ? 0.06 : 0.0);
   return {
-    bg: B,
-    sidebar: bg ? (dark ? (luminance(B) < 0.005 ? B : mix(B, "#000000", 0.28)) : mix(B, F, 0.025)) : base.sidebar,
-    surface: mix(B, F, dark ? 0.1 : 0.045),
-    elevated: dark ? mix(B, F, 0.12) : mix(B, "#ffffff", 0.6),
-    fg: F,
-    muted: mix(F, B, 0.3),
-    subtle: mix(F, B, 0.47),
+    "--relay-bg": B,
+    "--relay-sidebar": dark ? mix(B, "#000000", 0.22) : mix(B, F, 0.035),
+    "--relay-surface": dark ? surface : mix(B, "#ffffff", 0.6),
+    "--relay-surface-raised": dark ? mix(B, F, 0.09) : mix(B, "#ffffff", 0.7),
+    "--relay-surface-sunk": dark ? mix(B, "#000000", 0.3) : mix(B, F, 0.05),
+    "--relay-text": F,
+    "--relay-text-2": softenTo(F, B, 7),
+    "--relay-text-muted": softenTo(F, B, 4.8),
+    "--relay-border": mix(B, F, dark ? 0.12 : 0.1),
+    "--relay-border-strong": softenTo(F, B, 3.1, 0.9),
+    "--relay-hover": alpha(F, dark ? 0.06 : 0.05),
+    "--relay-active": alpha(F, dark ? 0.1 : 0.09),
+    "--relay-bg-translucent": alpha(B, dark ? 0.72 : 0.78),
+    "--relay-sidebar-translucent": alpha(B, 0.5),
   };
 }
 
-/** CSS custom properties for the whole app. */
-export function themeVars(a: Appearance, scheme: Scheme): Record<string, string> {
-  const p = effectivePalette(a, scheme);
-  const dark = scheme === "dark";
-  const accent = (ACCENTS[a.accent] ?? ACCENTS.blue)[scheme];
-  return {
-    "--bg": p.bg,
-    "--sidebar": p.sidebar,
-    "--surface": p.surface,
-    "--elevated": p.elevated,
-    "--fg": p.fg,
-    "--muted": p.muted,
-    "--subtle": p.subtle,
-    "--border": alpha(p.fg, dark ? 0.1 : 0.1),
-    "--border-strong": alpha(p.fg, dark ? 0.16 : 0.15),
-    "--hover": alpha(p.fg, dark ? 0.07 : 0.05),
-    "--active": alpha(p.fg, dark ? 0.11 : 0.08),
-    "--accent": accent,
-    "--accent-soft": alpha(accent, dark ? 0.18 : 0.13),
-    "--accent-fg": luminance(accent) > 0.45 ? "#111111" : "#ffffff",
-    "--danger": dark ? "#f87171" : "#d92d20",
-    "--danger-soft": dark ? "rgba(248, 113, 113, 0.12)" : "rgba(217, 45, 32, 0.08)",
-    "--success": dark ? "#4ade80" : "#16a34a",
-    "--send-bg": p.fg,
-    "--send-fg": p.bg,
-    "--code-bg": dark ? mix(p.bg, "#000000", 0.35) : mix(p.bg, p.fg, 0.035),
-    "--code-head": dark ? mix(p.bg, p.fg, 0.07) : mix(p.bg, p.fg, 0.07),
-    "--scrim": dark ? "rgba(0, 0, 0, 0.55)" : "rgba(0, 0, 0, 0.3)",
-    "--shadow": dark
-      ? "0 8px 28px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.06)"
-      : "0 8px 28px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.06)",
-  };
+/** Background/foreground in effect for a scheme (custom overrides, else the theme). */
+export function effectiveSwatch(a: Appearance, scheme: Scheme): { bg: string; fg: string } {
+  const base = THEMES[a.theme][scheme];
+  const o = a.custom[scheme] ?? {};
+  return { bg: (o.bg && normalizeHex(o.bg)) || base.bg, fg: (o.fg && normalizeHex(o.fg)) || base.fg };
 }
+
+export const CUSTOM_VAR_NAMES = [
+  "--relay-bg",
+  "--relay-sidebar",
+  "--relay-surface",
+  "--relay-surface-raised",
+  "--relay-surface-sunk",
+  "--relay-text",
+  "--relay-text-2",
+  "--relay-text-muted",
+  "--relay-border",
+  "--relay-border-strong",
+  "--relay-hover",
+  "--relay-active",
+  "--relay-bg-translucent",
+  "--relay-sidebar-translucent",
+];
 
 export function parseAppearance(raw: string | null): Appearance {
   if (!raw) return DEFAULT_APPEARANCE;
@@ -193,6 +195,7 @@ export function parseAppearance(raw: string | null): Appearance {
       mode: v.mode === "light" || v.mode === "dark" || v.mode === "system" ? v.mode : DEFAULT_APPEARANCE.mode,
       theme: v.theme && v.theme in THEMES ? v.theme : DEFAULT_APPEARANCE.theme,
       accent: v.accent && v.accent in ACCENTS ? v.accent : DEFAULT_APPEARANCE.accent,
+      prose: v.prose === "serif" ? "serif" : "sans",
       custom: v.custom && typeof v.custom === "object" ? v.custom : {},
     };
   } catch {

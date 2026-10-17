@@ -1,0 +1,360 @@
+/*
+ * Relay design tokens. Source of truth for colour, type, space, radius, elevation, motion,
+ * z-index and focus. Documented in docs/design-system/Design-System.md; contrast of every text
+ * pair is checked by src/styles/tokens.test.ts (WCAG 2.x, AA).
+ *
+ * Selectors on <html>:
+ *   data-mode="light|dark"                 resolved colour scheme
+ *   data-theme="relay|graphite|midnight"   neutral palette
+ *   data-accent="terracotta|sage|indigo|plum|ink"
+ *   data-material="none|mica|vibrancy"     window material from get_platform
+ *   data-titlebar="native|overlay"         macOS overlay title bar reserves traffic-light space
+ * Values never use pure colours from other products; the accent is Relay's own terracotta.
+ */
+
+/* ---------------------------------------------------------------- scale tokens (all themes) */
+:root {
+  /* Typography */
+  --relay-font-serif: "Newsreader Variable", "Source Serif 4", Georgia, serif;
+  --relay-font-sans: "Inter Variable", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --relay-font-mono: "Geist Mono Variable", "Cascadia Mono", ui-monospace, Consolas, monospace;
+
+  --relay-text-display: 36px;
+  --relay-leading-display: 42px;
+  --relay-text-title: 26px;
+  --relay-leading-title: 32px;
+  --relay-text-heading: 17px;
+  --relay-leading-heading: 24px;
+  --relay-text-message: 15.5px;
+  --relay-leading-message: 26px;
+  --relay-text-body: 15px;
+  --relay-leading-body: 24px;
+  --relay-text-ui: 14px;
+  --relay-leading-ui: 20px;
+  --relay-text-caption: 12.5px;
+  --relay-leading-caption: 16px;
+  --relay-text-micro: 11.5px;
+  --relay-leading-micro: 14px;
+  --relay-text-code: 13px;
+  --relay-leading-code: 20px;
+  --relay-tracking-display: -0.015em;
+  --relay-tracking-title: -0.01em;
+
+  /* Space (4px base; 8px rhythm) */
+  --relay-space-0-5: 2px;
+  --relay-space-1: 4px;
+  --relay-space-1-5: 6px;
+  --relay-space-2: 8px;
+  --relay-space-3: 12px;
+  --relay-space-4: 16px;
+  --relay-space-5: 20px;
+  --relay-space-6: 24px;
+  --relay-space-8: 32px;
+  --relay-space-10: 40px;
+  --relay-space-12: 48px;
+  --relay-space-16: 64px;
+
+  /* Radii */
+  --relay-radius-xs: 4px;
+  --relay-radius-sm: 6px;
+  --relay-radius-md: 8px;
+  --relay-radius-lg: 12px;
+  --relay-radius-xl: 16px;
+  --relay-radius-composer: 22px;
+  --relay-radius-full: 9999px;
+
+  /* Lines */
+  --relay-border-width: 1px;
+  --relay-hairline: 0.5px;
+
+  /* Layout */
+  --relay-sidebar-w: 280px;
+  --relay-sidebar-w-collapsed: 56px;
+  --relay-content-max: 768px;
+  --relay-header-h: 48px;
+  --relay-ctl-h: 32px;
+  --relay-row-h: 34px;
+  --relay-titlebar-inset: 0px; /* left inset for macOS traffic lights (overlay title bar) */
+  --relay-titlebar-top: 0px; /* top inset for the collapsed rail under the traffic lights */
+
+  /* Motion */
+  --relay-dur-instant: 60ms;
+  --relay-dur-fast: 100ms;
+  --relay-dur: 160ms;
+  --relay-dur-panel: 240ms;
+  --relay-ease: cubic-bezier(0.2, 0, 0, 1);
+  --relay-ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --relay-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Z-index */
+  --relay-z-base: 0;
+  --relay-z-sticky: 10;
+  --relay-z-sidebar: 30;
+  --relay-z-overlay: 40;
+  --relay-z-drawer: 45;
+  --relay-z-popover: 60;
+  --relay-z-dialog: 80;
+  --relay-z-palette: 85;
+  --relay-z-toast: 100;
+  --relay-z-tooltip: 110;
+
+  /* Focus ring */
+  --relay-focus-width: 2px;
+  --relay-focus-offset: 2px;
+}
+
+:root[data-titlebar="overlay"] {
+  --relay-titlebar-inset: 76px;
+  --relay-titlebar-top: 28px;
+}
+
+/* ---------------------------------------------------------------- Relay (default), light */
+:root,
+:root[data-theme="relay"][data-mode="light"] {
+  color-scheme: light;
+  --relay-bg: #faf7f2;
+  --relay-sidebar: #f1ede4;
+  --relay-surface: #fffefb;
+  --relay-surface-raised: #fffefb;
+  --relay-surface-sunk: #efeae0;
+  --relay-hover: rgba(31, 29, 26, 0.05);
+  --relay-active: rgba(31, 29, 26, 0.09);
+  --relay-border: #e4ded2;
+  --relay-border-strong: #8f887a;
+  --relay-text: #1f1d1a;
+  --relay-text-2: #4a463f;
+  --relay-text-muted: #6b665b;
+  --relay-danger: #a63a32;
+  --relay-on-danger: #ffffff;
+  --relay-danger-soft: #f6e4e1;
+  --relay-success: #3a6a27;
+  --relay-success-soft: #e5eedc;
+  --relay-warning: #7a5a12;
+  --relay-warning-soft: #f3ead3;
+  --relay-info: #2f5f9a;
+  --relay-info-soft: #e1eaf5;
+  --relay-scrim: rgba(31, 29, 26, 0.32);
+  --relay-tooltip-bg: #1f1d1a;
+  --relay-tooltip-text: #faf7f2;
+  --relay-shadow-sm: 0 1px 2px rgba(31, 29, 26, 0.05);
+  --relay-shadow-card: 0 1px 2px rgba(31, 29, 26, 0.04), 0 2px 8px -2px rgba(31, 29, 26, 0.06);
+  --relay-shadow-pop: 0 10px 24px -8px rgba(31, 29, 26, 0.18), 0 2px 6px rgba(31, 29, 26, 0.06);
+  --relay-shadow-dialog: 0 24px 48px -12px rgba(31, 29, 26, 0.24), 0 2px 8px rgba(31, 29, 26, 0.06);
+  /* translucent variants used on mica / vibrancy windows */
+  --relay-bg-translucent: rgba(250, 247, 242, 0.78);
+  --relay-sidebar-translucent: rgba(241, 237, 228, 0.55);
+}
+
+/* ---------------------------------------------------------------- Relay, dark */
+:root[data-mode="dark"],
+:root[data-theme="relay"][data-mode="dark"] {
+  color-scheme: dark;
+  --relay-bg: #1c1a17;
+  --relay-sidebar: #151311;
+  --relay-surface: #262320;
+  --relay-surface-raised: #2c2925;
+  --relay-surface-sunk: #121110;
+  --relay-hover: rgba(242, 237, 228, 0.06);
+  --relay-active: rgba(242, 237, 228, 0.1);
+  --relay-border: #34302a;
+  --relay-border-strong: #7a7365;
+  --relay-text: #f2ede4;
+  --relay-text-2: #c9c2b5;
+  --relay-text-muted: #9a9385;
+  --relay-danger: #f0877d;
+  --relay-on-danger: #1c1a17;
+  --relay-danger-soft: #3b2220;
+  --relay-success: #86c060;
+  --relay-success-soft: #23301b;
+  --relay-warning: #d9a93f;
+  --relay-warning-soft: #352b14;
+  --relay-info: #8ab4e8;
+  --relay-info-soft: #1f2a38;
+  --relay-scrim: rgba(0, 0, 0, 0.5);
+  --relay-tooltip-bg: #f2ede4;
+  --relay-tooltip-text: #1c1a17;
+  --relay-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --relay-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.25), 0 2px 8px -2px rgba(0, 0, 0, 0.3);
+  --relay-shadow-pop: 0 12px 28px -8px rgba(0, 0, 0, 0.55), 0 2px 6px rgba(0, 0, 0, 0.3);
+  --relay-shadow-dialog: 0 24px 56px -12px rgba(0, 0, 0, 0.65), 0 2px 8px rgba(0, 0, 0, 0.3);
+  --relay-bg-translucent: rgba(28, 26, 23, 0.72);
+  --relay-sidebar-translucent: rgba(21, 19, 17, 0.5);
+}
+
+/* ---------------------------------------------------------------- Graphite (cool neutral) */
+:root[data-theme="graphite"][data-mode="light"] {
+  --relay-bg: #f7f7f8;
+  --relay-sidebar: #eeeff1;
+  --relay-surface: #ffffff;
+  --relay-surface-raised: #ffffff;
+  --relay-surface-sunk: #ecedf0;
+  --relay-hover: rgba(23, 24, 27, 0.05);
+  --relay-active: rgba(23, 24, 27, 0.09);
+  --relay-border: #dfe1e5;
+  --relay-border-strong: #868b94;
+  --relay-text: #17181b;
+  --relay-text-2: #43464d;
+  --relay-text-muted: #62666e;
+  --relay-bg-translucent: rgba(247, 247, 248, 0.78);
+  --relay-sidebar-translucent: rgba(238, 239, 241, 0.55);
+}
+:root[data-theme="graphite"][data-mode="dark"] {
+  --relay-bg: #18191c;
+  --relay-sidebar: #121315;
+  --relay-surface: #222327;
+  --relay-surface-raised: #27292d;
+  --relay-surface-sunk: #0f1012;
+  --relay-hover: rgba(236, 237, 239, 0.06);
+  --relay-active: rgba(236, 237, 239, 0.1);
+  --relay-border: #2e3035;
+  --relay-border-strong: #767a84;
+  --relay-text: #ecedef;
+  --relay-text-2: #c3c6cc;
+  --relay-text-muted: #969aa3;
+  --relay-bg-translucent: rgba(24, 25, 28, 0.72);
+  --relay-sidebar-translucent: rgba(18, 19, 21, 0.5);
+}
+
+/* ---------------------------------------------------------------- Midnight (true black / paper white) */
+:root[data-theme="midnight"][data-mode="light"] {
+  --relay-bg: #ffffff;
+  --relay-sidebar: #f7f7f7;
+  --relay-surface: #ffffff;
+  --relay-surface-raised: #ffffff;
+  --relay-surface-sunk: #f2f2f2;
+  --relay-hover: rgba(13, 13, 13, 0.05);
+  --relay-active: rgba(13, 13, 13, 0.09);
+  --relay-border: #e5e5e5;
+  --relay-border-strong: #8a8a8a;
+  --relay-text: #0d0d0d;
+  --relay-text-2: #404040;
+  --relay-text-muted: #666666;
+  --relay-bg-translucent: rgba(255, 255, 255, 0.8);
+  --relay-sidebar-translucent: rgba(247, 247, 247, 0.55);
+}
+:root[data-theme="midnight"][data-mode="dark"] {
+  --relay-bg: #000000;
+  --relay-sidebar: #0a0a0a;
+  --relay-surface: #161616;
+  --relay-surface-raised: #1c1c1c;
+  --relay-surface-sunk: #000000;
+  --relay-hover: rgba(237, 237, 237, 0.07);
+  --relay-active: rgba(237, 237, 237, 0.11);
+  --relay-border: #262626;
+  --relay-border-strong: #808080;
+  --relay-text: #ededed;
+  --relay-text-2: #c2c2c2;
+  --relay-text-muted: #9a9a9a;
+  --relay-bg-translucent: rgba(0, 0, 0, 0.7);
+  --relay-sidebar-translucent: rgba(10, 10, 10, 0.5);
+}
+
+/* ---------------------------------------------------------------- Accents */
+/* accent: fills and focus; accent-text: accent-coloured text on bg and on accent-soft. */
+:root,
+:root[data-accent="terracotta"] {
+  --relay-accent: #b4532f;
+  --relay-accent-hover: #9c4526;
+  --relay-accent-text: #9c4526;
+  --relay-on-accent: #ffffff;
+  --relay-accent-soft: #f4e3da;
+}
+:root[data-mode="dark"],
+:root[data-mode="dark"][data-accent="terracotta"] {
+  --relay-accent: #e58a67;
+  --relay-accent-hover: #ee9c7c;
+  --relay-accent-text: #e58a67;
+  --relay-on-accent: #1c1a17;
+  --relay-accent-soft: #3a2a23;
+}
+:root[data-mode="light"][data-accent="sage"] {
+  --relay-accent: #4e6b3a;
+  --relay-accent-hover: #415a30;
+  --relay-accent-text: #4e6b3a;
+  --relay-on-accent: #ffffff;
+  --relay-accent-soft: #e6eddf;
+}
+:root[data-mode="dark"][data-accent="sage"] {
+  --relay-accent: #9cc07e;
+  --relay-accent-hover: #aecd94;
+  --relay-accent-text: #9cc07e;
+  --relay-on-accent: #1c1a17;
+  --relay-accent-soft: #263020;
+}
+:root[data-mode="light"][data-accent="indigo"] {
+  --relay-accent: #4b5bb0;
+  --relay-accent-hover: #3f4d98;
+  --relay-accent-text: #4b5bb0;
+  --relay-on-accent: #ffffff;
+  --relay-accent-soft: #e5e8f6;
+}
+:root[data-mode="dark"][data-accent="indigo"] {
+  --relay-accent: #9aa6ee;
+  --relay-accent-hover: #adb7f2;
+  --relay-accent-text: #9aa6ee;
+  --relay-on-accent: #1c1a17;
+  --relay-accent-soft: #262a40;
+}
+:root[data-mode="light"][data-accent="plum"] {
+  --relay-accent: #8a4a78;
+  --relay-accent-hover: #753e66;
+  --relay-accent-text: #8a4a78;
+  --relay-on-accent: #ffffff;
+  --relay-accent-soft: #f2e4ee;
+}
+:root[data-mode="dark"][data-accent="plum"] {
+  --relay-accent: #d597c2;
+  --relay-accent-hover: #ddaacd;
+  --relay-accent-text: #d597c2;
+  --relay-on-accent: #1c1a17;
+  --relay-accent-soft: #3a2634;
+}
+:root[data-mode="light"][data-accent="ink"] {
+  --relay-accent: #1f1d1a;
+  --relay-accent-hover: #3a3732;
+  --relay-accent-text: #1f1d1a;
+  --relay-on-accent: #ffffff;
+  --relay-accent-soft: #ebe7df;
+}
+:root[data-mode="dark"][data-accent="ink"] {
+  --relay-accent: #f2ede4;
+  --relay-accent-hover: #ffffff;
+  --relay-accent-text: #f2ede4;
+  --relay-on-accent: #1c1a17;
+  --relay-accent-soft: #34302a;
+}
+
+/* Derived from the accent; never set directly. */
+:root {
+  --relay-focus: var(--relay-accent);
+  --relay-selection: color-mix(in srgb, var(--relay-accent) 24%, transparent);
+}
+
+/* ---------------------------------------------------------------- Window materials */
+/* The Rust side makes the window transparent and applies Mica (Windows 11) or vibrancy (macOS).
+   Only the canvas and sidebar become translucent; cards, menus and inputs stay opaque. */
+:root[data-material="mica"],
+:root[data-material="vibrancy"] {
+  --relay-canvas: var(--relay-bg-translucent);
+  --relay-sidebar-fill: var(--relay-sidebar-translucent);
+}
+:root:not([data-material="mica"]):not([data-material="vibrancy"]) {
+  --relay-canvas: var(--relay-bg);
+  --relay-sidebar-fill: var(--relay-sidebar);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-material] {
+    --relay-canvas: var(--relay-bg);
+    --relay-sidebar-fill: var(--relay-sidebar);
+  }
+}
+
+/* Windows high contrast / forced colours: let the system palette win, keep focus visible. */
+@media (forced-colors: active) {
+  :root {
+    --relay-focus: Highlight;
+    --relay-border: CanvasText;
+    --relay-border-strong: CanvasText;
+  }
+}

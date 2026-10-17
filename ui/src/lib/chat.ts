@@ -1,6 +1,21 @@
 // Pure reducer: turns relay events into the items a conversation renders (and persists via conv_save).
-// No React, no I/O: unit tested in chat.test.ts.
-import type { ErrorKind, Risk, RunOutcome, UiEvent } from "./types";
+// No React, no I/O: unit tested in chat.test.ts and task.test.ts.
+//
+// Two shapes of run:
+// - Plan runs (hybrid): route / context_shared / plan_proposed / step_* events build one TaskItem,
+//   the structured task timeline. The final assistant_message is the outcome in words.
+// - Agent runs (cloud_agent): tool_started / tool_finished and text deltas build a ToolsItem
+//   ("Worked for 12s · 7 steps") plus the assistant's answer.
+import type {
+  ErrorKind,
+  PlanSource,
+  Risk,
+  RouteStrategy,
+  RunOutcome,
+  SharedCategory,
+  StepRisk,
+  UiEvent,
+} from "./schemas";
 
 export type StepStatus = "running" | "ok" | "failed" | "interrupted";
 
@@ -28,6 +43,51 @@ export type ToolStep =
 
 export type EngineTag = { kind: "local" | "cloud"; name: string };
 
+/** Plan step lifecycle. "verified" = effect inspected afterwards; "done" = ran, nothing to verify against. */
+export type TaskStepState = "pending" | "running" | "verified" | "done" | "failed" | "skipped" | "stopped";
+
+export type TaskStep = {
+  id: string;
+  title: string;
+  tool: string;
+  risk: StepRisk;
+  status: TaskStepState;
+  summary: string;
+  started_at: number | null;
+  finished_at: number | null;
+  attempts: number;
+};
+
+export type TaskConfirm = {
+  confirm_id: number;
+  title: string;
+  detail: string;
+  risk: Risk;
+  state: "pending" | "approved" | "declined";
+  step_id: string | null;
+  at: number;
+};
+
+export type TaskRoute = { strategy: RouteStrategy; provider: string | null; reason: string };
+export type TaskShare = { provider: string; categories: SharedCategory[]; bytes: number };
+
+export type TaskItem = {
+  kind: "task";
+  id: string;
+  run_id: number;
+  route: TaskRoute | null;
+  /** Earlier routes of this run (a fallback re-routes), oldest first. */
+  previous_routes: TaskRoute[];
+  engine: EngineTag | null;
+  shared: TaskShare[];
+  plan: { source: PlanSource; objective: string; notes: string | null } | null;
+  steps: TaskStep[];
+  confirms: TaskConfirm[];
+  started_at: number;
+  finished_at: number | null;
+  outcome: RunOutcome | null;
+};
+
 export type UserItem = { kind: "user"; id: string; text: string; attachments: string[]; at: number };
 export type AssistantItem = {
   kind: "assistant";
@@ -49,13 +109,14 @@ export type ToolsItem = {
 export type NoticeItem = { kind: "notice"; id: string; text: string };
 export type ErrorItem = { kind: "error"; id: string; error: ErrorKind; message: string; run_id: number | null };
 
-export type Item = UserItem | AssistantItem | ToolsItem | NoticeItem | ErrorItem;
+export type Item = UserItem | AssistantItem | ToolsItem | TaskItem | NoticeItem | ErrorItem;
 
 export type RunCursor = {
   run_id: number;
   started_at: number;
   openTextId: string | null;
   groupId: string | null;
+  taskId: string | null;
   engine: EngineTag | null;
 };
 
@@ -69,6 +130,11 @@ export type ChatEvent = Extract<
   {
     type:
       | "run_started"
+      | "route"
+      | "context_shared"
+      | "plan_proposed"
+      | "step_started"
+      | "step_finished"
       | "assistant_delta"
       | "assistant_message"
       | "tool_started"
@@ -93,9 +159,13 @@ export function addUser(s: ChatState, text: string, attachments: string[], now: 
   return { ...s, seq, items: [...s.items, item] };
 }
 
+function newCursor(runId: number, now: number): RunCursor {
+  return { run_id: runId, started_at: now, openTextId: null, groupId: null, taskId: null, engine: null };
+}
+
 function ensureRun(s: ChatState, runId: number, now: number): ChatState {
   if (s.run && s.run.run_id === runId) return s;
-  return { ...s, run: { run_id: runId, started_at: now, openTextId: null, groupId: null, engine: null } };
+  return { ...s, run: newCursor(runId, now) };
 }
 
 function closeOpenText(s: ChatState): ChatState {
@@ -156,14 +226,136 @@ function mapGroup(s: ChatState, gid: string, f: (g: ToolsItem) => ToolsItem): Ch
   return { ...s, items: s.items.map((it) => (it.id === gid && it.kind === "tools" ? f(it) : it)) };
 }
 
+/** Returns the run's task item, creating it (after the last user message of the run) if needed. */
+function ensureTask(s: ChatState, runId: number, now: number): [ChatState, string] {
+  const st = ensureRun(s, runId, now);
+  const run = st.run!;
+  if (run.taskId && st.items.some((i) => i.id === run.taskId)) return [st, run.taskId];
+  const existing = st.items.find((i): i is TaskItem => i.kind === "task" && i.run_id === runId);
+  if (existing) return [{ ...st, run: { ...run, taskId: existing.id } }, existing.id];
+  const [id, seq] = nextId(st, now);
+  const task: TaskItem = {
+    kind: "task",
+    id,
+    run_id: runId,
+    route: null,
+    previous_routes: [],
+    engine: run.engine,
+    shared: [],
+    plan: null,
+    steps: [],
+    confirms: [],
+    started_at: run.started_at,
+    finished_at: null,
+    outcome: null,
+  };
+  // Place it before any text this run already streamed, so the timeline reads top-down.
+  const firstText = st.items.findIndex((i) => (i.kind === "assistant" || i.kind === "tools") && i.run_id === runId);
+  const items = firstText >= 0 ? [...st.items.slice(0, firstText), task, ...st.items.slice(firstText)] : [...st.items, task];
+  return [{ ...st, seq, items, run: { ...run, taskId: id } }, id];
+}
+
+function mapTask(s: ChatState, tid: string, f: (t: TaskItem) => TaskItem): ChatState {
+  return { ...s, items: s.items.map((it) => (it.id === tid && it.kind === "task" ? f(it) : it)) };
+}
+
+function taskOfRun(s: ChatState, runId: number): TaskItem | undefined {
+  if (s.run?.run_id === runId && s.run.taskId) {
+    const t = s.items.find((i) => i.id === s.run!.taskId);
+    if (t && t.kind === "task") return t;
+  }
+  return s.items.find((i): i is TaskItem => i.kind === "task" && i.run_id === runId);
+}
+
 export function applyEvent(s: ChatState, ev: ChatEvent, now: number): ChatState {
   switch (ev.type) {
     case "run_started":
-      return { ...s, run: { run_id: ev.run_id, started_at: now, openTextId: null, groupId: null, engine: null } };
+      return { ...s, run: newCursor(ev.run_id, now) };
 
     case "engine": {
       const st = ensureRun(s, ev.run_id, now);
-      return { ...st, run: { ...st.run!, engine: { kind: ev.kind, name: ev.name } } };
+      const engine = { kind: ev.kind, name: ev.name };
+      const next = { ...st, run: { ...st.run!, engine } };
+      const t = taskOfRun(next, ev.run_id);
+      return t ? mapTask(next, t.id, (x) => ({ ...x, engine })) : next;
+    }
+
+    case "route": {
+      const [st, tid] = ensureTask(s, ev.run_id, now);
+      const route: TaskRoute = { strategy: ev.strategy, provider: ev.provider, reason: ev.reason };
+      return mapTask(st, tid, (t) => ({
+        ...t,
+        previous_routes: t.route ? [...t.previous_routes, t.route] : t.previous_routes,
+        route,
+      }));
+    }
+
+    case "context_shared": {
+      const [st, tid] = ensureTask(s, ev.run_id, now);
+      const share: TaskShare = { provider: ev.provider, categories: ev.categories, bytes: ev.bytes };
+      return mapTask(st, tid, (t) => ({ ...t, shared: [...t.shared, share] }));
+    }
+
+    case "plan_proposed": {
+      const [st, tid] = ensureTask(s, ev.run_id, now);
+      return mapTask(st, tid, (t) => ({
+        ...t,
+        plan: { source: ev.source, objective: ev.objective, notes: ev.notes },
+        steps: ev.steps.map((p) => {
+          const prev = t.steps.find((x) => x.id === p.id);
+          return {
+            id: p.id,
+            title: p.title,
+            tool: p.tool,
+            risk: p.risk,
+            status: prev && prev.status !== "pending" ? prev.status : "pending",
+            summary: prev?.summary ?? "",
+            started_at: prev?.started_at ?? null,
+            finished_at: prev?.finished_at ?? null,
+            attempts: prev?.attempts ?? 0,
+          };
+        }),
+      }));
+    }
+
+    case "step_started": {
+      const [st, tid] = ensureTask(s, ev.run_id, now);
+      return mapTask(st, tid, (t) => {
+        const known = t.steps.some((x) => x.id === ev.step_id);
+        const steps: TaskStep[] = known
+          ? t.steps.map((x) =>
+              x.id === ev.step_id
+                ? { ...x, status: "running", summary: "", started_at: now, finished_at: null, attempts: x.attempts + 1 }
+                : x,
+            )
+          : [
+              ...t.steps,
+              {
+                id: ev.step_id,
+                title: ev.step_id,
+                tool: "",
+                risk: "safe",
+                status: "running",
+                summary: "",
+                started_at: now,
+                finished_at: null,
+                attempts: 1,
+              },
+            ];
+        return { ...t, steps };
+      });
+    }
+
+    case "step_finished": {
+      const [st, tid] = ensureTask(s, ev.run_id, now);
+      return mapTask(st, tid, (t) => ({
+        ...t,
+        steps: t.steps.map((x) =>
+          x.id === ev.step_id
+            ? { ...x, status: ev.status, summary: ev.summary, finished_at: now, started_at: x.started_at ?? now }
+            : x,
+        ),
+      }));
     }
 
     case "assistant_delta": {
@@ -235,6 +427,22 @@ export function applyEvent(s: ChatState, ev: ChatEvent, now: number): ChatState 
     }
 
     case "confirm": {
+      // Plan runs keep approvals in the task timeline, next to the step that asked.
+      const task = taskOfRun(s, ev.run_id);
+      if (task && task.plan) {
+        const st = ensureRun(s, ev.run_id, now);
+        const running = task.steps.find((x) => x.status === "running") ?? task.steps.find((x) => x.status === "pending");
+        const c: TaskConfirm = {
+          confirm_id: ev.id,
+          title: ev.title,
+          detail: ev.detail,
+          risk: ev.risk,
+          state: "pending",
+          step_id: running?.id ?? null,
+          at: now,
+        };
+        return mapTask(st, task.id, (t) => ({ ...t, confirms: [...t.confirms.filter((x) => x.confirm_id !== ev.id), c] }));
+      }
       const [st, gid] = intoGroup(ensureRun(s, ev.run_id, now), ev.run_id, now);
       const step: ToolStep = {
         kind: "confirm",
@@ -250,17 +458,18 @@ export function applyEvent(s: ChatState, ev: ChatEvent, now: number): ChatState 
 
     case "confirm_resolved": {
       let hit = false;
+      const state = ev.approved ? ("approved" as const) : ("declined" as const);
       const items = s.items.map((it) => {
+        if (it.kind === "task" && it.confirms.some((c) => c.confirm_id === ev.id)) {
+          hit = true;
+          return { ...it, confirms: it.confirms.map((c) => (c.confirm_id === ev.id ? { ...c, state } : c)) };
+        }
         if (it.kind !== "tools") return it;
         if (!it.steps.some((st) => st.kind === "confirm" && st.confirm_id === ev.id)) return it;
         hit = true;
         return {
           ...it,
-          steps: it.steps.map((st) =>
-            st.kind === "confirm" && st.confirm_id === ev.id
-              ? { ...st, state: ev.approved ? ("approved" as const) : ("declined" as const) }
-              : st,
-          ),
+          steps: it.steps.map((st) => (st.kind === "confirm" && st.confirm_id === ev.id ? { ...st, state } : st)),
         };
       });
       return hit ? { ...s, items } : s;
@@ -286,6 +495,16 @@ export function applyEvent(s: ChatState, ev: ChatEvent, now: number): ChatState 
 
 function finishRun(s: ChatState, runId: number, outcome: RunOutcome, now: number): ChatState {
   let st = closeOpenText(ensureRun(s, runId, now));
+  const task = taskOfRun(st, runId);
+  if (task) {
+    st = mapTask(st, task.id, (t) => ({
+      ...t,
+      finished_at: now,
+      outcome,
+      steps: t.steps.map((x) => (x.status === "running" ? { ...x, status: "stopped" as const, finished_at: now } : x)),
+      confirms: t.confirms.map((c) => (c.state === "pending" ? { ...c, state: "declined" as const } : c)),
+    }));
+  }
   const gid = st.run!.groupId;
   if (gid) {
     st = mapGroup(st, gid, (g) => ({
@@ -319,12 +538,14 @@ function finishRun(s: ChatState, runId: number, outcome: RunOutcome, now: number
       st = { ...st, items };
     }
   }
-  if (outcome === "cancelled") {
+  if (outcome === "cancelled" && !task) {
     const [id, seq] = nextId(st, now);
     st = { ...st, seq, items: [...st.items, { kind: "notice", id, text: "Stopped." }] };
   }
   return { ...st, run: null };
 }
+
+const TASK_STATES: readonly TaskStepState[] = ["pending", "running", "verified", "done", "failed", "skipped", "stopped"];
 
 /** Clean up items loaded from storage (a run may have been cut off by a restart). */
 export function normalizeLoaded(raw: unknown[]): Item[] {
@@ -352,6 +573,21 @@ export function normalizeLoaded(raw: unknown[]): Item[] {
           ),
         });
         break;
+      case "task":
+        out.push({
+          ...it,
+          previous_routes: Array.isArray(it.previous_routes) ? it.previous_routes : [],
+          shared: Array.isArray(it.shared) ? it.shared : [],
+          confirms: (Array.isArray(it.confirms) ? it.confirms : []).map((c) =>
+            c.state === "pending" ? { ...c, state: "declined" as const } : c,
+          ),
+          finished_at: it.finished_at ?? it.started_at,
+          steps: (Array.isArray(it.steps) ? it.steps : []).map((x) => ({
+            ...x,
+            status: x.status === "running" ? "stopped" : TASK_STATES.includes(x.status) ? x.status : "done",
+          })),
+        });
+        break;
       case "notice":
       case "error":
         out.push(it);
@@ -365,8 +601,13 @@ export function normalizeLoaded(raw: unknown[]): Item[] {
 export function searchTextOf(items: Item[]): string {
   const parts: string[] = [];
   for (const it of items) {
-    if (it.kind === "user" || it.kind === "assistant") parts.push(it.text);
-    else if (it.kind === "tools") for (const s of it.steps) if (s.kind === "note") parts.push(s.text);
+    if (it.kind === "user" || it.kind === "assistant") {
+      parts.push(it.text);
+    } else if (it.kind === "tools") {
+      for (const s of it.steps) if (s.kind === "note") parts.push(s.text);
+    } else if (it.kind === "task" && it.plan) {
+      parts.push(it.plan.objective);
+    }
   }
   return parts.join("\n").slice(0, 50_000);
 }

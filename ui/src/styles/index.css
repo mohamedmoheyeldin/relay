@@ -1,0 +1,515 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "./tokens.css";
+
+@custom-variant dark (&:where([data-mode="dark"], [data-mode="dark"] *));
+
+/* Tailwind theme: only Relay tokens (default palette removed to keep the CSS small and the
+   vocabulary closed). shadcn semantic names are aliases so generated components still resolve. */
+@theme inline {
+  --color-*: initial;
+  --color-transparent: transparent;
+  --color-current: currentColor;
+  --color-white: #ffffff;
+  --color-black: #000000;
+
+  --color-canvas: var(--relay-canvas);
+  --color-bg: var(--relay-bg);
+  --color-sidebar: var(--relay-sidebar-fill);
+  --color-surface: var(--relay-surface);
+  --color-raised: var(--relay-surface-raised);
+  --color-sunk: var(--relay-surface-sunk);
+  --color-hover: var(--relay-hover);
+  --color-active: var(--relay-active);
+  --color-line: var(--relay-border);
+  --color-line-strong: var(--relay-border-strong);
+  --color-fg: var(--relay-text);
+  --color-fg-2: var(--relay-text-2);
+  --color-fg-muted: var(--relay-text-muted);
+  --color-brand: var(--relay-accent);
+  --color-brand-hover: var(--relay-accent-hover);
+  --color-brand-text: var(--relay-accent-text);
+  --color-brand-soft: var(--relay-accent-soft);
+  --color-on-brand: var(--relay-on-accent);
+  --color-danger: var(--relay-danger);
+  --color-danger-soft: var(--relay-danger-soft);
+  --color-on-danger: var(--relay-on-danger);
+  --color-success: var(--relay-success);
+  --color-success-soft: var(--relay-success-soft);
+  --color-warning: var(--relay-warning);
+  --color-warning-soft: var(--relay-warning-soft);
+  --color-info: var(--relay-info);
+  --color-info-soft: var(--relay-info-soft);
+  --color-focus: var(--relay-focus);
+  --color-scrim: var(--relay-scrim);
+  --color-tooltip: var(--relay-tooltip-bg);
+  --color-tooltip-fg: var(--relay-tooltip-text);
+
+  /* shadcn aliases */
+  --color-background: var(--relay-bg);
+  --color-foreground: var(--relay-text);
+  --color-card: var(--relay-surface);
+  --color-card-foreground: var(--relay-text);
+  --color-popover: var(--relay-surface-raised);
+  --color-popover-foreground: var(--relay-text);
+  --color-primary: var(--relay-accent);
+  --color-primary-foreground: var(--relay-on-accent);
+  --color-secondary: var(--relay-surface-sunk);
+  --color-secondary-foreground: var(--relay-text);
+  --color-muted: var(--relay-surface-sunk);
+  --color-muted-foreground: var(--relay-text-muted);
+  --color-accent: var(--relay-hover);
+  --color-accent-foreground: var(--relay-text);
+  --color-destructive: var(--relay-danger);
+  --color-border: var(--relay-border);
+  --color-input: var(--relay-border-strong);
+  --color-ring: var(--relay-focus);
+
+  --font-sans: var(--relay-font-sans);
+  --font-serif: var(--relay-font-serif);
+  --font-mono: var(--relay-font-mono);
+  --font-heading: var(--relay-font-serif);
+
+  --text-display: var(--relay-text-display);
+  --text-display--line-height: var(--relay-leading-display);
+  --text-display--letter-spacing: var(--relay-tracking-display);
+  --text-title: var(--relay-text-title);
+  --text-title--line-height: var(--relay-leading-title);
+  --text-title--letter-spacing: var(--relay-tracking-title);
+  --text-heading: var(--relay-text-heading);
+  --text-heading--line-height: var(--relay-leading-heading);
+  --text-message: var(--relay-text-message);
+  --text-message--line-height: var(--relay-leading-message);
+  --text-body: var(--relay-text-body);
+  --text-body--line-height: var(--relay-leading-body);
+  --text-ui: var(--relay-text-ui);
+  --text-ui--line-height: var(--relay-leading-ui);
+  --text-caption: var(--relay-text-caption);
+  --text-caption--line-height: var(--relay-leading-caption);
+  --text-micro: var(--relay-text-micro);
+  --text-micro--line-height: var(--relay-leading-micro);
+  --text-code: var(--relay-text-code);
+  --text-code--line-height: var(--relay-leading-code);
+
+  --radius-xs: var(--relay-radius-xs);
+  --radius-sm: var(--relay-radius-sm);
+  --radius-md: var(--relay-radius-md);
+  --radius-lg: var(--relay-radius-lg);
+  --radius-xl: var(--relay-radius-xl);
+  --radius-composer: var(--relay-radius-composer);
+
+  --shadow-sm: var(--relay-shadow-sm);
+  --shadow-card: var(--relay-shadow-card);
+  --shadow-pop: var(--relay-shadow-pop);
+  --shadow-dialog: var(--relay-shadow-dialog);
+
+  --ease-relay: var(--relay-ease);
+  --ease-relay-out: var(--relay-ease-out);
+}
+
+@layer base {
+  *,
+  ::before,
+  ::after {
+    border-color: var(--relay-border);
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: "cv11", "ss01", "ss03";
+    background: var(--relay-canvas);
+  }
+  /* Transparent window materials: the canvas colour is translucent and drawn by .app-canvas. */
+  :root[data-material="mica"],
+  :root[data-material="vibrancy"],
+  :root[data-material="mica"] body,
+  :root[data-material="vibrancy"] body {
+    background: transparent;
+  }
+  body {
+    margin: 0;
+    background: var(--relay-canvas);
+    color: var(--relay-text);
+    font-family: var(--relay-font-sans);
+    font-size: var(--relay-text-body);
+    line-height: var(--relay-leading-body);
+    overflow: hidden;
+  }
+  ::selection {
+    background: var(--relay-selection);
+  }
+  button {
+    cursor: default;
+  }
+  :focus-visible {
+    outline: var(--relay-focus-width) solid var(--relay-focus);
+    outline-offset: var(--relay-focus-offset);
+  }
+  input,
+  textarea,
+  select {
+    font: inherit;
+    color: inherit;
+  }
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--relay-text-muted);
+  }
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+}
+
+@utility font-display {
+  font-family: var(--relay-font-serif);
+  font-variation-settings: "opsz" 48;
+  font-weight: 400;
+}
+
+@utility focus-ring {
+  outline: var(--relay-focus-width) solid var(--relay-focus);
+  outline-offset: var(--relay-focus-offset);
+}
+
+@utility drag-region {
+  app-region: drag;
+  -webkit-app-region: drag;
+}
+@utility no-drag {
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
+}
+
+/* Quiet scrollbars: thumb shows while hovering the scroll area (no classic arrow buttons). */
+.scroll-thin::-webkit-scrollbar,
+.codeblock pre::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.scroll-thin::-webkit-scrollbar-button,
+.codeblock pre::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+.scroll-thin::-webkit-scrollbar-thumb,
+.codeblock pre::-webkit-scrollbar-thumb {
+  background: transparent;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  border-radius: 10px;
+}
+.scroll-thin:hover::-webkit-scrollbar-thumb,
+.codeblock pre:hover::-webkit-scrollbar-thumb {
+  background-color: var(--relay-border-strong);
+}
+.scroll-thin::-webkit-scrollbar-track,
+.codeblock pre::-webkit-scrollbar-track,
+.scroll-thin::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Long chats: let the browser skip layout and paint of off-screen turns. */
+.turn {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 120px;
+}
+
+/* ---------------------------------------------------------------- motion primitives */
+@keyframes relay-pulse {
+  0%,
+  100% {
+    transform: scale(0.8);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+.pulse-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: var(--relay-accent);
+  vertical-align: middle;
+  animation: relay-pulse 1.2s var(--relay-ease-in-out) infinite;
+}
+
+/* Running step: a soft band of light passes over the row (opacity + transform only). */
+@keyframes relay-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+.shimmer-row {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+.shimmer-row::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(90deg, transparent 0%, var(--relay-hover) 45%, var(--relay-active) 50%, var(--relay-hover) 55%, transparent 100%);
+  animation: relay-sweep 1.8s var(--relay-ease-in-out) infinite;
+}
+
+@keyframes relay-text-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+.shimmer-text {
+  background: linear-gradient(
+    90deg,
+    var(--relay-text-muted) 0%,
+    var(--relay-text-muted) 40%,
+    var(--relay-text) 50%,
+    var(--relay-text-muted) 60%,
+    var(--relay-text-muted) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: relay-text-shimmer 2.2s linear infinite;
+}
+
+@keyframes relay-skeleton {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.skeleton {
+  background: var(--relay-active);
+  border-radius: var(--relay-radius-sm);
+  animation: relay-skeleton 1.6s var(--relay-ease-in-out) infinite;
+}
+
+@keyframes relay-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}
+
+@keyframes relay-rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.rise-in {
+  animation: relay-rise var(--relay-dur) var(--relay-ease);
+}
+@keyframes relay-toast {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.toast-in {
+  animation: relay-toast 180ms var(--relay-ease);
+}
+
+/* ---------------------------------------------------------------- markdown */
+.md {
+  overflow-wrap: anywhere;
+  font-size: var(--relay-text-message);
+  line-height: var(--relay-leading-message);
+  color: var(--relay-text);
+}
+.md > :first-child {
+  margin-top: 0;
+}
+.md > :last-child {
+  margin-bottom: 0;
+}
+.md p {
+  margin: 0 0 0.8em;
+}
+.md h1,
+.md h2,
+.md h3,
+.md h4 {
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 1.3em 0 0.5em;
+}
+.md h1 {
+  font-size: 1.45em;
+}
+.md h2 {
+  font-size: 1.25em;
+}
+.md h3 {
+  font-size: 1.1em;
+}
+.md ul,
+.md ol {
+  margin: 0 0 0.8em;
+  padding-left: 1.5em;
+}
+.md ul {
+  list-style: disc;
+}
+.md ol {
+  list-style: decimal;
+}
+.md li {
+  margin: 0.25em 0;
+}
+.md li > p {
+  margin: 0;
+}
+.md li::marker {
+  color: var(--relay-text-muted);
+}
+.md a {
+  color: var(--relay-accent-text);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--relay-accent-text) 40%, transparent);
+  text-underline-offset: 2px;
+}
+.md strong {
+  font-weight: 600;
+}
+.md blockquote {
+  margin: 0 0 0.8em;
+  padding: 0.1em 0 0.1em 1em;
+  border-left: 2px solid var(--relay-border-strong);
+  color: var(--relay-text-2);
+}
+.md hr {
+  border: 0;
+  border-top: 1px solid var(--relay-border);
+  margin: 1.4em 0;
+}
+.md :not(pre) > code {
+  font-family: var(--relay-font-mono);
+  font-size: 0.86em;
+  background: var(--relay-surface-sunk);
+  border-radius: var(--relay-radius-xs);
+  padding: 0.12em 0.36em;
+}
+.md .table-wrap {
+  overflow-x: auto;
+  margin: 0 0 1em;
+  border: 1px solid var(--relay-border);
+  border-radius: var(--relay-radius-lg);
+}
+.md table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 14px;
+}
+.md th,
+.md td {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--relay-border);
+  text-align: left;
+}
+.md th {
+  font-weight: 600;
+  background: var(--relay-surface-sunk);
+}
+.md tr:last-child td {
+  border-bottom: 0;
+}
+.md td[align="right"],
+.md th[align="right"] {
+  text-align: right;
+}
+
+.codeblock {
+  margin: 0 0 1em;
+  border-radius: var(--relay-radius-lg);
+  overflow: hidden;
+  background: var(--relay-surface-sunk);
+  border: 1px solid var(--relay-border);
+}
+.codeblock pre {
+  margin: 0;
+  padding: 14px 16px;
+  overflow-x: auto;
+  font-family: var(--relay-font-mono);
+  font-size: var(--relay-text-code);
+  line-height: var(--relay-leading-code);
+  background: transparent !important;
+}
+.codeblock code {
+  font-family: inherit;
+}
+.codeblock .shiki span {
+  color: var(--shiki-dark);
+}
+:root[data-mode="light"] .codeblock .shiki span {
+  color: var(--shiki-light);
+}
+
+:root[data-prose="serif"] .md {
+  font-family: var(--relay-font-serif);
+  font-size: 16.5px;
+  line-height: 27px;
+}
+:root[data-prose="serif"] .md code,
+:root[data-prose="serif"] .md table {
+  font-family: var(--relay-font-sans);
+}
+:root[data-prose="serif"] .md :not(pre) > code {
+  font-family: var(--relay-font-mono);
+}
+
+/* ---------------------------------------------------------------- reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .shimmer-text {
+    color: var(--relay-text-muted);
+    background: none;
+  }
+  .shimmer-row::after {
+    display: none;
+  }
+  .pulse-dot {
+    animation: none;
+    opacity: 0.8;
+  }
+}

@@ -544,7 +544,7 @@ async fn heavy_tasks_go_to_the_cloud_planner_with_minimal_redacted_context() {
     assert!(has(
         &r,
         |e| matches!(e, UiEvent::ContextShared { provider, categories, .. }
-        if provider == "claude" && categories.iter().any(|c| c.category == "window titles"))
+        if provider == "claude" && categories.iter().any(|c| c.category == "window_titles"))
     ));
     assert!(message(&r).contains("Verified"), "{}", message(&r));
     assert!(has(

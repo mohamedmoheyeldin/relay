@@ -1,4 +1,5 @@
 /// <reference types="vitest/config" />
+import { fileURLToPath, URL } from "node:url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
@@ -7,6 +8,9 @@ import tailwindcss from "@tailwindcss/vite";
 export default defineConfig({
   base: "./",
   plugins: [react(), tailwindcss()],
+  resolve: {
+    alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },
+  },
   clearScreen: false,
   server: {
     host: "127.0.0.1",
@@ -20,7 +24,8 @@ export default defineConfig({
     chunkSizeWarningLimit: 700,
   },
   test: {
-    include: ["src/**/*.test.ts"],
+    include: ["src/**/*.test.{ts,tsx}"],
     environment: "node",
+    setupFiles: ["./src/test/setup.ts"],
   },
 });

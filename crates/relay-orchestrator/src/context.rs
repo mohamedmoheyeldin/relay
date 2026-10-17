@@ -204,7 +204,7 @@ pub fn scope_for_cloud(facts: &DesktopFacts, share: &SharePolicy) -> ScopedConte
                 text.push_str(&format!("- {t}\n"));
             }
             shared.push(Shared {
-                category: "window titles".into(),
+                category: "window_titles".into(),
                 items: titles.len(),
             });
         }
@@ -216,7 +216,7 @@ pub fn scope_for_cloud(facts: &DesktopFacts, share: &SharePolicy) -> ScopedConte
             text.push_str(&outline);
             text.push('\n');
             shared.push(Shared {
-                category: "UI controls".into(),
+                category: "ui_tree".into(),
                 items: outline.lines().count(),
             });
         }
@@ -233,7 +233,7 @@ pub fn scope_for_cloud(facts: &DesktopFacts, share: &SharePolicy) -> ScopedConte
             text.push_str(&format!("- {n}\n"));
         }
         shared.push(Shared {
-            category: "file names".into(),
+            category: "file_names".into(),
             items: names.len(),
         });
     }
@@ -317,7 +317,7 @@ mod tests {
         assert_eq!(
             minimal.shared,
             vec![Shared {
-                category: "window titles".into(),
+                category: "window_titles".into(),
                 items: 2
             }]
         );

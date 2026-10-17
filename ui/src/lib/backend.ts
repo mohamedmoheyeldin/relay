@@ -1,25 +1,36 @@
 // Backend access. Inside the Tauri window this calls the real commands; in a plain browser
 // (`pnpm dev`) it falls back to an in-memory mock so the UI can be seen and tested without Rust.
-import type {
-  InstallerInfo,
-  ApprovalMode,
-  ConvSummary,
-  Conversation,
-  Engines,
-  LinkKind,
-  McpConfig,
-  Project,
-  RouteMode,
-  SearchResult,
-  Settings,
-  StatusPayload,
-  UiEvent,
-} from "./types";
+// Every payload that crosses the boundary is validated with the Zod schemas in ./schemas:
+// visibly in development (console error + toast), softly in production (warning, data kept).
+import * as z from "zod/mini";
+import {
+  ConvSummarySchema,
+  ConversationSchema,
+  EnginesSchema,
+  EVENT_TYPES,
+  HybridSchema,
+  InstallerInfoSchema,
+  McpConfigSchema,
+  PlatformSchema,
+  ProjectSchema,
+  ProviderInfoSchema,
+  RunStartSchema,
+  SearchResultSchema,
+  SettingsSchema,
+  StatusPayloadSchema,
+  UiEventSchema,
+  WorkflowSchema,
+  WorkflowSummarySchema,
+  type HybridPatch,
+  type LinkKind,
+  type SettingsPatch,
+  type UiEvent,
+} from "./schemas";
 
 export interface Transport {
   readonly kind: "tauri" | "mock";
-  invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T>;
-  listen(handler: (ev: UiEvent) => void): Promise<() => void>;
+  invoke(cmd: string, args?: Record<string, unknown>): Promise<unknown>;
+  listen(handler: (raw: unknown) => void): Promise<() => void>;
 }
 
 export function isTauri(): boolean {
@@ -29,43 +40,87 @@ export function isTauri(): boolean {
 }
 
 /** Commands return JSON values; tolerate a backend that sends JSON-encoded strings. */
-function decode<T>(v: unknown): T {
+export function decode(v: unknown): unknown {
   if (typeof v === "string") {
     const t = v.trimStart();
     if (t.startsWith("{") || t.startsWith("[")) {
       try {
-        return JSON.parse(v) as T;
+        return JSON.parse(v) as unknown;
       } catch {
-        /* fall through: a plain string */
+        /* a plain string */
       }
     }
   }
-  return v as T;
+  return v;
 }
 
-function errorText(e: unknown): string {
+export function errorText(e: unknown): string {
   if (typeof e === "string") return e;
   if (e instanceof Error) return e.message;
   if (e && typeof e === "object" && "message" in e) return String((e as { message: unknown }).message);
   return String(e);
 }
 
+// ---- contract violations ---------------------------------------------------------------------
+
+export type ContractViolation = { where: "command" | "event"; name: string; message: string };
+const violationListeners = new Set<(v: ContractViolation) => void>();
+export function onContractViolation(fn: (v: ContractViolation) => void): () => void {
+  violationListeners.add(fn);
+  return () => violationListeners.delete(fn);
+}
+const DEV = import.meta.env.DEV;
+
+function issuesText(error: z.core.$ZodError): string {
+  return error.issues
+    .slice(0, 3)
+    .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
+    .join("; ");
+}
+
+function report(v: ContractViolation) {
+  if (DEV) console.error(`[relay] contract violation in ${v.where} ${v.name}: ${v.message}`);
+  else console.warn(`[relay] contract violation in ${v.where} ${v.name}: ${v.message}`);
+  violationListeners.forEach((fn) => fn(v));
+}
+
+/** Validates a command result. Dev: throws so the problem is visible. Production: warns and keeps the data. */
+export function checkResult<S extends z.ZodMiniType>(cmd: string, schema: S, value: unknown): z.infer<S> {
+  const r = schema.safeParse(value);
+  if (r.success) return r.data as z.infer<S>;
+  const message = issuesText(r.error);
+  report({ where: "command", name: cmd, message });
+  if (DEV) throw new Error(`The backend returned an unexpected ${cmd} result (${message}).`);
+  return value as z.infer<S>;
+}
+
+/** Validates an event. Invalid events are reported; in production an event with a known type is
+ *  still delivered (the reducers are defensive), in development it is dropped. */
+export function checkEvent(raw: unknown): UiEvent | null {
+  const value = decode(raw);
+  const r = UiEventSchema.safeParse(value);
+  if (r.success) return r.data;
+  const type = value && typeof value === "object" && "type" in value ? String((value as { type: unknown }).type) : "(no type)";
+  report({ where: "event", name: type, message: issuesText(r.error) });
+  if (!DEV && (EVENT_TYPES as readonly string[]).includes(type)) return value as UiEvent;
+  return null;
+}
+
+// ---- transports ------------------------------------------------------------------------------
+
 async function tauriTransport(): Promise<Transport> {
   const [{ invoke }, { listen }] = await Promise.all([import("@tauri-apps/api/core"), import("@tauri-apps/api/event")]);
   return {
     kind: "tauri",
-    async invoke<T>(cmd: string, args?: Record<string, unknown>) {
+    async invoke(cmd, args) {
       try {
-        return decode<T>(await invoke(cmd, args));
+        return decode(await invoke(cmd, args));
       } catch (e) {
         throw new Error(errorText(e));
       }
     },
     async listen(handler) {
-      return listen<unknown>("relay-event", (e) => {
-        const ev = decode<UiEvent>(e.payload);
-        if (ev && typeof ev === "object" && "type" in ev) handler(ev);
-      });
+      return listen<unknown>("relay-event", (e) => handler(e.payload));
     },
   };
 }
@@ -76,55 +131,83 @@ export function transport(): Promise<Transport> {
   return transportP;
 }
 
-async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  return (await transport()).invoke<T>(cmd, args);
+/** Tests can inject a transport (for example the mock with a fixed scenario). */
+export function setTransport(t: Transport | null) {
+  transportP = t ? Promise.resolve(t) : null;
 }
+
+async function call(cmd: string, args?: Record<string, unknown>): Promise<unknown> {
+  return (await transport()).invoke(cmd, args);
+}
+async function callAs<S extends z.ZodMiniType>(cmd: string, schema: S, args?: Record<string, unknown>): Promise<z.infer<S>> {
+  return checkResult(cmd, schema, await call(cmd, args));
+}
+
+const ConvList = z.array(ConvSummarySchema);
+const ProjectList = z.array(ProjectSchema);
+const ProviderList = z.array(ProviderInfoSchema);
+const WorkflowList = z.array(WorkflowSummarySchema);
+const StringList = z.array(z.string());
+const Bool = z.boolean();
 
 /** Typed command wrappers (camelCase args; see docs/ui-contract.md). */
 export const api = {
   sendMessage: (convId: string, text: string, attachments?: string[]) =>
-    call<{ run_id: number }>("send_message", { convId, text, attachments: attachments?.length ? attachments : undefined }),
-  stopTask: () => call<void>("stop_task"),
-  answerConfirm: (id: number, approved: boolean) => call<boolean>("answer_confirm", { id, approved }),
-  getStatus: () => call<StatusPayload>("get_status"),
-  convList: (archived?: boolean) => call<ConvSummary[]>("conv_list", archived ? { archived } : {}),
-  convGet: (id: string) => call<Conversation>("conv_get", { id }),
-  convCreate: (projectId?: string | null) => call<ConvSummary>("conv_create", projectId ? { projectId } : {}),
+    callAs("send_message", RunStartSchema, { convId, text, attachments: attachments?.length ? attachments : undefined }),
+  stopTask: () => call("stop_task").then(() => undefined),
+  answerConfirm: (id: number, approved: boolean) => callAs("answer_confirm", Bool, { id, approved }),
+  getStatus: () => callAs("get_status", StatusPayloadSchema),
+  getPlatform: () => callAs("get_platform", PlatformSchema),
+
+  convList: (archived = false) => callAs("conv_list", ConvList, archived ? { archived } : {}),
+  convGet: (id: string) => callAs("conv_get", ConversationSchema, { id }),
+  convCreate: (projectId?: string | null) => callAs("conv_create", ConvSummarySchema, projectId ? { projectId } : {}),
   convSave: (id: string, items: unknown[], searchText: string, title?: string) =>
-    call<void>("conv_save", { id, items, searchText, ...(title !== undefined ? { title } : {}) }),
+    call("conv_save", { id, items, searchText, ...(title !== undefined ? { title } : {}) }).then(() => undefined),
   convUpdate: (id: string, patch: { title?: string; pinned?: boolean; archived?: boolean }) =>
-    call<ConvSummary>("conv_update", { id, ...patch }),
+    callAs("conv_update", ConvSummarySchema, { id, ...patch }),
   /** Move a chat into a project, or out of one with `null`. */
-  convMove: (id: string, projectId: string | null) => call<ConvSummary>("conv_move", { id, projectId }),
-  convDelete: (id: string) => call<void>("conv_delete", { id }),
-  search: (query: string) => call<SearchResult>("search", { query }),
-  projectList: () => call<Project[]>("project_list"),
-  projectCreate: (name: string, color: string, instructions: string) =>
-    call<Project>("project_create", { name, color, instructions }),
+  convMove: (id: string, projectId: string | null) => callAs("conv_move", ConvSummarySchema, { id, projectId }),
+  convDelete: (id: string) => call("conv_delete", { id }).then(() => undefined),
+  search: (query: string) => callAs("search", SearchResultSchema, { query }),
+
+  projectList: () => callAs("project_list", ProjectList),
+  projectCreate: (name: string, color: string, instructions: string) => callAs("project_create", ProjectSchema, { name, color, instructions }),
   projectUpdate: (id: string, patch: { name?: string; color?: string; instructions?: string }) =>
-    call<Project>("project_update", { id, ...patch }),
-  projectDelete: (id: string) => call<void>("project_delete", { id }),
-  getEngines: () => call<Engines>("get_engines"),
-  setRouteMode: (mode: RouteMode) => call<void>("set_route_mode", { mode }),
-  setLocalModel: (model: string) => call<void>("set_local_model", { model }),
-  localAiSetup: (action: "start" | "cancel") => call<void>("local_ai_setup", { action }),
-  pullModel: (model: string) => call<void>("pull_model", { model }),
-  getSettings: () => call<Settings>("get_settings"),
-  setSettings: (patch: Partial<{ approval_mode: ApprovalMode; user_name: string; custom_instructions: string; auto_setup: boolean }>) =>
-    call<Settings>("set_settings", patch),
-  mcpGet: () => call<McpConfig>("mcp_get"),
-  mcpSet: (servers: Record<string, unknown>) => call<void>("mcp_set", { servers }),
-  pickFiles: () => call<string[]>("pick_files"),
-  openLink: (kind: LinkKind) => call<void>("open_link", { kind }),
-  // Setup / uninstall (the release exe is its own installer)
-  installerInfo: () => call<InstallerInfo>("installer_info"),
+    callAs("project_update", ProjectSchema, { id, ...patch }),
+  projectDelete: (id: string) => call("project_delete", { id }).then(() => undefined),
+
+  getHybrid: () => callAs("get_hybrid", HybridSchema),
+  setHybrid: (patch: HybridPatch) => callAs("set_hybrid", HybridSchema, patch as Record<string, unknown>),
+  refreshProviders: () => callAs("refresh_providers", ProviderList),
+  workflowList: (opts: { convId?: string; limit?: number } = {}) => callAs("workflow_list", WorkflowList, opts),
+  workflowGet: (id: string) => callAs("workflow_get", WorkflowSchema, { id }),
+
+  getEngines: () => callAs("get_engines", EnginesSchema),
+  setLocalModel: (model: string) => call("set_local_model", { model }).then(() => undefined),
+  localAiSetup: (action: "start" | "cancel") => call("local_ai_setup", { action }).then(() => undefined),
+  pullModel: (model: string) => call("pull_model", { model }).then(() => undefined),
+
+  getSettings: () => callAs("get_settings", SettingsSchema),
+  setSettings: (patch: SettingsPatch) => callAs("set_settings", SettingsSchema, patch),
+  mcpGet: () => callAs("mcp_get", McpConfigSchema),
+  mcpSet: (servers: Record<string, unknown>) => call("mcp_set", { servers }).then(() => undefined),
+  pickFiles: () => callAs("pick_files", StringList),
+  openLink: (kind: LinkKind) => call("open_link", { kind }).then(() => undefined),
+  openUrl: (url: string) => call("open_url", { url }).then(() => undefined),
+
+  installerInfo: () => callAs("installer_info", InstallerInfoSchema),
   installerInstall: (desktopShortcut: boolean, startWithWindows: boolean) =>
-    call<void>("installer_install", { desktopShortcut, startWithWindows }),
-  installerLaunch: () => call<void>("installer_launch"),
-  uninstallRun: (deleteData: boolean) => call<void>("uninstall_run", { deleteData }),
-  appQuit: () => call<void>("app_quit"),
+    call("installer_install", { desktopShortcut, startWithWindows }).then(() => undefined),
+  installerLaunch: () => call("installer_launch").then(() => undefined),
+  uninstallRun: (deleteData: boolean) => call("uninstall_run", { deleteData }).then(() => undefined),
+  appQuit: () => call("app_quit").then(() => undefined),
 };
 
+/** Subscribes to validated `relay-event` payloads. */
 export async function listenEvents(handler: (ev: UiEvent) => void): Promise<() => void> {
-  return (await transport()).listen(handler);
+  return (await transport()).listen((raw) => {
+    const ev = checkEvent(raw);
+    if (ev) handler(ev);
+  });
 }

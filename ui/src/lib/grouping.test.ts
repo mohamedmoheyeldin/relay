@@ -63,5 +63,7 @@ describe("formatting", () => {
     expect(formatDuration(12_400)).toBe("12s");
     expect(formatDuration(60_000)).toBe("1m");
     expect(formatDuration(95_000)).toBe("1m 35s");
+    expect(formatDuration(3_900_000)).toBe("1h 5m");
+    expect(formatDuration(7_200_000)).toBe("2h");
   });
 });

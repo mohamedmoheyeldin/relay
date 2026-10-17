@@ -67,5 +67,8 @@ export function formatDuration(ms: number): string {
   if (s < 60) return `${s}s`;
   const m = Math.floor(s / 60);
   const r = s % 60;
-  return r ? `${m}m ${r}s` : `${m}m`;
+  if (m < 60) return r ? `${m}m ${r}s` : `${m}m`;
+  const h = Math.floor(m / 60);
+  const mins = m % 60;
+  return mins ? `${h}h ${mins}m` : `${h}h`;
 }
