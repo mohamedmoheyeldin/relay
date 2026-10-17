@@ -220,6 +220,10 @@ pub struct ExecutionPlan {
     /// Anything the owner should know (assumptions, things the plan cannot do).
     #[serde(default)]
     pub notes: Option<String>,
+    /// A plain-language answer for the owner (explanations, code, analysis). A plan may consist
+    /// of an answer alone, with no steps.
+    #[serde(default)]
+    pub answer: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -353,7 +357,8 @@ fn check_action(id: &str, action: &PlanAction) -> Result<(), PlanError> {
 
 /// Structural validation (permissions are checked separately, at execution time).
 pub fn validate(plan: &ExecutionPlan) -> Result<(), PlanError> {
-    if plan.steps.is_empty() {
+    let has_answer = plan.answer.as_deref().is_some_and(|a| !a.trim().is_empty());
+    if plan.steps.is_empty() && !has_answer {
         return Err(PlanError::Empty);
     }
     if plan.steps.len() > MAX_STEPS {
@@ -422,6 +427,16 @@ mod tests {
         }
         let n = plan_schema().to_string();
         assert!(!n.contains("run_shell") && !n.contains("powershell"));
+    }
+
+    #[test]
+    fn an_answer_alone_is_a_valid_plan() {
+        let v = json!({"objective": "explain", "steps": [], "answer": "Use `ls -la`."});
+        let plan = parse_plan(&v.to_string()).unwrap();
+        assert!(plan.steps.is_empty());
+        assert_eq!(plan.answer.as_deref(), Some("Use `ls -la`."));
+        let blank = json!({"objective": "x", "steps": [], "answer": "   "});
+        assert_eq!(parse_plan(&blank.to_string()), Err(PlanError::Empty));
     }
 
     #[test]

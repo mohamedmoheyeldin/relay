@@ -98,6 +98,17 @@ pub struct AiContext {
     pub history: Vec<(String, String)>,
 }
 
+/// One row of the task history list; `body` (the full record) is fetched separately.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkflowRow {
+    pub id: String,
+    pub conv_id: Option<String>,
+    pub objective: String,
+    pub outcome: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
 pub struct Store {
     conn: Mutex<Connection>,
 }
@@ -137,6 +148,16 @@ CREATE TABLE IF NOT EXISTS projects (
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS workflows (
+    id TEXT PRIMARY KEY,
+    conv_id TEXT,
+    objective TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    body TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS wf_updated ON workflows(updated_at DESC);
 ";
 
 const SUMMARY_COLS: &str = "id, title, project_id, pinned, archived, created_at, updated_at";
@@ -217,6 +238,66 @@ impl Store {
 
     fn db(&self) -> MutexGuard<'_, Connection> {
         self.conn.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    // ---- workflows (task history) ----
+
+    /// Insert or replace a finished workflow; `body` is the caller's JSON record.
+    pub fn workflow_save(&self, row: &WorkflowRow, body: &str) -> Result<()> {
+        self.db().execute(
+            "INSERT INTO workflows (id, conv_id, objective, outcome, created_at, updated_at, body)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(id) DO UPDATE SET conv_id = ?2, objective = ?3, outcome = ?4,
+                 updated_at = ?6, body = ?7",
+            rusqlite::params![
+                row.id,
+                row.conv_id,
+                row.objective,
+                row.outcome,
+                row.created_at,
+                row.updated_at,
+                body
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn workflow_list(&self, limit: usize) -> Result<Vec<WorkflowRow>> {
+        let db = self.db();
+        let mut stmt = db.prepare(
+            "SELECT id, conv_id, objective, outcome, created_at, updated_at
+             FROM workflows ORDER BY updated_at DESC LIMIT ?1",
+        )?;
+        let rows = stmt
+            .query_map([limit as i64], |r| {
+                Ok(WorkflowRow {
+                    id: r.get(0)?,
+                    conv_id: r.get(1)?,
+                    objective: r.get(2)?,
+                    outcome: r.get(3)?,
+                    created_at: r.get(4)?,
+                    updated_at: r.get(5)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    pub fn workflow_get(&self, id: &str) -> Result<String> {
+        self.db()
+            .query_row("SELECT body FROM workflows WHERE id = ?1", [id], |r| {
+                r.get(0)
+            })
+            .map_err(|e| match e {
+                rusqlite::Error::QueryReturnedNoRows => StoreError::NotFound(id.to_string()),
+                other => other.into(),
+            })
+    }
+
+    pub fn workflow_delete(&self, id: &str) -> Result<()> {
+        self.db()
+            .execute("DELETE FROM workflows WHERE id = ?1", [id])?;
+        Ok(())
     }
 
     // ---- conversations ----
@@ -741,5 +822,35 @@ mod tests {
         assert_eq!(s.conv_get(&id).unwrap().summary.title, "Kept");
         drop(s);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn workflows_are_saved_listed_newest_first_and_replaced_by_id() {
+        let st = store();
+        let row = |id: &str, t: i64| WorkflowRow {
+            id: id.into(),
+            conv_id: Some("c".into()),
+            objective: format!("obj {id}"),
+            outcome: "completed".into(),
+            created_at: t,
+            updated_at: t,
+        };
+        st.workflow_save(&row("a", 1), "{\"n\":1}").unwrap();
+        st.workflow_save(&row("b", 2), "{\"n\":2}").unwrap();
+        st.workflow_save(&row("a", 3), "{\"n\":3}").unwrap();
+        let ids: Vec<_> = st
+            .workflow_list(10)
+            .unwrap()
+            .into_iter()
+            .map(|r| r.id)
+            .collect();
+        assert_eq!(ids, ["a", "b"]);
+        assert_eq!(st.workflow_get("a").unwrap(), "{\"n\":3}");
+        assert!(matches!(
+            st.workflow_get("zz"),
+            Err(StoreError::NotFound(_))
+        ));
+        st.workflow_delete("a").unwrap();
+        assert_eq!(st.workflow_list(10).unwrap().len(), 1);
     }
 }

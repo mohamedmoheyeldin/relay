@@ -502,6 +502,7 @@ mod tests {
             objective: "o".into(),
             steps,
             notes: None,
+            answer: None,
         }
     }
 

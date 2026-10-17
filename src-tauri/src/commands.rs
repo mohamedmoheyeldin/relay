@@ -28,16 +28,31 @@ pub async fn send_message(
     state: State<'_, AppState>,
 ) -> CmdResult<Value> {
     let attachments = attachments.unwrap_or_default();
-    let run_id = state
-        .agent
-        .submit_in(&conv_id, &text, &attachments)
-        .map_err(err)?;
+    if state.is_busy() {
+        return Err(relay_agent::hybrid::SubmitError::Busy.to_string());
+    }
+    let agent_mode = state
+        .settings
+        .lock()
+        .map(|s| s.hybrid.agent_mode)
+        .unwrap_or(false);
+    let run_id = if agent_mode {
+        state
+            .agent
+            .submit_in(&conv_id, &text, &attachments)
+            .map_err(err)?
+    } else {
+        state
+            .hybrid
+            .submit_in(&conv_id, &text, &attachments)
+            .map_err(err)?
+    };
     Ok(json!({ "run_id": run_id }))
 }
 
 #[tauri::command]
 pub async fn stop_task(state: State<'_, AppState>) -> CmdResult<()> {
-    state.agent.stop();
+    state.stop_all();
     Ok(())
 }
 
@@ -47,12 +62,27 @@ pub async fn answer_confirm(
     approved: bool,
     state: State<'_, AppState>,
 ) -> CmdResult<bool> {
-    Ok(state.agent.answer(ConfirmAnswer { id, approved }))
+    let answer = ConfirmAnswer { id, approved };
+    Ok(state.hybrid.answer(answer) || state.agent.answer(answer))
 }
 
 #[tauri::command]
 pub async fn get_status(state: State<'_, AppState>) -> CmdResult<StatusInfo> {
-    Ok(state.agent.status().await)
+    let mut status = state.agent.status().await;
+    status.busy = state.is_busy();
+    if !status.ready {
+        // Codex alone is enough to get work done.
+        let codex = state
+            .hybrid
+            .provider_status(relay_orchestrator::router::ProviderKind::Codex, false)
+            .await;
+        if codex.ready() {
+            status.ready = true;
+            status.provider = "codex".into();
+            status.detail = codex.detail;
+        }
+    }
+    Ok(status)
 }
 
 // ---- conversations ----

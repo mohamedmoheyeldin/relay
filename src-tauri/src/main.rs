@@ -3,6 +3,7 @@
 
 mod app;
 mod commands;
+mod hybrid_commands;
 mod installer;
 mod settings;
 mod setup;

@@ -4,11 +4,13 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
+use relay_agent::hybrid::HybridParts;
 use relay_agent::local::engine::{EngineManager, MANAGED_PORT};
 use relay_agent::{
-    Agent, AgentConfig, AgentParts, ConfirmBridge, EventSink, LocalConfig, LocalProvider,
+    Agent, AgentConfig, AgentParts, ConfirmBridge, EventSink, Hybrid, LocalConfig, LocalProvider,
 };
 use relay_ai::claude::ClaudeProvider;
+use relay_ai::codex::CodexProvider;
 use relay_ai::{AiProvider, Timeouts};
 use relay_mcp::audit::AuditLog;
 use relay_mcp::{HostOptions, KillSwitch, McpServer, ToolHost};
@@ -21,10 +23,10 @@ use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 use tracing::{info, warn};
 
-use crate::commands;
 use crate::settings::{Paths, Settings};
 use crate::setup::LocalSetup;
 use crate::store_adapter::StoreAdapter;
+use crate::{commands, hybrid_commands};
 
 /// Event name the chat window listens on.
 pub const EVENT_NAME: &str = "relay-event";
@@ -61,6 +63,9 @@ fn setup_installer(app: &mut tauri::App, mode: crate::installer::Mode) -> Result
 }
 
 pub struct AppState {
+    /// The hybrid assistant: routes, plans (local or cloud), validates, executes and verifies.
+    pub hybrid: Arc<Hybrid>,
+    /// The older tool-using agent, kept for the optional agent mode.
     pub agent: Arc<Agent>,
     pub host: Arc<ToolHost>,
     pub paths: Paths,
@@ -74,6 +79,16 @@ pub struct AppState {
 }
 
 impl AppState {
+    /// Stop whatever is running, in either engine.
+    pub fn stop_all(&self) {
+        self.hybrid.stop();
+        self.agent.stop();
+    }
+
+    pub fn is_busy(&self) -> bool {
+        self.hybrid.is_busy() || self.agent.is_busy()
+    }
+
     /// Change and persist the settings.
     pub fn update_settings(&self, change: impl FnOnce(&mut Settings)) -> Result<(), String> {
         let mut settings = self.settings.lock().map_err(|e| e.to_string())?;
@@ -155,12 +170,12 @@ fn build_tray(app: &AppHandle) -> Result<()> {
             "open" => show_main(app),
             "stop" => {
                 if let Some(state) = app.try_state::<AppState>() {
-                    state.agent.stop();
+                    state.stop_all();
                 }
             }
             "quit" => {
                 if let Some(state) = app.try_state::<AppState>() {
-                    state.agent.stop();
+                    state.stop_all();
                 }
                 app.exit(0);
             }
@@ -213,6 +228,8 @@ fn setup(app: &mut tauri::App) -> Result<()> {
     let desktop = relay_os::system_desktop().context("opening the desktop")?;
     let kill = KillSwitch::new();
     let driver = Arc::new(Driver::new(desktop.clone(), kill.flag()));
+    let native_driver = driver.clone();
+    let native_desktop = desktop.clone();
     let bridge = ConfirmBridge::new(sink.clone(), CONFIRM_TIMEOUT);
     let launch_id = format!(
         "{}-{}",
@@ -254,6 +271,24 @@ fn setup(app: &mut tauri::App) -> Result<()> {
         MANAGED_PORT,
     ));
     let setup = LocalSetup::new(handle.clone(), engine, local.clone());
+    let conv_store = Arc::new(StoreAdapter::new(store.clone(), settings.clone()));
+    let hybrid = Hybrid::new(HybridParts {
+        services: Arc::new(relay_orchestrator::system::SystemServices::new(
+            native_desktop,
+            native_driver,
+            start.hybrid.allowed_roots.iter().map(Into::into).collect(),
+        )),
+        local: local.clone(),
+        claude: Arc::new(ClaudeProvider::discover()),
+        codex: Arc::new(CodexProvider::discover()),
+        bridge: bridge.clone(),
+        kill: kill.clone(),
+        conv_store: conv_store.clone(),
+        workflows: conv_store.clone(),
+        work_dir: paths.work_dir.clone(),
+        settings: start.hybrid.to_engine(),
+        sink: sink.clone(),
+    });
     let agent = Agent::new(
         AgentParts {
             cloud,
@@ -262,7 +297,7 @@ fn setup(app: &mut tauri::App) -> Result<()> {
             mcp: mcp.clone(),
             kill,
             bridge,
-            store: Arc::new(StoreAdapter::new(store.clone(), settings.clone())),
+            store: conv_store,
         },
         AgentConfig {
             work_dir: paths.work_dir.clone(),
@@ -274,6 +309,7 @@ fn setup(app: &mut tauri::App) -> Result<()> {
         sink,
     );
     app.manage(AppState {
+        hybrid,
         agent,
         host,
         paths,
@@ -372,7 +408,7 @@ pub fn run() -> Result<()> {
                 .with_handler(move |app, pressed, event| {
                     if *pressed == shortcut && event.state() == ShortcutState::Pressed {
                         if let Some(state) = app.try_state::<AppState>() {
-                            state.agent.stop();
+                            state.stop_all();
                         }
                     }
                 })
@@ -384,6 +420,12 @@ pub fn run() -> Result<()> {
             commands::stop_task,
             commands::answer_confirm,
             commands::get_status,
+            hybrid_commands::get_platform,
+            hybrid_commands::get_hybrid,
+            hybrid_commands::set_hybrid,
+            hybrid_commands::refresh_providers,
+            hybrid_commands::workflow_list,
+            hybrid_commands::workflow_get,
             commands::conv_list,
             commands::conv_get,
             commands::conv_create,
@@ -419,7 +461,7 @@ pub fn run() -> Result<()> {
         .run(|app, event| {
             if let tauri::RunEvent::Exit = event {
                 if let Some(state) = app.try_state::<AppState>() {
-                    state.agent.stop();
+                    state.stop_all();
                     // Stop the built-in local AI server with the app.
                     tauri::async_runtime::block_on(state.setup.engine().stop());
                 }

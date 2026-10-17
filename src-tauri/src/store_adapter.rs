@@ -2,8 +2,8 @@
 
 use std::sync::{Arc, Mutex};
 
-use relay_agent::{ConvContext, ConvStore};
-use relay_store::{AiContext, Store};
+use relay_agent::{ConvContext, ConvStore, WorkflowRecord, WorkflowStore};
+use relay_store::{AiContext, Store, WorkflowRow};
 use tracing::warn;
 
 use crate::settings::Settings;
@@ -60,9 +60,59 @@ impl ConvStore for StoreAdapter {
     }
 }
 
+impl WorkflowStore for StoreAdapter {
+    fn save(&self, record: &WorkflowRecord) {
+        let row = WorkflowRow {
+            id: record.id.clone(),
+            conv_id: record.conv_id.clone(),
+            objective: record.objective.clone(),
+            outcome: record.outcome.clone(),
+            created_at: record.created_at,
+            updated_at: record.updated_at,
+        };
+        match serde_json::to_string(record) {
+            Ok(body) => {
+                if let Err(e) = self.store.workflow_save(&row, &body) {
+                    warn!("could not save workflow {}: {e}", record.id);
+                }
+            }
+            Err(e) => warn!("could not encode workflow {}: {e}", record.id),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn finished_workflows_are_stored_and_read_back() {
+        let store = Arc::new(Store::in_memory().unwrap());
+        let adapter = StoreAdapter::new(store.clone(), Arc::default());
+        let rec = WorkflowRecord {
+            id: "w1".into(),
+            conv_id: Some("c1".into()),
+            objective: "tidy".into(),
+            strategy: "native".into(),
+            provider: None,
+            outcome: "completed".into(),
+            steps_total: 1,
+            steps_verified: 1,
+            created_at: 1,
+            updated_at: 2,
+            plan_source: "native".into(),
+            steps: vec![],
+            shared: vec![],
+            shared_bytes: 0,
+            approvals: vec![],
+            errors: vec![],
+            notes: None,
+        };
+        WorkflowStore::save(&adapter, &rec);
+        let back: WorkflowRecord =
+            serde_json::from_str(&store.workflow_get("w1").unwrap()).unwrap();
+        assert_eq!(back, rec);
+    }
 
     #[test]
     fn instructions_are_combined_cleanly() {
@@ -95,7 +145,7 @@ mod tests {
         assert!(
             loaded.instructions.contains("Short answers") && loaded.instructions.contains("pnpm")
         );
-        adapter.save(&conv.id, Some("s1"), &[("q".into(), "a".into())]);
+        ConvStore::save(&adapter, &conv.id, Some("s1"), &[("q".into(), "a".into())]);
         let again = adapter.load(&conv.id);
         assert_eq!(again.session_id.as_deref(), Some("s1"));
         assert_eq!(again.history.len(), 1);

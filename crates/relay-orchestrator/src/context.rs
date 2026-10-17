@@ -265,6 +265,7 @@ mod tests {
                 },
             ],
             notes: None,
+            answer: None,
         }
     }
 

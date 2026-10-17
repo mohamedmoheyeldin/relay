@@ -1,11 +1,14 @@
 //! On-disk locations and persisted settings.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use relay_agent::local::engine::MANAGED_PORT;
 use relay_agent::RouteMode;
 use relay_mcp::ApprovalMode;
+use relay_orchestrator::permissions::{ConfirmLevel, PrivacyMode, SharePolicy};
+use relay_orchestrator::router::ProviderKind;
 use serde::{Deserialize, Serialize};
 
 /// Folders and files Relay uses under its data directory.
@@ -78,6 +81,129 @@ fn default_user() -> String {
     std::env::var("USERNAME").unwrap_or_else(|_| "You".to_string())
 }
 
+/// The owner's model and reasoning choice for one cloud provider (`None` = the CLI's default).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderChoice {
+    pub model: Option<String>,
+    pub reasoning: Option<String>,
+}
+
+fn home_dir() -> Option<PathBuf> {
+    std::env::var_os("USERPROFILE")
+        .or_else(|| std::env::var_os("HOME"))
+        .map(PathBuf::from)
+}
+
+/// Folders the assistant may work in until the owner changes it.
+fn default_allowed_roots() -> Vec<String> {
+    let Some(home) = home_dir() else {
+        return Vec::new();
+    };
+    [
+        "Desktop",
+        "Documents",
+        "Downloads",
+        "Pictures",
+        "Videos",
+        "Music",
+    ]
+    .iter()
+    .map(|d| home.join(d))
+    .filter(|p| p.is_dir())
+    .map(|p| p.display().to_string())
+    .collect()
+}
+
+/// Folders that stay off limits even inside an allowed folder.
+fn default_protected_roots() -> Vec<String> {
+    let mut out: Vec<String> = if cfg!(windows) {
+        vec![
+            r"C:\Windows".into(),
+            r"C:\Program Files".into(),
+            r"C:\Program Files (x86)".into(),
+            r"C:\ProgramData".into(),
+        ]
+    } else {
+        vec![
+            "/System".into(),
+            "/Library".into(),
+            "/usr".into(),
+            "/etc".into(),
+        ]
+    };
+    if let Some(home) = home_dir() {
+        for d in ["AppData", ".ssh", ".aws", ".gnupg", "Library/Keychains"] {
+            out.push(home.join(d).display().to_string());
+        }
+    }
+    out
+}
+
+/// Hybrid-assistant choices: what may leave the PC, which cloud CLI helps, what needs a yes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HybridConfig {
+    pub privacy_mode: PrivacyMode,
+    /// `claude` or `codex`.
+    pub default_provider: String,
+    pub confirm_level: ConfirmLevel,
+    pub share: SharePolicy,
+    pub allowed_roots: Vec<String>,
+    pub protected_roots: Vec<String>,
+    pub disabled_tools: Vec<String>,
+    pub providers: BTreeMap<String, ProviderChoice>,
+    /// Let a cloud CLI drive Relay's tools directly instead of returning a plan (not the default).
+    pub agent_mode: bool,
+}
+
+impl Default for HybridConfig {
+    fn default() -> Self {
+        Self {
+            privacy_mode: PrivacyMode::default(),
+            default_provider: "claude".into(),
+            confirm_level: ConfirmLevel::default(),
+            share: SharePolicy::default(),
+            allowed_roots: default_allowed_roots(),
+            protected_roots: default_protected_roots(),
+            disabled_tools: Vec::new(),
+            providers: BTreeMap::new(),
+            agent_mode: false,
+        }
+    }
+}
+
+impl HybridConfig {
+    pub fn provider(&self) -> ProviderKind {
+        ProviderKind::parse(&self.default_provider).unwrap_or(ProviderKind::Claude)
+    }
+
+    pub fn to_engine(&self) -> relay_agent::HybridSettings {
+        let provider_opts = self
+            .providers
+            .iter()
+            .filter_map(|(id, c)| {
+                Some((
+                    ProviderKind::parse(id)?,
+                    relay_agent::hybrid::ProviderOpts {
+                        model: c.model.clone(),
+                        reasoning: c.reasoning.clone(),
+                    },
+                ))
+            })
+            .collect();
+        relay_agent::HybridSettings {
+            privacy: self.privacy_mode,
+            default_provider: self.provider(),
+            confirm: self.confirm_level,
+            share: self.share,
+            allowed_roots: self.allowed_roots.iter().map(PathBuf::from).collect(),
+            protected_roots: self.protected_roots.iter().map(PathBuf::from).collect(),
+            disabled_tools: self.disabled_tools.iter().cloned().collect(),
+            provider_opts,
+        }
+    }
+}
+
 /// Settings stored in `settings.json`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -92,18 +218,20 @@ pub struct Settings {
     pub custom_instructions: String,
     /// Download and run the built-in local AI automatically.
     pub auto_setup: bool,
+    pub hybrid: HybridConfig,
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            approval_mode: mode_to_str(ApprovalMode::Off).to_string(),
+            approval_mode: mode_to_str(ApprovalMode::Destructive).to_string(),
             route_mode: RouteMode::Auto.as_str().to_string(),
             local_model: None,
             local_url: format!("http://127.0.0.1:{MANAGED_PORT}"),
             user_name: default_user(),
             custom_instructions: String::new(),
             auto_setup: true,
+            hybrid: HybridConfig::default(),
         }
     }
 }
@@ -123,13 +251,20 @@ impl Settings {
     }
 
     pub fn mode(&self) -> ApprovalMode {
-        mode_from_str(&self.approval_mode).unwrap_or(ApprovalMode::Off)
+        mode_from_str(&self.approval_mode).unwrap_or(ApprovalMode::Destructive)
     }
 
     /// Apply a patch; unknown approval modes are rejected.
     pub fn apply(&mut self, patch: SettingsPatch) -> Result<()> {
         if let Some(mode) = patch.approval_mode {
             mode_from_str(&mode).with_context(|| format!("unknown approval mode {mode:?}"))?;
+            if let Some(parsed) = mode_from_str(&mode) {
+                self.hybrid.confirm_level = match parsed {
+                    ApprovalMode::Off => ConfirmLevel::Off,
+                    ApprovalMode::Destructive => ConfirmLevel::Destructive,
+                    ApprovalMode::Always => ConfirmLevel::Always,
+                };
+            }
             self.approval_mode = mode;
         }
         if let Some(name) = patch.user_name {
@@ -181,9 +316,13 @@ mod tests {
     }
 
     #[test]
-    fn defaults_are_hands_off_and_automatic() {
+    fn defaults_confirm_destructive_steps_and_route_automatically() {
         let s = Settings::default();
-        assert_eq!(s.mode(), ApprovalMode::Off);
+        assert_eq!(s.mode(), ApprovalMode::Destructive);
+        assert_eq!(s.hybrid.confirm_level, ConfirmLevel::Destructive);
+        assert_eq!(s.hybrid.privacy_mode, PrivacyMode::HybridAuto);
+        assert!(!s.hybrid.share.file_contents && !s.hybrid.share.screenshots);
+        assert!(!s.hybrid.protected_roots.is_empty());
         assert_eq!(s.route(), RouteMode::Auto);
         assert!(s.auto_setup);
         assert!(s.local_url.ends_with(&MANAGED_PORT.to_string()));
@@ -194,11 +333,11 @@ mod tests {
         let dir = temp("settings");
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("settings.json");
-        assert_eq!(Settings::load(&file).mode(), ApprovalMode::Off);
+        assert_eq!(Settings::load(&file).mode(), ApprovalMode::Destructive);
         std::fs::write(&file, "{nope").unwrap();
-        assert_eq!(Settings::load(&file).mode(), ApprovalMode::Off);
+        assert_eq!(Settings::load(&file).mode(), ApprovalMode::Destructive);
         std::fs::write(&file, r#"{"approval_mode":"surprise"}"#).unwrap();
-        assert_eq!(Settings::load(&file).mode(), ApprovalMode::Off);
+        assert_eq!(Settings::load(&file).mode(), ApprovalMode::Destructive);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -233,6 +372,7 @@ mod tests {
         s.save(&file).unwrap();
         let back = Settings::load(&file);
         assert_eq!(back.mode(), ApprovalMode::Always);
+        assert_eq!(back.hybrid.confirm_level, ConfirmLevel::Always);
         assert_eq!(back.route(), RouteMode::LocalOnly);
         assert_eq!(back.user_name, "Moe");
         assert_eq!(back.custom_instructions, "Be brief");
