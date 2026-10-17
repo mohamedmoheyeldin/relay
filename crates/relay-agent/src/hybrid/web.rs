@@ -785,6 +785,7 @@ impl Hybrid {
                     );
                 }
             }
+            let tabs_before = tab_count(&snapshot);
             self.emit(UiEvent::StepStarted {
                 run_id,
                 step_id: id.clone(),
@@ -844,6 +845,30 @@ impl Hybrid {
                             _ => snapshot,
                         }
                     };
+                    // A link that opened a new tab: follow it, as a person would.
+                    let grew = tab_count(&snapshot) > tabs_before;
+                    if let Some(index) = newer_tab(&snapshot).filter(|_| grew) {
+                        if let Ok(s) = browser
+                            .call(
+                                "browser_tabs",
+                                json!({"action": "select", "index": index}),
+                                Duration::from_secs(20),
+                            )
+                            .await
+                        {
+                            if !s.is_error {
+                                info!("switched to the new tab {index}");
+                                done.push("   (the link opened a new tab; Relay switched to it)".to_string());
+                                snapshot = match browser
+                                    .call("browser_snapshot", json!({}), Duration::from_secs(30))
+                                    .await
+                                {
+                                    Ok(s2) if !s2.is_error => s2.text,
+                                    _ => s.text,
+                                };
+                            }
+                        }
+                    }
                 }
                 Ok(out) => {
                     errors += 1;
@@ -913,6 +938,58 @@ impl Hybrid {
             UiOutcome::Completed,
             "completed",
         )
+    }
+}
+
+/// How many tabs the page header lists (0 when it does not list them).
+pub fn tab_count(text: &str) -> usize {
+    let mut in_tabs = false;
+    let mut n = 0;
+    for line in text.lines() {
+        let t = line.trim();
+        if t.starts_with("### ") {
+            in_tabs = t == "### Open tabs";
+            continue;
+        }
+        if in_tabs && t.starts_with("- ") {
+            n += 1;
+        }
+    }
+    n
+}
+
+/// If the page header lists tabs and a tab after the current one exists, the index of the last one.
+/// (Links with target=_blank open there while the current tab stays put.)
+pub fn newer_tab(text: &str) -> Option<u64> {
+    let mut current = None;
+    let mut last = None;
+    let mut in_tabs = false;
+    for line in text.lines() {
+        let t = line.trim();
+        if t.starts_with("### ") {
+            in_tabs = t == "### Open tabs";
+            continue;
+        }
+        if !in_tabs {
+            continue;
+        }
+        let Some(rest) = t.strip_prefix("- ") else {
+            continue;
+        };
+        let Some((num, tail)) = rest.split_once(':') else {
+            continue;
+        };
+        let Ok(i) = num.trim().parse::<u64>() else {
+            continue;
+        };
+        if tail.trim_start().starts_with("(current)") {
+            current = Some(i);
+        }
+        last = Some(i);
+    }
+    match (current, last) {
+        (Some(c), Some(l)) if l > c => Some(l),
+        _ => None,
     }
 }
 
@@ -1104,6 +1181,28 @@ mod tests {
             .join("\n");
         let c = compact_snapshot(&format!("### Snapshot\n{big}"), 2000);
         assert!(c.chars().count() < 2300 && c.contains("more elements below"));
+    }
+
+    #[test]
+    fn a_link_that_opened_a_new_tab_is_followed() {
+        let text = "### Open tabs
+- 0: (current) [Jobs](https://www.dice.com/jobs)
+- 1: [FDE](https://www.dice.com/job-detail/1)
+### Page
+- Page URL: https://www.dice.com/jobs";
+        assert_eq!(newer_tab(text), Some(1));
+        assert_eq!(tab_count(text), 2);
+        let one = "### Open tabs
+- 0: (current) [Jobs](https://www.dice.com/jobs)
+### Page";
+        assert_eq!(newer_tab(one), None);
+        assert_eq!(
+            tab_count(
+                "### Page
+- Page URL: x"
+            ),
+            0
+        );
     }
 
     #[test]
