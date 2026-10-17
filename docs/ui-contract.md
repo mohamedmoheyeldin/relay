@@ -130,3 +130,37 @@ with the native title bar, same theme as the app. Install screen: welcome, insta
 Windows will ask for permission), switches (desktop shortcut, start with Windows), Install, progress (`progress` id
 `installer`), done with "Open Relay". Uninstall: confirm, switch "Also delete my chats, settings and the downloaded local
 AI (X GB)", progress, done. Mock them in dev via `?mode=install` / `?mode=uninstall`.
+
+## v3 additions (2026-10-17): tags, chat answers, web tasks
+These change existing shapes only by adding optional fields and new event types; the UI must tolerate their absence.
+
+```ts
+type Via = "native" | "mcp";                       // how a step runs: Relay's own tools, or an MCP server (e.g. the browser)
+type StepInfo = { id: string; title: string; tool: string; risk: "safe" | "sensitive" | "destructive";
+                  via?: Via; server?: string;      // server = MCP server name, e.g. "playwright"
+                  sensitive_data?: boolean };      // true ONLY when the step touches real sensitive info (passwords, ID/bank/card numbers, key files, ...)
+type UsedKind = "local_ai" | "cloud_ai" | "native" | "mcp";
+type NewEvents =
+  | { type: "used"; run_id: number; kind: UsedKind; label: string; detail?: string }   // emitted once per distinct label per run
+  | { type: "step_added"; run_id: number; step: StepInfo }                              // web tasks grow step by step
+  // route gains: intent
+  // { type: "route"; ...; intent?: "chat" | "action" | "web" }
+```
+- **`used`** drives the tags on a task: `local_ai` (label = model, e.g. "Qwen3 14B"), `cloud_ai` (label = "Claude Code" / "Codex"),
+  `native` (label = "Windows"), `mcp` (label = server, e.g. "Playwright browser"). Show them as small coloured chips in the task
+  header and on the message they produced: Local AI = green, Cloud AI = blue, Native tools = neutral, MCP = violet. Each step row also
+  shows its `via` tag. Chips must be understandable without hover, and not colour-only (icon + text).
+- **Chat answers** (`route.intent === "chat"`): there is no plan. The reply arrives as `assistant_delta`s then one `assistant_message`
+  (markdown). Render it as a normal assistant message, not inside a task card; show only the engine chip(s). A question must never
+  look like a task that "did" something.
+- **Web tasks** (`route.intent === "web"`): `plan_proposed` arrives with an empty or short `steps` list, then `step_added` + `step_started`
+  / `step_finished` for each browser action as the loop proceeds (can be 5 to 30 steps). Collapse long step lists (show the latest
+  step and a count). A run may end with `assistant_message` asking the user to do something (e.g. "sign in to Dice in the Relay
+  browser window, then say continue") and `run_finished: completed`.
+- **Sensitive**: the word and badge "Sensitive" appears only when `sensitive_data` is true (red/amber, shield icon, text "Sensitive info").
+  A `risk` of "sensitive" alone is NOT shown to the user; "destructive" shows as "Changes or deletes data"; confirm cards for it say so.
+- **Browser settings**: `get_hybrid` gains `browser: { enabled: boolean; available: boolean; server: string; detail: string }` and
+  `set_hybrid` accepts `browserEnabled?: boolean`. Show it in AI & Privacy ("Browser control (Playwright)", with detail text when
+  unavailable, e.g. "Node.js was not found"). `mcp_get` / `mcp_set` are unchanged.
+- **Code in answers**: fenced code blocks need a language label, a copy button ("Copy" → "Copied"), horizontal scroll (never wrap),
+  syntax highlighting, and an accessible name. Inline code stays inline. Long answers stream.
