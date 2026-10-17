@@ -76,6 +76,7 @@
   --relay-row-h: 34px;
   --relay-titlebar-inset: 0px; /* left inset for macOS traffic lights (overlay title bar) */
   --relay-titlebar-top: 0px; /* top inset for the collapsed rail under the traffic lights */
+  --relay-controls-w: 0px; /* width of the drawn window buttons (frameless Windows window) */
 
   /* Motion */
   --relay-dur-instant: 60ms;
@@ -101,6 +102,10 @@
   /* Focus ring */
   --relay-focus-width: 2px;
   --relay-focus-offset: 2px;
+}
+
+:root[data-titlebar="custom"] {
+  --relay-controls-w: 138px;
 }
 
 :root[data-titlebar="overlay"] {

@@ -196,6 +196,12 @@ fn build_tray(app: &AppHandle) -> Result<()> {
 }
 
 fn setup(app: &mut tauri::App) -> Result<()> {
+    // Match the window's own background to the OS theme so there is no light flash before the page paints.
+    if let Some(window) = app.get_webview_window("main") {
+        let dark = matches!(window.theme(), Ok(tauri::Theme::Dark));
+        let (r, g, b) = if dark { (28, 26, 23) } else { (250, 247, 242) };
+        let _ = window.set_background_color(Some(tauri::window::Color(r, g, b, 255)));
+    }
     let args: Vec<String> = std::env::args().collect();
     let mode = crate::installer::detect_mode(
         &args,

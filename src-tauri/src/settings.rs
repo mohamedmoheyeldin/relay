@@ -185,10 +185,21 @@ impl Settings {
 
     /// Load settings; a missing or unreadable file yields the defaults.
     pub fn load(path: &Path) -> Self {
-        std::fs::read_to_string(path)
+        let mut s: Self = std::fs::read_to_string(path)
             .ok()
             .and_then(|text| serde_json::from_str(&text).ok())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        s.migrate();
+        s
+    }
+
+    /// Older builds pointed at a separately installed Ollama on its standard port. Relay now runs its own
+    /// engine, so that address would leave "Relay Local AI" looking for a server that is not there.
+    fn migrate(&mut self) {
+        let legacy = ["http://127.0.0.1:11434", "http://localhost:11434"];
+        if legacy.contains(&self.local_url.trim_end_matches('/')) {
+            self.local_url = format!("http://127.0.0.1:{MANAGED_PORT}");
+        }
     }
 
     pub fn save(&self, path: &Path) -> Result<()> {
@@ -245,6 +256,24 @@ mod tests {
         assert_eq!(Settings::load(&file).mode(), ApprovalMode::Destructive);
         std::fs::write(&file, r#"{"approval_mode":"surprise"}"#).unwrap();
         assert_eq!(Settings::load(&file).mode(), ApprovalMode::Destructive);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_old_standard_ollama_address_moves_to_relays_own_engine() {
+        let dir = temp("legacy-url");
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("settings.json");
+        std::fs::write(&file, r#"{"local_url":"http://127.0.0.1:11434"}"#).unwrap();
+        assert!(Settings::load(&file)
+            .local_url
+            .ends_with(&MANAGED_PORT.to_string()));
+        std::fs::write(&file, r#"{"local_url":"http://192.168.1.5:11434"}"#).unwrap();
+        assert_eq!(
+            Settings::load(&file).local_url,
+            "http://192.168.1.5:11434",
+            "a custom address is kept"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

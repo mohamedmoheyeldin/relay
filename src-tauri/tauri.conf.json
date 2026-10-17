@@ -28,6 +28,8 @@
         "minWidth": 760,
         "minHeight": 520,
         "resizable": true,
+        "decorations": false,
+        "shadow": true,
         "visible": false,
         "center": true,
         "backgroundColor": "#FAF7F2"

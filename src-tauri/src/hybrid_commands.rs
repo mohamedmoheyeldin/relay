@@ -29,7 +29,8 @@ pub async fn get_platform() -> CmdResult<Value> {
     Ok(json!({
         "os": os,
         "materials": "none",
-        "title_bar": "native",
+        // Windows draws its own window buttons so the title bar and the content are one surface.
+        "title_bar": if cfg!(windows) { "custom" } else { "native" },
         "version": env!("CARGO_PKG_VERSION"),
     }))
 }

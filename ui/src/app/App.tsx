@@ -8,6 +8,7 @@ import { useApp } from "@/store/app";
 import { usePlatform, useHybrid, useStatus, useSettings, useConversations, useProjects } from "@/hooks/queries";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Sidebar } from "@/components/shell/Sidebar";
+import { WindowControls } from "@/components/shell/WindowControls";
 import { Header, useChatTitle } from "@/components/shell/Header";
 import { ConfirmDialog } from "@/components/shell/Dialogs";
 import { LiveRegion, Toasts } from "@/components/shell/Toasts";
@@ -169,6 +170,7 @@ export function App() {
         <HashRouter>
           <RouterBridge />
           <Bootstrap />
+          <WindowControls />
           <Routes>
             <Route element={<Shell />}>
               <Route index element={<HomeRoute />} />

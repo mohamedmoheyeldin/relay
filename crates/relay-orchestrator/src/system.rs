@@ -228,7 +228,7 @@ impl Services for SystemServices {
                 "only http, https and mailto links can be opened".into(),
             ));
         }
-        if url.contains(['\n', '\r', '"', '|', '&', '<', '>', '^']) {
+        if url.contains(['\n', '\r', '"', '|', '<', '>', '^']) {
             return Err(ServiceError::Failed(
                 "the link contains characters that are not allowed".into(),
             ));

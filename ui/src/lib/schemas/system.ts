@@ -39,7 +39,7 @@ export const EnginesSchema = z.object({
 export const PlatformSchema = z.object({
   os: z.enum(["windows", "macos", "linux"]),
   materials: z.enum(["mica", "vibrancy", "none"]),
-  title_bar: z.enum(["native", "overlay"]),
+  title_bar: z.enum(["native", "overlay", "custom"]),
   version: z.string(),
 });
 

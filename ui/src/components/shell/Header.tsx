@@ -23,7 +23,7 @@ export function Header({ title, chatId, right }: { title?: ReactNode; chatId?: s
     <header
       data-tauri-drag-region
       className={cn(
-        "flex h-(--relay-header-h) shrink-0 items-center gap-1 px-2",
+        "flex h-(--relay-header-h) shrink-0 items-center gap-1 pl-2 pr-[max(8px,var(--relay-controls-w))]",
         narrow ? "pl-[calc(var(--relay-titlebar-inset)+8px)]" : collapsed ? "pl-[max(8px,calc(var(--relay-titlebar-inset)-var(--relay-sidebar-w-collapsed)+8px))]" : "",
       )}
     >
