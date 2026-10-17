@@ -1,17 +1,24 @@
 //! Operating-system layer for Relay: screen capture and input behind the [`Desktop`] trait.
 //!
 //! Platform-neutral logic (coordinate scaling, key parsing, the input [`driver`]) is pure and
-//! tested everywhere. The Windows implementation lives in `win` and is selected by
-//! [`system_desktop`].
+//! tested everywhere. The Windows implementation lives in `win`, the macOS one in `mac`; the
+//! right one is selected by [`system_desktop`].
 
 pub mod capture;
 pub mod driver;
 pub mod keys;
+#[cfg(target_os = "macos")]
+mod mac;
 pub mod scaling;
 #[cfg(any(test, feature = "testing"))]
 pub mod testing;
 pub mod types;
 pub mod ui;
+// Pure macOS helpers: compiled and tested on every OS, used only by `mac` on macOS.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod mac_geom;
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod mac_keys;
 #[cfg(windows)]
 mod win;
 #[cfg(windows)]
@@ -31,9 +38,15 @@ pub fn system_desktop() -> Result<Arc<dyn Desktop>> {
 }
 
 /// The desktop implementation for the current platform.
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
+pub fn system_desktop() -> Result<Arc<dyn Desktop>> {
+    Ok(Arc::new(mac::MacDesktop::new()))
+}
+
+/// The desktop implementation for the current platform.
+#[cfg(not(any(windows, target_os = "macos")))]
 pub fn system_desktop() -> Result<Arc<dyn Desktop>> {
     Err(OsError::Unsupported(
-        "only Windows is implemented; macOS and Linux can be added behind the Desktop trait",
+        "only Windows and macOS are implemented; Linux can be added behind the Desktop trait",
     ))
 }

@@ -3168,6 +3168,9 @@ dependencies = [
 name = "relay-os"
 version = "0.2.0"
 dependencies = [
+ "core-foundation",
+ "core-graphics",
+ "foreign-types 0.5.0",
  "image",
  "serde",
  "thiserror 2.0.21",
