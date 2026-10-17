@@ -63,3 +63,17 @@ Contract between UI and backend: `docs/ui-contract.md`. Design tokens: `docs/Des
 - D34 MCP server: verified actions plus optional screen control; native OS dialog for approvals; `resume_after_stop`
   lifts the stop only on the user's instruction. ChatGPT is not supported (needs a public HTTPS endpoint).
 - D35 `HybridConfig` and `final_message` live in `relay-orchestrator` so the app and the MCP server share them.
+- D36 Messages are classified first: questions and code requests are answered in words (chat path, streamed, nothing runs);
+  PC actions use plan -> validate -> execute -> verify; website tasks use the browser loop. A question must never open pages.
+- D37 Website tasks drive a real browser through the Playwright MCP server (`relay-mcp-client`, `npx @playwright/mcp@<pinned>`),
+  one observed step at a time (snapshot -> one action -> check). Irreversible clicks (apply, submit, pay, delete, ...) ask the
+  owner; password/card/ID fields are never typed; repeated identical actions stop the run; at most 30 steps per run.
+- D38 Preferred browser is the owner's own (their sign-ins) via the official Playwright MCP Bridge extension (`--extension`);
+  fallback is a separate Chrome/Edge profile. Brave Origin cannot be used with a fresh profile (purchase screen), so on PCs
+  with only Brave Origin the extension is required. Relay never reads the browser profile beyond checking the extension folder.
+- D39 Cloud planning defaults: browser steps use a fast model at low effort, plans a mid model at low effort, written answers a
+  mid model at medium effort, unless the owner picked a model. Transient CLI errors (sign-in refresh races, overload) retry once.
+- D40 "Sensitive" means real sensitive information (passwords, keys, ID/card numbers, key files), detected in
+  `relay-orchestrator::sensitivity`; ordinary file reads no longer ask. Tags (`used` events) are emitted only for components that
+  actually produced the result.
+- D41 Replans never repeat an effect that already happened in the task (same action), and one plan may open at most two pages.
