@@ -116,6 +116,8 @@ fn capabilities(show: &Value) -> (bool, bool) {
     (caps.contains(&"vision"), caps.contains(&"tools"))
 }
 
+const NL: char = '\n';
+
 impl OllamaClient {
     pub fn new(base: impl Into<String>) -> Self {
         Self {
@@ -237,6 +239,7 @@ impl OllamaClient {
             "messages": messages,
             "stream": false,
             "format": schema,
+            "think": false,
             "keep_alive": "30m",
             "options": { "num_ctx": 16384, "temperature": 0.1 }
         });
@@ -266,6 +269,70 @@ impl OllamaClient {
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_string())
+    }
+
+    /// A plain streamed answer (markdown or code, no tools). `on_delta` gets each fragment as it arrives;
+    /// the full text is returned.
+    pub async fn chat_stream(
+        &self,
+        model: &str,
+        messages: &[ChatMessage],
+        timeout: Duration,
+        mut on_delta: impl FnMut(&str),
+    ) -> Result<String, OllamaError> {
+        let body = json!({
+            "model": model,
+            "messages": messages,
+            "stream": true,
+            "think": false,
+            "keep_alive": "30m",
+            "options": { "num_ctx": 16384, "temperature": 0.3 }
+        });
+        let mut response = self
+            .http
+            .post(format!("{}/api/chat", self.base))
+            .json(&body)
+            .timeout(timeout)
+            .send()
+            .await
+            .map_err(|e| self.unreachable(e))?;
+        if !response.status().is_success() {
+            let text = response.text().await.unwrap_or_default();
+            let message = serde_json::from_str::<Value>(&text)
+                .ok()
+                .and_then(|v| v.get("error").and_then(Value::as_str).map(str::to_string))
+                .unwrap_or_else(|| "request failed".to_string());
+            return Err(OllamaError::Server(message));
+        }
+        let mut buffer = String::new();
+        let mut full = String::new();
+        while let Some(chunk) = response
+            .chunk()
+            .await
+            .map_err(|e| OllamaError::Server(e.to_string()))?
+        {
+            buffer.push_str(&String::from_utf8_lossy(&chunk));
+            while let Some(i) = buffer.find(NL) {
+                let line: String = buffer.drain(..=i).collect();
+                let Ok(v) = serde_json::from_str::<Value>(line.trim()) else {
+                    continue;
+                };
+                if let Some(err) = v.get("error").and_then(Value::as_str) {
+                    return Err(OllamaError::Server(err.to_string()));
+                }
+                if let Some(piece) = v
+                    .get("message")
+                    .and_then(|m| m.get("content"))
+                    .and_then(Value::as_str)
+                {
+                    if !piece.is_empty() {
+                        full.push_str(piece);
+                        on_delta(piece);
+                    }
+                }
+            }
+        }
+        Ok(full)
     }
 
     /// Download a model, reporting progress.

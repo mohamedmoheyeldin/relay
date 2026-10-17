@@ -63,6 +63,8 @@ fn setup_installer(app: &mut tauri::App, mode: crate::installer::Mode) -> Result
 }
 
 pub struct AppState {
+    /// Browser control for website tasks (switchable from Settings).
+    pub browser: Arc<relay_agent::browser::SwitchableBrowser>,
     /// The hybrid assistant: routes, plans (local or cloud), validates, executes and verifies.
     pub hybrid: Arc<Hybrid>,
     /// The older tool-using agent, kept for the optional agent mode.
@@ -278,6 +280,12 @@ fn setup(app: &mut tauri::App) -> Result<()> {
     ));
     let setup = LocalSetup::new(handle.clone(), engine, local.clone());
     let conv_store = Arc::new(StoreAdapter::new(store.clone(), settings.clone()));
+    let browser = Arc::new(relay_agent::browser::SwitchableBrowser::new(
+        Arc::new(relay_agent::browser::PlaywrightBrowser::new(
+            paths.data_dir.join("browser-profile"),
+        )),
+        start.hybrid.browser_enabled,
+    ));
     let hybrid = Hybrid::new(HybridParts {
         services: Arc::new(relay_orchestrator::system::SystemServices::new(
             native_desktop,
@@ -294,6 +302,7 @@ fn setup(app: &mut tauri::App) -> Result<()> {
         work_dir: paths.work_dir.clone(),
         settings: crate::settings::engine_settings(&start.hybrid),
         sink: sink.clone(),
+        browser: browser.clone(),
     });
     let agent = Agent::new(
         AgentParts {
@@ -315,6 +324,7 @@ fn setup(app: &mut tauri::App) -> Result<()> {
         sink,
     );
     app.manage(AppState {
+        browser,
         hybrid,
         agent,
         host,
@@ -468,6 +478,10 @@ pub fn run() -> Result<()> {
             if let tauri::RunEvent::Exit = event {
                 if let Some(state) = app.try_state::<AppState>() {
                     state.stop_all();
+                    // Close the browser Relay was driving.
+                    tauri::async_runtime::block_on(relay_agent::browser::BrowserDriver::shutdown(
+                        state.browser.as_ref(),
+                    ));
                     // Stop the built-in local AI server with the app.
                     tauri::async_runtime::block_on(state.setup.engine().stop());
                 }

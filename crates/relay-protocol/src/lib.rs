@@ -81,6 +81,15 @@ pub struct PlanStepInfo {
     pub tool: String,
     /// `safe`, `sensitive` or `destructive`.
     pub risk: String,
+    /// How the step runs: `native` (Relay's own tools) or `mcp` (an MCP server such as the browser).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub via: Option<String>,
+    /// The MCP server's name when `via` is `mcp`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server: Option<String>,
+    /// True only when the step touches real sensitive information (passwords, ID or card numbers, key files).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub sensitive_data: bool,
 }
 
 /// A category of local information that was included in a cloud request.
@@ -144,6 +153,9 @@ pub enum UiEvent {
         strategy: String,
         provider: Option<String>,
         reason: String,
+        /// `chat` (a question: answered in words), `action` (do something on this PC) or `web` (work in a browser).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        intent: Option<String>,
     },
     /// A plan was proposed by an AI (or built natively). It is a proposal, not a result.
     PlanProposed {
@@ -171,6 +183,19 @@ pub enum UiEvent {
         provider: String,
         categories: Vec<SharedInfo>,
         bytes: usize,
+    },
+    /// A component did part of this task: `local_ai`, `cloud_ai`, `native` or `mcp`. Sent once per label per run.
+    Used {
+        run_id: RunId,
+        kind: String,
+        label: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        detail: Option<String>,
+    },
+    /// A step was added to a task that grows while it runs (browser tasks).
+    StepAdded {
+        run_id: RunId,
+        step: PlanStepInfo,
     },
     /// Which engine is working on the task now (`local` or `cloud`).
     Engine {

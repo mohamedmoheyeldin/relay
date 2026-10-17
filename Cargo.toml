@@ -9,6 +9,7 @@ members = [
     "crates/relay-store",
     "crates/relay-orchestrator",
     "crates/relay-mcp-server",
+    "crates/relay-mcp-client",
     "src-tauri",
 ]
 

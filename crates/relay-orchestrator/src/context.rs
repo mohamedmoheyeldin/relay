@@ -339,6 +339,7 @@ mod tests {
                 file_names: true,
                 file_contents: false,
                 screenshots: false,
+                web_pages: true,
             },
         );
         assert!(all.text.contains("button Save") && all.text.contains("taxes.pdf"));

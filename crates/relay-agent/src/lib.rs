@@ -4,6 +4,7 @@
 
 pub mod agent;
 pub mod bridge;
+pub mod browser;
 pub mod context;
 pub mod hybrid;
 pub mod local;

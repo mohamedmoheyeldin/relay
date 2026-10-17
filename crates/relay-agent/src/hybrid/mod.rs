@@ -4,8 +4,11 @@
 //! AI output is only ever a proposal. Rust parses it into typed actions, checks permissions,
 //! asks the owner where required, executes natively, and verifies the result afterwards.
 
+mod chat;
+mod flow;
 pub mod prompts;
 pub mod record;
+mod web;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -33,6 +36,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 use crate::bridge::{ConfirmBridge, EventSink};
+use crate::browser::BrowserDriver;
 use crate::context::ConvStore;
 use crate::local::{ChatMessage, LocalProvider};
 use prompts::{cloud_user_prompt, local_user_prompt, PLANNER_SYSTEM};
@@ -104,6 +108,8 @@ pub struct HybridParts {
     pub work_dir: PathBuf,
     pub settings: HybridSettings,
     pub sink: EventSink,
+    /// Browser control for website tasks.
+    pub browser: Arc<dyn BrowserDriver>,
 }
 
 pub struct Hybrid {
@@ -122,6 +128,20 @@ pub struct Hybrid {
     next_run: Mutex<RunId>,
     statuses: Mutex<HashMap<ProviderKind, (std::time::Instant, relay_ai::ProviderStatus)>>,
     exec_config: Mutex<ExecConfig>,
+    browser: Arc<dyn BrowserDriver>,
+    /// Labels already reported with a `used` event in the current run, and that run's id.
+    used_labels: Mutex<(RunId, HashSet<String>)>,
+}
+
+/// What a cloud request is for; it decides the default model and effort when the owner chose none.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Purpose {
+    /// A whole plan for a task on this PC.
+    Plan,
+    /// One next step of a browser task (many per task, so it must be quick).
+    Step,
+    /// A written answer (quality matters most).
+    Answer,
 }
 
 fn now_ms() -> i64 {
@@ -129,6 +149,58 @@ fn now_ms() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or_default()
+}
+
+/// The name of this PC's own tools, for tags.
+fn native_label() -> &'static str {
+    if cfg!(windows) {
+        "Windows"
+    } else if cfg!(target_os = "macos") {
+        "macOS"
+    } else {
+        "This PC"
+    }
+}
+
+/// Most pages a task may open on its own; more than this is a runaway plan, not a task.
+const MAX_OPENS_PER_PLAN: usize = 2;
+
+/// Drop steps that repeat an effect already achieved in this task, and cap how many pages one plan
+/// may open. Replanning after a failure used to re-run the whole plan and open the same tabs again.
+fn prune_repeats(mut plan: ExecutionPlan, done: &HashSet<String>) -> ExecutionPlan {
+    let mut opens = 0;
+    let mut seen = HashSet::new();
+    plan.steps.retain(|s| {
+        let key = serde_json::to_string(&s.action).unwrap_or_default();
+        if done.contains(&key) || !seen.insert(key) {
+            return matches!(
+                s.action,
+                relay_orchestrator::PlanAction::WaitFor { .. }
+                    | relay_orchestrator::PlanAction::ListDir { .. }
+                    | relay_orchestrator::PlanAction::FindFiles { .. }
+            );
+        }
+        if matches!(s.action, relay_orchestrator::PlanAction::OpenUrl { .. }) {
+            opens += 1;
+            return opens <= MAX_OPENS_PER_PLAN;
+        }
+        true
+    });
+    plan
+}
+
+/// "qwen3:14b" -> "Qwen3 14B" for tags.
+fn pretty_model(name: &str) -> String {
+    let (base, size) = name.split_once(':').unwrap_or((name, ""));
+    let mut base = base.to_string();
+    if let Some(first) = base.get(..1) {
+        base = format!("{}{}", first.to_uppercase(), &base[1..]);
+    }
+    if size.is_empty() || size == "latest" {
+        base
+    } else {
+        format!("{base} {}", size.to_uppercase())
+    }
 }
 
 fn risk_label(r: Risk) -> &'static str {
@@ -158,6 +230,9 @@ pub fn step_infos(plan: &ExecutionPlan) -> Vec<PlanStepInfo> {
             title: s.title.clone(),
             tool: s.action.tool().to_string(),
             risk: risk_label(Policy::risk_of(&s.action)).to_string(),
+            via: Some("native".into()),
+            server: None,
+            sensitive_data: relay_orchestrator::sensitivity::action_is_sensitive(&s.action),
         })
         .collect()
 }
@@ -230,6 +305,8 @@ impl Hybrid {
             next_run: Mutex::new(1),
             statuses: Mutex::new(HashMap::new()),
             exec_config: Mutex::new(ExecConfig::default()),
+            browser: parts.browser,
+            used_labels: Mutex::new((0, HashSet::new())),
         })
     }
 
@@ -265,6 +342,72 @@ impl Hybrid {
         &self.local
     }
 
+    pub fn browser(&self) -> &Arc<dyn BrowserDriver> {
+        &self.browser
+    }
+
+    /// Report, once per run, that a component did part of the work (drives the tags in the UI).
+    fn used(&self, kind: &str, label: &str, detail: Option<String>) {
+        let run_id = {
+            let mut g = Self::lock(&self.used_labels);
+            let key = format!("{kind}:{label}");
+            if !g.1.insert(key) {
+                return;
+            }
+            g.0
+        };
+        self.emit(UiEvent::Used {
+            run_id,
+            kind: kind.to_string(),
+            label: label.to_string(),
+            detail,
+        });
+    }
+
+    /// The local model to use, or why there is none.
+    async fn local_model(&self) -> Result<String, String> {
+        let model = self
+            .local
+            .overview()
+            .await
+            .active
+            .map(|m| m.name)
+            .ok_or_else(|| "the local AI has no model ready".to_string())?;
+        self.used("local_ai", &pretty_model(&model), Some(model.clone()));
+        Ok(model)
+    }
+
+    /// The model and effort for a cloud request: the owner's choice, else a sensible default for the purpose.
+    /// Planning and browser steps default to a fast model at low effort; written answers to a stronger one.
+    fn provider_choice(
+        &self,
+        kind: ProviderKind,
+        purpose: Purpose,
+    ) -> (Option<String>, Option<String>) {
+        let opts = self
+            .settings()
+            .provider_opts
+            .get(&kind)
+            .cloned()
+            .unwrap_or_default();
+        let (model, effort) = match (kind, purpose) {
+            (ProviderKind::Claude, Purpose::Step) => (Some("haiku"), Some("low")),
+            (ProviderKind::Claude, Purpose::Plan) => (Some("sonnet"), Some("low")),
+            (ProviderKind::Claude, Purpose::Answer) => (Some("sonnet"), Some("medium")),
+            (ProviderKind::Codex, Purpose::Answer) => (None, Some("medium")),
+            (ProviderKind::Codex, _) => (None, Some("low")),
+        };
+        self.used(
+            "cloud_ai",
+            kind.label(),
+            opts.model.clone().or(model.map(str::to_string)),
+        );
+        (
+            opts.model.or(model.map(str::to_string)),
+            opts.reasoning.or(effort.map(str::to_string)),
+        )
+    }
+
     /// Stop the current task right now: cancel planning and execution, deny open prompts.
     pub fn stop(&self) {
         self.kill.trip();
@@ -298,10 +441,11 @@ impl Hybrid {
 
     async fn abilities(&self) -> Abilities {
         let settings = self.settings();
-        let (overview, claude, codex) = tokio::join!(
+        let (overview, claude, codex, browser) = tokio::join!(
             self.local.overview(),
             self.provider_status(ProviderKind::Claude, false),
-            self.provider_status(ProviderKind::Codex, false)
+            self.provider_status(ProviderKind::Codex, false),
+            self.browser.status()
         );
         let local = overview.ability();
         let ready = |k: ProviderKind| match k {
@@ -324,6 +468,7 @@ impl Hybrid {
             local_sees_screen: local.vision,
             provider,
             fallback,
+            browser_ready: browser.available && !settings.disabled_tools.contains("browser"),
         }
     }
 
@@ -382,11 +527,7 @@ impl Hybrid {
         failure: Option<&str>,
         cancel: &CancellationToken,
     ) -> Result<Planned, String> {
-        let overview = self.local.overview().await;
-        let model = overview
-            .active
-            .map(|m| m.name)
-            .ok_or_else(|| "the local AI has no model ready".to_string())?;
+        let model = self.local_model().await?;
         let facts = self.services.snapshot().await.unwrap_or_default();
         let settings = self.settings();
         let allowed: Vec<String> = settings
@@ -451,12 +592,31 @@ impl Hybrid {
         with_schema: bool,
         cancel: &CancellationToken,
     ) -> Result<String, AiError> {
-        let opts = self
-            .settings()
-            .provider_opts
-            .get(&kind)
-            .cloned()
-            .unwrap_or_default();
+        self.ask_provider_with(
+            kind,
+            run_id,
+            prompt,
+            PLANNER_SYSTEM,
+            with_schema.then(plan_schema),
+            Purpose::Plan,
+            cancel,
+        )
+        .await
+    }
+
+    /// One tool-less request to a cloud provider; returns its final text.
+    #[allow(clippy::too_many_arguments)]
+    async fn ask_provider_with(
+        &self,
+        kind: ProviderKind,
+        run_id: RunId,
+        prompt: String,
+        system: &str,
+        schema: Option<serde_json::Value>,
+        purpose: Purpose,
+        cancel: &CancellationToken,
+    ) -> Result<String, AiError> {
+        let (model, reasoning) = self.provider_choice(kind, purpose);
         let request = RunRequest {
             run_id,
             prompt,
@@ -466,10 +626,10 @@ impl Hybrid {
             permission_prompt_tool: None,
             allowed_tools: Vec::new(),
             disallowed_tools: Vec::new(),
-            system_prompt_append: Some(PLANNER_SYSTEM.to_string()),
-            model: opts.model,
-            reasoning: opts.reasoning,
-            output_schema: with_schema.then(plan_schema),
+            system_prompt_append: Some(system.to_string()),
+            model,
+            reasoning,
+            output_schema: schema,
             plan_only: true,
             timeouts: PLAN_TIMEOUTS,
         };
@@ -578,11 +738,16 @@ impl Hybrid {
         let settings = self.settings();
         let abilities = self.abilities().await;
         let decision = route(&task, settings.privacy, abilities);
+        *Self::lock(&self.used_labels) = (run_id, HashSet::new());
         let (strategy_name, provider_name) = match &decision.strategy {
             Strategy::Native(_) => ("native", None),
             Strategy::LocalPlan => ("local_plan", None),
             Strategy::CloudPlan(p) => ("cloud_plan", Some(p.as_str().to_string())),
             Strategy::CloudAgent(p) => ("cloud_agent", Some(p.as_str().to_string())),
+            Strategy::ChatLocal => ("chat_local", None),
+            Strategy::ChatCloud(p) => ("chat_cloud", Some(p.as_str().to_string())),
+            Strategy::WebLocal => ("web_local", None),
+            Strategy::WebCloud(p) => ("web_cloud", Some(p.as_str().to_string())),
             Strategy::Unavailable(_) => ("unavailable", None),
         };
         self.emit(UiEvent::Route {
@@ -590,7 +755,26 @@ impl Hybrid {
             strategy: strategy_name.into(),
             provider: provider_name.clone(),
             reason: decision.reason.clone(),
+            intent: Some(decision.intent.as_str().to_string()),
         });
+        if matches!(
+            decision.strategy,
+            Strategy::ChatLocal
+                | Strategy::ChatCloud(_)
+                | Strategy::WebLocal
+                | Strategy::WebCloud(_)
+        ) {
+            self.run_conversational(
+                run_id,
+                &conv_id,
+                &task,
+                &ctx.history,
+                decision.strategy.clone(),
+                &cancel,
+            )
+            .await;
+            return;
+        }
 
         let started = now_ms();
         let mut record = WorkflowRecord {
@@ -619,6 +803,8 @@ impl Hybrid {
         let mut last_plan: Option<ExecutionPlan> = None;
         let mut strategy = decision.strategy.clone();
         let mut failure: Option<String> = None;
+        // Effects that already happened in this task (a replan must not open the same page again).
+        let mut done_effects: HashSet<String> = HashSet::new();
         let policy = settings.policy();
         let confirmer = BridgeConfirmer {
             run_id,
@@ -711,6 +897,11 @@ impl Hybrid {
                     }
                 }
                 Strategy::Unavailable(why) => Err(why.clone()),
+                // Answers and browser tasks never reach the plan-and-execute loop.
+                Strategy::ChatLocal
+                | Strategy::ChatCloud(_)
+                | Strategy::WebLocal
+                | Strategy::WebCloud(_) => Err("internal routing error".into()),
             };
             let planned = match planned {
                 Ok(p) => p,
@@ -747,7 +938,7 @@ impl Hybrid {
                 steps: step_infos(&planned.plan),
                 notes: planned.plan.notes.clone(),
             });
-            let plan = planned.plan;
+            let plan = prune_repeats(planned.plan, &done_effects);
             if plan.steps.is_empty() {
                 final_text = final_message(
                     &plan,
@@ -761,6 +952,7 @@ impl Hybrid {
             }
 
             // ---- execute ----
+            self.used("native", native_label(), None);
             wf = WorkflowContext::new(record.id.clone(), task.clone());
             let env_cancel = cancel.clone();
             let outcome = execute_plan(
@@ -788,6 +980,13 @@ impl Hybrid {
                 })
                 .collect();
             record.approvals = wf.approvals.clone();
+            for r in &wf.steps {
+                if matches!(r.status, StepStatus::Verified | StepStatus::Done) {
+                    if let Ok(key) = serde_json::to_string(&r.step.action) {
+                        done_effects.insert(key);
+                    }
+                }
+            }
             record.errors.extend(wf.errors.clone());
             final_text = final_message(&plan, &wf, &outcome);
             last_plan = Some(plan);

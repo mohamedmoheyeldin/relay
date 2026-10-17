@@ -11,6 +11,7 @@ use async_trait::async_trait;
 use axum::extract::State;
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use relay_agent::browser::{BrowserDriver, BrowserOutput, BrowserStatus};
 use relay_agent::hybrid::{
     HybridParts, HybridSettings, ProviderOpts, WorkflowRecord, WorkflowStore,
 };
@@ -239,7 +240,8 @@ async fn tags(State(s): State<Shared>) -> Json<Value> {
 async fn show() -> Json<Value> {
     Json(json!({"capabilities": ["completion", "tools"]}))
 }
-async fn chat(State(s): State<Shared>, Json(body): Json<Value>) -> Json<Value> {
+async fn chat(State(s): State<Shared>, Json(body): Json<Value>) -> String {
+    let streaming = body["stream"].as_bool().unwrap_or(false);
     s.chats.lock().unwrap().push(body);
     let reply = s
         .replies
@@ -247,7 +249,100 @@ async fn chat(State(s): State<Shared>, Json(body): Json<Value>) -> Json<Value> {
         .unwrap()
         .pop_front()
         .unwrap_or_else(|| "not json".into());
-    Json(json!({"message": {"role": "assistant", "content": reply}}))
+    if streaming {
+        // NDJSON: the reply in two pieces, then done.
+        let mid = reply.len() / 2;
+        let mid = (0..=mid)
+            .rev()
+            .find(|i| reply.is_char_boundary(*i))
+            .unwrap_or(0);
+        let mut out = String::new();
+        for piece in [&reply[..mid], &reply[mid..]] {
+            out.push_str(
+                &json!({"message": {"role": "assistant", "content": piece}, "done": false})
+                    .to_string(),
+            );
+            out.push('\n');
+        }
+        out.push_str(
+            &json!({"message": {"role": "assistant", "content": ""}, "done": true}).to_string(),
+        );
+        out.push('\n');
+        return out;
+    }
+    json!({"message": {"role": "assistant", "content": reply}}).to_string()
+}
+
+// ---------- scripted browser ----------
+
+#[derive(Default)]
+struct Browser {
+    calls: Mutex<Vec<(String, Value)>>,
+    url: Mutex<String>,
+    fail_next: Mutex<u32>,
+}
+
+fn page(url: &str) -> String {
+    format!(
+        "### Page
+- Page URL: {url}
+- Page Title: Jobs
+### Snapshot
+```yaml
+- generic [ref=e1]:
+  - textbox \"Search jobs\" [ref=e10]
+  - link \"Forward Deployed Engineer\" [ref=e11]
+  - button \"Easy Apply\" [ref=e12]
+  - textbox \"Password\" [ref=e14]
+```"
+    )
+}
+
+#[async_trait]
+impl BrowserDriver for Browser {
+    async fn status(&self) -> BrowserStatus {
+        BrowserStatus {
+            available: true,
+            detail: "ok".into(),
+        }
+    }
+    async fn call(&self, tool: &str, args: Value, _t: Duration) -> Result<BrowserOutput, String> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push((tool.to_string(), args.clone()));
+        if tool == "browser_navigate" {
+            *self.url.lock().unwrap() = args["url"].as_str().unwrap_or_default().to_string();
+        }
+        let mut f = self.fail_next.lock().unwrap();
+        if *f > 0 {
+            *f -= 1;
+            return Ok(BrowserOutput {
+                text: "### Error
+Error: element not found"
+                    .into(),
+                is_error: true,
+            });
+        }
+        let url = self.url.lock().unwrap().clone();
+        Ok(BrowserOutput {
+            text: page(if url.is_empty() { "about:blank" } else { &url }),
+            is_error: false,
+        })
+    }
+    async fn shutdown(&self) {}
+}
+
+impl Browser {
+    fn tools(&self) -> Vec<String> {
+        self.calls
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|c| c.0.clone())
+            .filter(|t| t != "browser_snapshot")
+            .collect()
+    }
 }
 
 async fn serve_ollama(o: Shared) -> String {
@@ -285,6 +380,7 @@ struct Rig {
     events: Arc<Mutex<Vec<UiEvent>>>,
     records: Arc<Records>,
     store: Arc<MemoryStore>,
+    browser: Arc<Browser>,
 }
 
 fn allowed() -> Vec<PathBuf> {
@@ -356,6 +452,7 @@ async fn rig(o: Opts) -> Rig {
     let codex = Cloud::new("codex", true);
     let store = Arc::new(MemoryStore::default());
     let records = Arc::new(Records::default());
+    let browser = Arc::new(Browser::default());
     let mut provider_opts = HashMap::new();
     provider_opts.insert(
         ProviderKind::Codex,
@@ -385,6 +482,7 @@ async fn rig(o: Opts) -> Rig {
             provider_opts,
         },
         sink,
+        browser: browser.clone(),
     });
     hybrid.set_exec_config(relay_orchestrator::ExecConfig {
         step_timeout: Duration::from_secs(2),
@@ -402,6 +500,7 @@ async fn rig(o: Opts) -> Rig {
         events,
         records,
         store,
+        browser,
     }
 }
 
@@ -450,7 +549,7 @@ fn message(r: &Rig) -> String {
         .unwrap_or_default()
 }
 
-const HEAVY: &str = "debug why my build fails and write code to fix it";
+const HEAVY: &str = "organize my documents folder and compare the duplicates in it";
 
 // ---------- tests ----------
 
@@ -470,11 +569,7 @@ async fn trivial_requests_run_natively_without_any_ai() {
     ));
     assert!(r.claude.seen().is_empty() && r.codex.seen().is_empty());
     assert!(r.ollama.chats.lock().unwrap().is_empty());
-    assert!(
-        message(&r).contains("nothing to check against"),
-        "{}",
-        message(&r)
-    );
+    assert!(message(&r).contains("can't check"), "{}", message(&r));
     let rec = r.records.0.lock().unwrap()[0].clone();
     assert_eq!(
         (rec.strategy.as_str(), rec.outcome.as_str(), rec.steps_total),
@@ -546,7 +641,11 @@ async fn heavy_tasks_go_to_the_cloud_planner_with_minimal_redacted_context() {
         |e| matches!(e, UiEvent::ContextShared { provider, categories, .. }
         if provider == "claude" && categories.iter().any(|c| c.category == "window_titles"))
     ));
-    assert!(message(&r).contains("Verified"), "{}", message(&r));
+    assert!(
+        message(&r).contains("checked afterwards"),
+        "{}",
+        message(&r)
+    );
     assert!(has(
         &r,
         |e| matches!(e, UiEvent::StepFinished { status, .. } if status == "verified")
@@ -926,4 +1025,310 @@ async fn provider_status_is_cached_and_can_be_forced() {
         &r,
         |e| matches!(e, UiEvent::Route { provider: Some(p), .. } if p == "codex")
     ));
+}
+
+// ---------- questions, websites, repeats ----------
+
+fn events_of(r: &Rig) -> Vec<UiEvent> {
+    r.events.lock().unwrap().clone()
+}
+
+fn used_labels(r: &Rig) -> Vec<(String, String)> {
+    events_of(r)
+        .into_iter()
+        .filter_map(|e| match e {
+            UiEvent::Used { kind, label, .. } => Some((kind, label)),
+            _ => None,
+        })
+        .collect()
+}
+
+async fn answer_confirm(r: &Rig, approve: bool) -> relay_protocol::ConfirmRequest {
+    for _ in 0..300 {
+        if let Some(UiEvent::Confirm(c)) = events_of(r)
+            .into_iter()
+            .find(|e| matches!(e, UiEvent::Confirm(_)))
+        {
+            r.hybrid.answer(ConfirmAnswer {
+                id: c.id,
+                approved: approve,
+            });
+            return c;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("no confirmation card: {:?}", events_of(r));
+}
+
+#[tokio::test]
+async fn a_coding_question_is_answered_in_words_and_nothing_runs() {
+    let r = rig(Opts::default()).await;
+    r.claude
+        .replies
+        .lock()
+        .unwrap()
+        .push_back(Ok("```python\nprint(\"hi\")\n```".into()));
+    r.hybrid
+        .submit_in(
+            "c1",
+            "example of playwright code for testing amazon search?",
+            &[],
+        )
+        .unwrap();
+    assert_eq!(finished(&r).await, relay_protocol::RunOutcome::Completed);
+    assert!(message(&r).contains("```python"), "{}", message(&r));
+    assert!(r.svc.calls().is_empty(), "a question never runs anything");
+    assert!(
+        r.browser.calls.lock().unwrap().is_empty(),
+        "and never opens pages"
+    );
+    assert!(
+        !has(&r, |e| matches!(e, UiEvent::PlanProposed { .. })),
+        "no task card for a question"
+    );
+    assert!(has(
+        &r,
+        |e| matches!(e, UiEvent::Route { intent: Some(i), .. } if i == "chat")
+    ));
+    let req = &r.claude.seen()[0];
+    assert!(req.plan_only && req.output_schema.is_none() && req.allowed_tools.is_empty());
+    assert_eq!(
+        req.model.as_deref(),
+        Some("sonnet"),
+        "a sensible default model when the owner chose none"
+    );
+    assert!(used_labels(&r)
+        .iter()
+        .any(|(k, l)| k == "cloud_ai" && l == "Claude Code"));
+}
+
+#[tokio::test]
+async fn local_answers_stream_and_stay_on_the_pc() {
+    let r = rig(Opts {
+        privacy: PrivacyMode::LocalOnly,
+        ..Opts::default()
+    })
+    .await;
+    r.ollama
+        .replies
+        .lock()
+        .unwrap()
+        .push_back("A mutex lets one thread in at a time.".into());
+    r.hybrid.submit_in("c1", "what is a mutex?", &[]).unwrap();
+    assert_eq!(finished(&r).await, relay_protocol::RunOutcome::Completed);
+    let deltas: String = events_of(&r)
+        .into_iter()
+        .filter_map(|e| match e {
+            UiEvent::AssistantDelta { text, .. } => Some(text),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(deltas, "A mutex lets one thread in at a time.");
+    assert!(r.claude.seen().is_empty() && r.codex.seen().is_empty());
+    assert!(used_labels(&r)
+        .iter()
+        .any(|(k, l)| k == "local_ai" && l == "Qwen3 14B"));
+}
+
+#[tokio::test]
+async fn a_website_task_runs_step_by_step_and_asks_before_applying() {
+    let r = rig(Opts {
+        privacy: PrivacyMode::LocalOnly,
+        ..Opts::default()
+    })
+    .await;
+    for reply in [
+        json!({"action": "navigate", "title": "Open Dice", "url": "https://www.dice.com/jobs?q=fde&easy=1"}),
+        json!({"action": "click", "title": "Open the job", "target": "e11", "element": "job link"}),
+        json!({"action": "click", "title": "Easy Apply", "target": "e12", "element": "Easy Apply button"}),
+        json!({"action": "done", "title": "Finished", "answer": "Applied to Forward Deployed Engineer."}),
+    ] {
+        r.ollama
+            .replies
+            .lock()
+            .unwrap()
+            .push_back(reply.to_string());
+    }
+    r.hybrid
+        .submit_in(
+            "c1",
+            "go to https://www.dice.com/ and apply for fde jobs with easy apply",
+            &[],
+        )
+        .unwrap();
+    let card = answer_confirm(&r, true).await;
+    assert_eq!(card.risk, relay_protocol::Risk::Destructive);
+    assert_eq!(finished(&r).await, relay_protocol::RunOutcome::Completed);
+    assert_eq!(
+        r.browser.tools(),
+        ["browser_navigate", "browser_click", "browser_click"],
+        "one page, no extra tabs"
+    );
+    assert!(message(&r).contains("Applied to Forward Deployed Engineer"));
+    assert!(has(&r, |e| matches!(e, UiEvent::StepAdded { step, .. }
+        if step.via.as_deref() == Some("mcp") && step.server.as_deref() == Some("playwright"))));
+    assert!(
+        has(
+            &r,
+            |e| matches!(e, UiEvent::StepFinished { status, .. } if status == "verified")
+        ),
+        "the navigation is checked"
+    );
+    let used = used_labels(&r);
+    assert!(used.iter().any(|(k, _)| k == "mcp") && used.iter().any(|(k, _)| k == "local_ai"));
+    assert!(
+        r.svc.calls().is_empty(),
+        "no desktop tools for a website task"
+    );
+    let rec = r.records.0.lock().unwrap()[0].clone();
+    assert_eq!((rec.strategy.as_str(), rec.steps.len()), ("web_local", 3));
+}
+
+#[tokio::test]
+async fn declining_an_application_submits_nothing() {
+    let r = rig(Opts {
+        privacy: PrivacyMode::LocalOnly,
+        ..Opts::default()
+    })
+    .await;
+    r.ollama
+        .replies
+        .lock()
+        .unwrap()
+        .push_back(json!({"action": "click", "title": "Easy Apply", "target": "e12"}).to_string());
+    r.hybrid
+        .submit_in("c1", "apply for the fde job on dice", &[])
+        .unwrap();
+    answer_confirm(&r, false).await;
+    finished(&r).await;
+    assert!(r.browser.tools().is_empty(), "the click never happened");
+    assert!(
+        message(&r).contains("Nothing was submitted"),
+        "{}",
+        message(&r)
+    );
+}
+
+#[tokio::test]
+async fn private_fields_are_never_typed_and_loops_are_stopped() {
+    let r = rig(Opts {
+        privacy: PrivacyMode::LocalOnly,
+        ..Opts::default()
+    })
+    .await;
+    r.ollama.replies.lock().unwrap().push_back(
+        json!({"action": "type", "title": "Sign in", "target": "e14", "text": "hunter2"})
+            .to_string(),
+    );
+    r.hybrid
+        .submit_in("c1", "sign in to dice.com for me", &[])
+        .unwrap();
+    finished(&r).await;
+    assert!(r.browser.tools().is_empty());
+    assert!(message(&r).contains("won't type"), "{}", message(&r));
+    assert!(has(
+        &r,
+        |e| matches!(e, UiEvent::StepAdded { step, .. } if step.sensitive_data)
+    ));
+
+    let r = rig(Opts {
+        privacy: PrivacyMode::LocalOnly,
+        ..Opts::default()
+    })
+    .await;
+    for _ in 0..5 {
+        r.ollama.replies.lock().unwrap().push_back(
+            json!({"action": "click", "title": "Open the job", "target": "e11"}).to_string(),
+        );
+    }
+    r.hybrid
+        .submit_in("c1", "open the fde job on dice.com", &[])
+        .unwrap();
+    finished(&r).await;
+    assert_eq!(
+        r.browser.tools().len(),
+        2,
+        "the third identical click is not made"
+    );
+    assert!(message(&r).contains("nothing changed"), "{}", message(&r));
+}
+
+#[tokio::test]
+async fn a_cloud_driven_website_task_shares_redacted_pages_only_when_allowed() {
+    let r = rig(Opts {
+        local_models: vec![],
+        ..Opts::default()
+    })
+    .await;
+    r.claude
+        .push_plan(json!({"action": "done", "title": "Done", "answer": "Nothing to do."}));
+    r.hybrid
+        .submit_in("c1", "go to dice.com and look at fde jobs", &[])
+        .unwrap();
+    finished(&r).await;
+    assert!(has(
+        &r,
+        |e| matches!(e, UiEvent::ContextShared { categories, .. }
+        if categories.iter().any(|c| c.category == "web_pages"))
+    ));
+    assert_eq!(
+        r.claude.seen()[0].model.as_deref(),
+        Some("haiku"),
+        "browser steps use a fast model"
+    );
+
+    let off = rig(Opts {
+        local_models: vec![],
+        share: SharePolicy {
+            web_pages: false,
+            ..SharePolicy::default()
+        },
+        ..Opts::default()
+    })
+    .await;
+    off.hybrid
+        .submit_in("c1", "go to dice.com and look at fde jobs", &[])
+        .unwrap();
+    finished(&off).await;
+    assert!(
+        off.claude.seen().is_empty(),
+        "no page leaves the PC when sharing pages is off"
+    );
+    assert!(message(&off).contains("switched off"), "{}", message(&off));
+}
+
+#[tokio::test]
+async fn a_corrected_plan_does_not_reopen_pages_that_are_already_open() {
+    let r = rig(Opts::default()).await;
+    r.svc
+        .fail
+        .lock()
+        .unwrap()
+        .insert("keys".into(), ServiceError::Failed("no window".into()));
+    r.claude.push_plan(plan(vec![
+        step(
+            "s1",
+            json!({"tool": "open_url", "url": "https://example.com/a"}),
+            None,
+        ),
+        step("s2", json!({"tool": "press_keys", "keys": "ctrl+s"}), None),
+    ]));
+    r.claude.push_plan(plan(vec![
+        step(
+            "s1",
+            json!({"tool": "open_url", "url": "https://example.com/a"}),
+            None,
+        ),
+        step("s2", json!({"tool": "open_app", "name": "Notepad"}), None),
+    ]));
+    r.hybrid.submit_in("c1", HEAVY, &[]).unwrap();
+    finished(&r).await;
+    let opens = r
+        .svc
+        .calls()
+        .iter()
+        .filter(|c| c.starts_with("open_url"))
+        .count();
+    assert_eq!(opens, 1, "{:?}", r.svc.calls());
+    assert!(r.svc.calls().iter().any(|c| c.starts_with("open_app")));
 }

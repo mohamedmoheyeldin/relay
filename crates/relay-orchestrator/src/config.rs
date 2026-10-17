@@ -82,6 +82,13 @@ pub struct HybridConfig {
     pub providers: BTreeMap<String, ProviderChoice>,
     /// Let a cloud CLI drive Relay's tools directly instead of returning a plan (not the default).
     pub agent_mode: bool,
+    /// Let Relay work in a browser (Playwright) for website tasks.
+    #[serde(default = "default_true")]
+    pub browser_enabled: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for HybridConfig {
@@ -96,6 +103,7 @@ impl Default for HybridConfig {
             disabled_tools: Vec::new(),
             providers: BTreeMap::new(),
             agent_mode: false,
+            browser_enabled: true,
         }
     }
 }

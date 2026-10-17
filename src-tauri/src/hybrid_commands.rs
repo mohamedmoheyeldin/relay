@@ -90,9 +90,10 @@ async fn provider_info(state: &AppState, kind: ProviderKind, force: bool) -> Val
 
 async fn hybrid_json(state: &AppState, force: bool) -> CmdResult<Value> {
     let cfg = state.settings.lock().map_err(err)?.hybrid.clone();
-    let (claude, codex) = tokio::join!(
+    let (claude, codex, browser) = tokio::join!(
         provider_info(state, ProviderKind::Claude, force),
-        provider_info(state, ProviderKind::Codex, force)
+        provider_info(state, ProviderKind::Codex, force),
+        relay_agent::browser::BrowserDriver::status(state.browser.as_ref())
     );
     Ok(json!({
         "privacy_mode": cfg.privacy_mode.as_str(),
@@ -103,6 +104,12 @@ async fn hybrid_json(state: &AppState, force: bool) -> CmdResult<Value> {
         "allowed_roots": cfg.allowed_roots,
         "protected_roots": cfg.protected_roots,
         "disabled_tools": cfg.disabled_tools,
+        "browser": {
+            "enabled": cfg.browser_enabled,
+            "available": browser.available,
+            "server": relay_agent::browser::SERVER_LABEL,
+            "detail": browser.detail,
+        },
         "tools": TOOLS
             .iter()
             .map(|(id, label, risk)| json!({ "id": id, "label": label, "risk": risk }))
@@ -149,6 +156,7 @@ pub async fn set_hybrid(
     allowed_roots: Option<Value>,
     disabled_tools: Option<Value>,
     provider: Option<Value>,
+    browser_enabled: Option<bool>,
     state: State<'_, AppState>,
 ) -> CmdResult<Value> {
     {
@@ -184,6 +192,10 @@ pub async fn set_hybrid(
                 .into_iter()
                 .filter(|t| TOOLS.iter().any(|(id, ..)| id == t))
                 .collect();
+        }
+        if let Some(on) = browser_enabled {
+            h.browser_enabled = on;
+            state.browser.set_enabled(on);
         }
         if let Some(Value::Object(p)) = provider {
             let id = p.get("id").and_then(Value::as_str).unwrap_or_default();

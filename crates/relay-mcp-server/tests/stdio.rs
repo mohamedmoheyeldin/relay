@@ -409,3 +409,58 @@ fn the_shipped_binary_speaks_mcp_over_real_stdio() {
         "exits cleanly when the client disconnects: {status:?}"
     );
 }
+
+#[tokio::test]
+async fn relays_own_mcp_client_can_drive_the_server() {
+    use relay_mcp_client::{McpClient, ServerCommand};
+    let data = temp("client-data");
+    let root = temp("client-root");
+    std::fs::write(root.join("a.txt"), "x").unwrap();
+    let cfg =
+        json!({"hybrid": {"allowed_roots": [root.display().to_string()], "protected_roots": []}});
+    std::fs::write(data.join("settings.json"), cfg.to_string()).unwrap();
+    let client = McpClient::start(
+        "relay",
+        &ServerCommand {
+            program: env!("CARGO_BIN_EXE_relay-mcp").into(),
+            args: vec![
+                "--tools".into(),
+                "safe".into(),
+                "--approvals".into(),
+                "deny".into(),
+                "--data-dir".into(),
+                data.display().to_string(),
+            ],
+            ..ServerCommand::default()
+        },
+        Duration::from_secs(10),
+    )
+    .await
+    .unwrap();
+    assert!(client.has_tool("list_dir") && client.has_tool("run_plan"));
+    let ok = client
+        .call("list_dir", json!({"path": &root}), Duration::from_secs(10))
+        .await
+        .unwrap();
+    assert!(!ok.is_error && ok.text.contains("a.txt"), "{}", ok.text);
+    let refused = client
+        .call(
+            "list_dir",
+            json!({"path": r"C:\Windows"}),
+            Duration::from_secs(10),
+        )
+        .await
+        .unwrap();
+    assert!(
+        refused.is_error,
+        "tool errors come back as results, not transport errors"
+    );
+    client.shutdown().await;
+    assert!(
+        client
+            .call("list_dir", json!({}), Duration::from_secs(2))
+            .await
+            .is_err(),
+        "a stopped server errors out"
+    );
+}

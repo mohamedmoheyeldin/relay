@@ -9,6 +9,7 @@ rust-version.workspace = true
 async-trait = "0.1"
 relay-ai = { path = "../relay-ai" }
 relay-mcp = { path = "../relay-mcp" }
+relay-mcp-client = { path = "../relay-mcp-client" }
 relay-orchestrator = { path = "../relay-orchestrator" }
 relay-os = { path = "../relay-os" }
 relay-protocol = { path = "../relay-protocol" }

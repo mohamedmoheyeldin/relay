@@ -71,6 +71,13 @@ pub struct SharePolicy {
     pub file_names: bool,
     pub file_contents: bool,
     pub screenshots: bool,
+    /// Text of web pages the browser is working on (needed when a cloud AI drives the browser).
+    #[serde(default = "yes")]
+    pub web_pages: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 impl Default for SharePolicy {
@@ -82,6 +89,7 @@ impl Default for SharePolicy {
             file_names: false,
             file_contents: false,
             screenshots: false,
+            web_pages: true,
         }
     }
 }
