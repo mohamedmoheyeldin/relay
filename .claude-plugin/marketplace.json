@@ -1,0 +1,11 @@
+{
+  "name": "relay",
+  "owner": { "name": "Relay" },
+  "plugins": [
+    {
+      "name": "relay",
+      "source": "./plugin",
+      "description": "Relay desktop tools for Claude Code (verified file/app actions, optional screen control)."
+    }
+  ]
+}

@@ -3107,6 +3107,7 @@ dependencies = [
  "relay-agent",
  "relay-ai",
  "relay-mcp",
+ "relay-mcp-server",
  "relay-orchestrator",
  "relay-os",
  "relay-protocol",

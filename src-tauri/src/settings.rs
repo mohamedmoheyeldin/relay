@@ -224,7 +224,10 @@ mod tests {
         let s = Settings::default();
         assert_eq!(s.mode(), ApprovalMode::Destructive);
         assert_eq!(s.hybrid.confirm_level, ConfirmLevel::Destructive);
-        assert_eq!(s.hybrid.privacy_mode, relay_orchestrator::permissions::PrivacyMode::HybridAuto);
+        assert_eq!(
+            s.hybrid.privacy_mode,
+            relay_orchestrator::permissions::PrivacyMode::HybridAuto
+        );
         assert!(!s.hybrid.share.file_contents && !s.hybrid.share.screenshots);
         assert!(!s.hybrid.protected_roots.is_empty());
         assert_eq!(s.route(), RouteMode::Auto);

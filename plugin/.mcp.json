@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "relay": {
+      "command": "C:/Program Files/Relay/Relay.exe",
+      "args": ["--mcp"]
+    }
+  }
+}

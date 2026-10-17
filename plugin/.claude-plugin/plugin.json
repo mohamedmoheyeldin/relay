@@ -1,0 +1,14 @@
+{
+  "name": "relay",
+  "version": "0.2.0",
+  "description": "Let Claude work on your PC through Relay: verified file and app actions, accessibility-tree clicks, optional screen control, with confirmation before anything destructive.",
+  "keywords": [
+    "desktop",
+    "automation",
+    "windows",
+    "mcp"
+  ],
+  "author": {
+    "name": "Mohamed Moheyeldin"
+  }
+}

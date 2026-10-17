@@ -2,6 +2,7 @@
 //! Relay's verified desktop actions and screen control.
 
 pub mod approver;
+pub mod cli;
 pub mod hotkey;
 pub mod protocol;
 pub mod toolbox;

@@ -24,6 +24,12 @@ fn strip_test_hooks() {
 
 fn main() {
     strip_test_hooks();
+    // `Relay.exe --mcp ...` is the MCP server for Claude Code, Codex and other clients (stdio, no window).
+    let mut args = std::env::args().skip(1);
+    if args.next().as_deref() == Some("--mcp") {
+        let rest: Vec<String> = args.collect();
+        std::process::exit(relay_mcp_server::cli::run(&rest));
+    }
     // Elevated setup or removal workers do their job headlessly and exit.
     let args: Vec<String> = std::env::args().collect();
     if let Some(code) = installer::run_worker_if_requested(&args, env!("CARGO_PKG_VERSION")) {
