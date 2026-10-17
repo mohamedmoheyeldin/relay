@@ -453,6 +453,8 @@ pub fn run() -> Result<()> {
             hybrid_commands::refresh_providers,
             hybrid_commands::workflow_list,
             hybrid_commands::workflow_get,
+            hybrid_commands::get_appearance,
+            hybrid_commands::set_appearance,
             commands::conv_list,
             commands::conv_get,
             commands::conv_create,

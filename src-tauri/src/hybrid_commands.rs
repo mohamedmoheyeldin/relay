@@ -109,6 +109,8 @@ async fn hybrid_json(state: &AppState, force: bool) -> CmdResult<Value> {
             "available": browser.available,
             "server": relay_agent::browser::SERVER_LABEL,
             "detail": browser.detail,
+            "mode": browser.mode,
+            "action_url": browser.action_url,
         },
         "tools": TOOLS
             .iter()
@@ -287,4 +289,41 @@ pub async fn workflow_get(id: String, state: State<'_, AppState>) -> CmdResult<V
         }
     }
     Ok(out)
+}
+
+/// The owner's appearance choices (code themes, fonts, text size, task view). Opaque to the backend.
+#[tauri::command]
+pub async fn get_appearance(state: State<'_, AppState>) -> CmdResult<Value> {
+    let s = state.settings.lock().map_err(err)?;
+    Ok(if s.appearance.is_object() {
+        s.appearance.clone()
+    } else {
+        json!({})
+    })
+}
+
+/// Merge `patch` (an object) into the stored appearance and return the result.
+#[tauri::command]
+pub async fn set_appearance(patch: Value, state: State<'_, AppState>) -> CmdResult<Value> {
+    let Value::Object(patch) = patch else {
+        return Err("appearance must be an object".into());
+    };
+    if patch.len() > 64 || patch.keys().any(|k| k.len() > 64) {
+        return Err("too many appearance settings".into());
+    }
+    let mut s = state.settings.lock().map_err(err)?;
+    if !s.appearance.is_object() {
+        s.appearance = json!({});
+    }
+    if let Some(obj) = s.appearance.as_object_mut() {
+        for (k, v) in patch {
+            if v.is_null() {
+                obj.remove(&k);
+            } else {
+                obj.insert(k, v);
+            }
+        }
+    }
+    s.save(&state.paths.settings_file).map_err(err)?;
+    Ok(s.appearance.clone())
 }

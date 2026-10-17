@@ -123,6 +123,8 @@ pub struct Settings {
     /// Download and run the built-in local AI automatically.
     pub auto_setup: bool,
     pub hybrid: HybridConfig,
+    /// How the app looks (themes, fonts, sizes, views). Owned by the UI; stored as given.
+    pub appearance: serde_json::Value,
 }
 
 impl Default for Settings {
@@ -136,6 +138,7 @@ impl Default for Settings {
             custom_instructions: String::new(),
             auto_setup: true,
             hybrid: HybridConfig::default(),
+            appearance: serde_json::json!({}),
         }
     }
 }

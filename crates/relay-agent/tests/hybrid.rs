@@ -304,6 +304,8 @@ impl BrowserDriver for Browser {
         BrowserStatus {
             available: true,
             detail: "ok".into(),
+            action_url: None,
+            mode: "yours",
         }
     }
     async fn call(&self, tool: &str, args: Value, _t: Duration) -> Result<BrowserOutput, String> {

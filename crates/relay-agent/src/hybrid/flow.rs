@@ -69,8 +69,9 @@ impl Hybrid {
                                 let (_, message) = crate::agent::error_to_ui(&e);
                                 let local_ok = self.local_model().await.is_ok();
                                 if local_ok && !cancel.is_cancelled() {
+                                    let _ = message;
                                     self.emit(UiEvent::Notice {
-                                        text: format!("{} could not answer ({message}); the local AI is answering instead.", kind.label()),
+                                        text: format!("{} was not available just now, so the local AI answered.", kind.label()),
                                     });
                                     self.chat_local(run_id, task, history, cancel).await
                                 } else {

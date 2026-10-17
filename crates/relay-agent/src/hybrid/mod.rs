@@ -203,6 +203,24 @@ fn pretty_model(name: &str) -> String {
     }
 }
 
+/// Errors worth one quiet retry: sign-in refresh races, overload, dropped connections.
+fn is_transient(e: &AiError) -> bool {
+    let t = e.to_string().to_lowercase();
+    [
+        "transient",
+        "oauth",
+        "refresh",
+        "overloaded",
+        "rate limit",
+        "529",
+        "503",
+        "connection reset",
+        "econnreset",
+    ]
+    .iter()
+    .any(|w| t.contains(w))
+}
+
 fn risk_label(r: Risk) -> &'static str {
     match r {
         Risk::Safe => "safe",
@@ -412,11 +430,6 @@ impl Hybrid {
             (ProviderKind::Codex, Purpose::Answer) => (None, Some("medium")),
             (ProviderKind::Codex, _) => (None, Some("low")),
         };
-        self.used(
-            "cloud_ai",
-            kind.label(),
-            opts.model.clone().or(model.map(str::to_string)),
-        );
         (
             opts.model.or(model.map(str::to_string)),
             opts.reasoning.or(effort.map(str::to_string)),
@@ -619,9 +632,55 @@ impl Hybrid {
         .await
     }
 
-    /// One tool-less request to a cloud provider; returns its final text.
+    /// One tool-less request to a cloud provider; returns its final text. A transient failure (for
+    /// example the CLI refreshing its sign-in at the same moment as another process) is retried once.
     #[allow(clippy::too_many_arguments)]
     async fn ask_provider_with(
+        &self,
+        kind: ProviderKind,
+        run_id: RunId,
+        prompt: String,
+        system: &str,
+        schema: Option<serde_json::Value>,
+        purpose: Purpose,
+        cancel: &CancellationToken,
+    ) -> Result<String, AiError> {
+        let mut last = None;
+        for attempt in 0..2 {
+            match self
+                .ask_provider_once(
+                    kind,
+                    run_id,
+                    prompt.clone(),
+                    system,
+                    schema.clone(),
+                    purpose,
+                    cancel,
+                )
+                .await
+            {
+                Ok(text) => {
+                    self.mark_cloud_used(kind, purpose);
+                    return Ok(text);
+                }
+                Err(e) if attempt == 0 && is_transient(&e) && !cancel.is_cancelled() => {
+                    info!("{} hit a transient error, retrying: {e}", kind.label());
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                    last = Some(e);
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        Err(last.unwrap_or(AiError::Cancelled))
+    }
+
+    fn mark_cloud_used(&self, kind: ProviderKind, purpose: Purpose) {
+        let (model, _) = self.provider_choice(kind, purpose);
+        self.used("cloud_ai", kind.label(), model);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn ask_provider_once(
         &self,
         kind: ProviderKind,
         run_id: RunId,
