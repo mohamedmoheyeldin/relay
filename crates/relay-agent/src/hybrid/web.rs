@@ -553,21 +553,41 @@ pub(super) enum WebEngine {
     Cloud(ProviderKind),
 }
 
+/// The visible name of an element from its snapshot line: `- link "Apply Now" [ref=e1]:` -> `Apply Now`.
+pub fn element_name(line: &str) -> String {
+    let quoted = line
+        .split_once('"')
+        .and_then(|(_, rest)| rest.split_once('"'))
+        .map(|(name, _)| name.trim().to_string());
+    match quoted {
+        Some(n) if !n.is_empty() => n,
+        _ => line
+            .split('[')
+            .next()
+            .unwrap_or(line)
+            .trim()
+            .trim_start_matches("- ")
+            .trim_end_matches(':')
+            .to_string(),
+    }
+}
+
 fn proxy_step(act: &Act) -> PlanStep {
+    let name: String = element_name(&act.label).chars().take(80).collect();
     let action = match act.kind {
         ActKind::Navigate => PlanAction::OpenUrl {
             url: act.args["url"].as_str().unwrap_or_default().to_string(),
         },
         ActKind::Type => PlanAction::UiSetText {
             target: UiTarget {
-                name: Some(act.label.chars().take(80).collect()),
+                name: Some(name),
                 ..UiTarget::default()
             },
             text: act.args["text"].as_str().unwrap_or_default().to_string(),
         },
         _ => PlanAction::UiClick {
             target: UiTarget {
-                name: Some(act.label.chars().take(80).collect()),
+                name: Some(name),
                 ..UiTarget::default()
             },
         },
@@ -1316,5 +1336,19 @@ mod long_page_tests {
         assert!(c.contains("[ref=a1]") && c.contains("[ref=d1]"), "{c}");
         assert!(!c.contains("[ref=g1]"), "wrappers are dropped");
         assert!(c.chars().count() <= 3000);
+    }
+}
+
+#[cfg(test)]
+mod name_tests {
+    use super::*;
+
+    #[test]
+    fn confirmation_cards_name_the_element_like_a_person_would() {
+        assert_eq!(
+            element_name("- link \"Apply Now\" [ref=e1579] [cursor=pointer]:"),
+            "Apply Now"
+        );
+        assert_eq!(element_name("- button [ref=e2]"), "button");
     }
 }
