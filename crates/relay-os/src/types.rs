@@ -2,6 +2,8 @@
 
 use std::fmt;
 
+pub use crate::ui::{UiElement, UiSelector};
+
 /// Errors from the OS layer.
 #[derive(Debug, thiserror::Error)]
 pub enum OsError {
@@ -20,7 +22,7 @@ pub enum OsError {
 pub type Result<T> = std::result::Result<T, OsError>;
 
 /// Axis-aligned rectangle in physical pixels.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub struct Rect {
     pub x: i32,
     pub y: i32,
@@ -144,4 +146,21 @@ pub trait Desktop: Send + Sync {
     }
     /// Bring the first window whose title contains `needle` (case-insensitive) to the front.
     fn focus_window(&self, needle: &str) -> Result<String>;
+
+    /// Find controls matching a selector in the live UI (best matches first).
+    fn ui_find(&self, _selector: &UiSelector, _max: usize) -> Result<Vec<UiElement>> {
+        Err(OsError::Unsupported("UI automation"))
+    }
+    /// Activate the best matching control (invoke, toggle, select, or click as a fallback).
+    fn ui_invoke(&self, _selector: &UiSelector) -> Result<String> {
+        Err(OsError::Unsupported("UI automation"))
+    }
+    /// Put text into the best matching control.
+    fn ui_set_value(&self, _selector: &UiSelector, _text: &str) -> Result<String> {
+        Err(OsError::Unsupported("UI automation"))
+    }
+    /// A compact outline (role, name, id) of a window's controls; the foreground window by default.
+    fn ui_outline(&self, _window: Option<&str>, _max_nodes: usize) -> Result<String> {
+        Err(OsError::Unsupported("UI automation"))
+    }
 }

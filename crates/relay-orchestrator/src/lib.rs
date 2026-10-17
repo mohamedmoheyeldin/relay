@@ -15,6 +15,7 @@ pub mod permissions;
 pub mod plan;
 pub mod router;
 pub mod services;
+pub mod system;
 
 pub use context::{DesktopFacts, ScopedContext, StepRecord, StepStatus, WorkflowContext};
 pub use executor::{execute_plan, Confirmer, EventSink, ExecConfig, ExecEvent, RunOutcome};
@@ -22,3 +23,4 @@ pub use permissions::{ConfirmLevel, Policy, PrivacyMode, Risk, SharePolicy, Verd
 pub use plan::{ExecutionPlan, PlanAction, PlanError, PlanStep, UiTarget, Verification};
 pub use router::{route, Abilities, ProviderKind, Route, Strategy};
 pub use services::{ServiceError, ServiceResult, Services};
+pub use system::SystemServices;

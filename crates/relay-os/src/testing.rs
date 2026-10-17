@@ -16,6 +16,7 @@ struct Inner {
     shade: u8,
     windows: Vec<WindowInfo>,
     control: Option<String>,
+    elements: Vec<crate::UiElement>,
 }
 
 /// A fake desktop that records every input event and serves synthetic frames.
@@ -56,6 +57,7 @@ impl FakeDesktop {
                 shade: 0,
                 windows: Vec::new(),
                 control: None,
+                elements: Vec::new(),
             }),
         }
     }
@@ -91,6 +93,11 @@ impl FakeDesktop {
     /// Name every control reports under the pointer (for risky-control tests).
     pub fn set_control_name(&self, name: Option<&str>) {
         self.lock().control = name.map(str::to_string);
+    }
+
+    /// Controls the fake UI tree contains.
+    pub fn set_elements(&self, elements: Vec<crate::UiElement>) {
+        self.lock().elements = elements;
     }
 
     pub fn set_windows(&self, windows: Vec<WindowInfo>) {
@@ -158,6 +165,62 @@ impl Desktop for FakeDesktop {
 
     fn windows(&self) -> Result<Vec<WindowInfo>> {
         Ok(self.lock().windows.clone())
+    }
+
+    fn ui_find(&self, selector: &crate::UiSelector, max: usize) -> Result<Vec<crate::UiElement>> {
+        let all: Vec<_> = self
+            .lock()
+            .elements
+            .iter()
+            .filter(|e| crate::ui::matches(selector, e))
+            .cloned()
+            .collect();
+        Ok(crate::ui::rank(selector, all)
+            .into_iter()
+            .take(max.max(1))
+            .collect())
+    }
+
+    fn ui_invoke(&self, selector: &crate::UiSelector) -> Result<String> {
+        let found = self.ui_find(selector, 1)?;
+        let el = found
+            .first()
+            .ok_or_else(|| OsError::InvalidArgument("no matching control was found".into()))?;
+        if !el.enabled {
+            return Err(OsError::InvalidArgument(format!(
+                "“{}” is disabled",
+                el.name
+            )));
+        }
+        self.lock().events.push(InputEvent::Button {
+            button: crate::MouseButton::Left,
+            down: true,
+        });
+        Ok(format!("Invoked “{}”", el.name))
+    }
+
+    fn ui_set_value(&self, selector: &crate::UiSelector, text: &str) -> Result<String> {
+        let found = self.ui_find(selector, 1)?;
+        let el = found
+            .first()
+            .ok_or_else(|| OsError::InvalidArgument("no matching control was found".into()))?;
+        let name = el.name.clone();
+        let mut inner = self.lock();
+        if let Some(e) = inner.elements.iter_mut().find(|e| e.name == name) {
+            e.value = Some(text.to_string());
+        }
+        Ok(format!("Set “{name}”"))
+    }
+
+    fn ui_outline(&self, _window: Option<&str>, max_nodes: usize) -> Result<String> {
+        Ok(self
+            .lock()
+            .elements
+            .iter()
+            .take(max_nodes.max(1))
+            .map(|e| crate::ui::outline_line(0, e))
+            .collect::<Vec<_>>()
+            .join("\n"))
     }
 
     fn control_name_at(&self, _x: i32, _y: i32) -> Result<Option<String>> {

@@ -129,7 +129,7 @@ unsafe extern "system" fn window_cb(hwnd: HWND, data: LPARAM) -> BOOL {
     BOOL::from(true)
 }
 
-fn scan_windows() -> Result<Vec<(HWND, WindowInfo)>> {
+pub(crate) fn scan_windows() -> Result<Vec<(HWND, WindowInfo)>> {
     // SAFETY: GetForegroundWindow has no preconditions.
     let mut scan = WindowScan {
         foreground: unsafe { GetForegroundWindow() },
@@ -421,6 +421,22 @@ impl Desktop for WindowsDesktop {
         control_name(x, y)
     }
 
+    fn ui_find(&self, selector: &crate::UiSelector, max: usize) -> Result<Vec<crate::UiElement>> {
+        crate::win_uia::find(selector, max)
+    }
+
+    fn ui_invoke(&self, selector: &crate::UiSelector) -> Result<String> {
+        crate::win_uia::invoke(self, selector)
+    }
+
+    fn ui_set_value(&self, selector: &crate::UiSelector, text: &str) -> Result<String> {
+        crate::win_uia::set_value(self, selector, text)
+    }
+
+    fn ui_outline(&self, window: Option<&str>, max_nodes: usize) -> Result<String> {
+        crate::win_uia::outline(window, max_nodes)
+    }
+
     fn windows(&self) -> Result<Vec<WindowInfo>> {
         Ok(scan_windows()?.into_iter().map(|(_, w)| w).collect())
     }
@@ -488,8 +504,43 @@ mod tests {
     fn reads_a_control_name_without_error() {
         let d = WindowsDesktop::new();
         let primary = d.displays().unwrap().remove(0);
+        // Some screen spots (for example a locked desktop or a transient overlay) cannot be queried;
+        // the call must report that as an error, never crash.
         let result = d.control_name_at(primary.rect.x + 5, primary.rect.y + 5);
-        assert!(result.is_ok(), "{result:?}");
+        assert!(
+            result.is_ok() || matches!(result, Err(OsError::Platform(_))),
+            "{result:?}"
+        );
+    }
+
+    #[test]
+    fn reads_the_ui_tree_of_a_window_without_changing_anything() {
+        let d = WindowsDesktop::new();
+        // Some windows (elevated, protected or mid-redraw) refuse UI Automation, so try a few;
+        // at least one ordinary window must work. This only reads.
+        let windows: Vec<_> = d
+            .windows()
+            .unwrap()
+            .into_iter()
+            .filter(|w| !w.title.is_empty())
+            .take(8)
+            .collect();
+        if windows.is_empty() {
+            return;
+        }
+        let mut worked = 0;
+        for w in &windows {
+            let sel = crate::UiSelector {
+                window: Some(w.title.clone()),
+                role: Some("button".into()),
+                ..Default::default()
+            };
+            if let (Ok(_), Ok(found)) = (d.ui_outline(Some(&w.title), 40), d.ui_find(&sel, 5)) {
+                assert!(found.iter().all(|e| e.role == "button"));
+                worked += 1;
+            }
+        }
+        assert!(worked > 0, "no window could be read through UI Automation");
     }
 
     #[test]

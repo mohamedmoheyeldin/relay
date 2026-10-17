@@ -1,107 +1,132 @@
-# Relay UI contract (backend <-> React UI)
+# Relay UI contract v2 (backend <-> React UI)
 
-The UI lives in `ui/` (React + TypeScript + Vite + Tailwind). It runs inside a Tauri v2 WebView2 window
-(Chromium engine, same family as the Electron ChatGPT Windows app). `withGlobalTauri` is on, so the page
-may use `window.__TAURI__.core.invoke` and `window.__TAURI__.event.listen`; prefer the npm packages
-`@tauri-apps/api` (`invoke`, `listen`). Command arguments are camelCase (Tauri converts to the Rust
-snake_case names). All commands return real JSON values (not strings) and reject with a string message.
+The UI lives in `ui/` (React + TypeScript + Vite + Tailwind, shadcn/ui, TanStack Query, Zod, React Router, Zustand).
+It runs inside a Tauri v2 window. Use `@tauri-apps/api` (`invoke`, `listen`). Command arguments are camelCase
+(Tauri converts to the Rust snake_case names). Commands return real JSON values and reject with a string message.
+Validate every payload that crosses the boundary with Zod schemas (one `schemas.ts` per area) and fail visibly in
+dev, softly in production.
 
-## Events (`listen("relay-event")`, payload is an object)
+## Architecture the UI represents
+React UI -> Rust orchestrator -> task router -> { native OS services | Relay Local AI | cloud provider (Claude Code or
+Codex) } -> permissioned native execution -> verification. AI output is a PLAN (a proposal). Only Rust executes, only
+steps that pass permission checks run, and a step is "verified" only when its effect was checked afterwards. The UI must
+make the difference between "AI proposed", "ran" and "verified" obvious.
+
+## Events (`listen("relay-event")`, payload is an object with a `type` tag)
 ```ts
 type Risk = "reversible" | "destructive";
 type ErrorKind = "cli_not_installed" | "not_logged_in" | "timeout" | "cancelled" | "cli" | "internal";
 type UiEvent =
   | { type: "run_started"; run_id: number; conv_id: string }
-  | { type: "assistant_delta"; run_id: number; text: string }            // streaming fragment
-  | { type: "assistant_message"; run_id: number; text: string }          // full text block; replaces the open streamed one
-  | { type: "tool_started"; run_id: number; tool_id: string; name: string; summary: string }
+  | { type: "route"; run_id: number; strategy: "native" | "local_plan" | "cloud_plan" | "cloud_agent" | "unavailable";
+      provider: string | null; reason: string }
+  | { type: "engine"; run_id: number; kind: "local" | "cloud"; name: string }
+  | { type: "context_shared"; run_id: number; provider: string; categories: { category: string; items: number }[]; bytes: number }
+  | { type: "plan_proposed"; run_id: number; source: "native" | "local" | "claude" | "codex"; objective: string;
+      steps: { id: string; title: string; tool: string; risk: "safe" | "sensitive" | "destructive" }[]; notes: string | null }
+  | { type: "step_started"; run_id: number; step_id: string }
+  | { type: "step_finished"; run_id: number; step_id: string; status: "verified" | "done" | "failed" | "skipped"; summary: string }
+  | { type: "assistant_delta"; run_id: number; text: string }
+  | { type: "assistant_message"; run_id: number; text: string }
+  | { type: "tool_started"; run_id: number; tool_id: string; name: string; summary: string }    // agent mode only
   | { type: "tool_finished"; run_id: number; tool_id: string; ok: boolean; summary: string }
   | { type: "confirm"; id: number; run_id: number; title: string; detail: string; risk: Risk }
   | { type: "confirm_resolved"; id: number; approved: boolean }
-  | { type: "run_finished"; run_id: number; outcome: "completed" | "cancelled" | "timed_out" | "failed" }
+  | { type: "notice"; text: string }
   | { type: "error"; run_id: number | null; kind: ErrorKind; message: string }
+  | { type: "run_finished"; run_id: number; outcome: "completed" | "cancelled" | "timed_out" | "failed" }
   | { type: "status"; provider: string; ready: boolean; detail: string; busy: boolean; kill_hotkey: string;
-      local_model: string | null; route_mode: "auto" | "local_only" | "cloud_only" }
-  | { type: "engine"; run_id: number; kind: "local" | "cloud"; name: string }   // which AI is working now
-  | { type: "notice"; text: string }                                            // e.g. hand-over to Claude
+      local_model: string | null; route_mode: string }
   | { type: "progress"; id: string; label: string; percent: number | null; done: boolean; error: string | null };
-  // progress ids: "local-ai" (managed local AI setup: engine download + model download)
+  // progress ids: "local-ai" (managed local AI setup), "installer" (setup/uninstall screens)
 ```
-Order for one run: `run_started`, optional `engine`, then deltas/messages/tools interleaved, optional `error`,
-finally `run_finished`. Text deltas append to the open assistant message; `assistant_message` replaces it and
-closes it; a tool starting closes any open assistant message.
+Typical run: `run_started`, `route`, optional `context_shared`, `plan_proposed`, then per step `step_started` /
+`step_finished`, optional `confirm`/`confirm_resolved` in between, a final `assistant_message` (the verified outcome in
+words), `run_finished`. Text deltas (agent mode) append to the open assistant message; `assistant_message` replaces it.
 
 ## Types
 ```ts
-type ConvSummary = { id: string; title: string; project_id: string | null; pinned: boolean;
-                     archived: boolean; created_at: number; updated_at: number };   // unix ms
-type Conversation = ConvSummary & { items: unknown[] };   // `items` is opaque: the UI owns its shape
-type Project = { id: string; name: string; color: string; instructions: string;
-                 created_at: number; updated_at: number };   // color: one of "green" "red" "blue" "yellow" "purple" "orange" "pink" "gray"
+type ConvSummary = { id: string; title: string; project_id: string | null; pinned: boolean; archived: boolean; created_at: number; updated_at: number };
+type Conversation = ConvSummary & { items: unknown[] };          // `items` is opaque: the UI owns its shape
+type Project = { id: string; name: string; color: string; instructions: string; created_at: number; updated_at: number };
 type ModelInfo = { name: string; size_bytes: number; vision: boolean; tools: boolean };
-type Engines = {
-  route_mode: "auto" | "local_only" | "cloud_only";
-  local: { available: boolean; managed: boolean; base_url: string; models: ModelInfo[];
-           selected: string | null; active: ModelInfo | null; recommended: string;
-           gpu: { name: string; vram_mb: number } | null };
-  cloud: { name: string; installed: boolean; logged_in: boolean; detail: string; path: string };
+type Engines = {   // Relay Local AI (managed)
+  route_mode: string;   // legacy, ignore
+  local: { available: boolean; managed: boolean; base_url: string; models: ModelInfo[]; selected: string | null;
+           active: ModelInfo | null; recommended: string; gpu: { name: string; vram_mb: number } | null };
+  cloud: { name: string; installed: boolean; logged_in: boolean; detail: string; path: string };   // legacy: use get_hybrid
   setup: { state: "idle" | "running" | "ready" | "failed"; stage: string; percent: number | null; error: string | null };
 };
+type ProviderInfo = {
+  id: "claude" | "codex"; label: string; installed: boolean; logged_in: boolean; version: string | null;
+  auth_method: string | null; detail: string;
+  caps: { structured_output: boolean; session_resume: boolean; mcp_tools: boolean; streaming_deltas: boolean;
+          reasoning_levels: string[]; models: string[] };
+  model: string | null; reasoning: string | null;       // the owner's selection (null = CLI default)
+};
+type Hybrid = {
+  privacy_mode: "local_only" | "hybrid_auto" | "cloud_preferred";
+  default_provider: "claude" | "codex";
+  providers: ProviderInfo[];
+  confirm_level: "off" | "destructive" | "always";
+  share: { window_titles: boolean; ui_tree: boolean; file_names: boolean; file_contents: boolean; screenshots: boolean };
+  allowed_roots: string[]; protected_roots: string[]; disabled_tools: string[];
+  tools: { id: string; label: string; risk: "safe" | "sensitive" | "destructive" }[];   // every tool a plan may use
+};
 type Settings = { approval_mode: "off" | "destructive" | "always"; user_name: string; custom_instructions: string;
-                  auto_setup: boolean; hotkey: string; version: string;
-                  paths: { data: string; audit: string; logs: string; mcp: string } };
+                  auto_setup: boolean; hotkey: string; version: string; paths: { data: string; audit: string; logs: string; mcp: string } };
+type WorkflowSummary = { id: string; conv_id: string | null; objective: string; strategy: string; provider: string | null;
+                         outcome: "completed" | "failed" | "cancelled" | "declined" | "denied" | "timed_out" | "unavailable";
+                         steps_total: number; steps_verified: number; created_at: number; updated_at: number };
+type Workflow = WorkflowSummary & { plan_source: string; steps: { id: string; title: string; tool: string; risk: string;
+                         status: string; summary: string; attempts: number }[]; shared: { category: string; items: number }[];
+                         shared_bytes: number; approvals: string[]; errors: string[]; notes: string | null };
+type Platform = { os: "windows" | "macos" | "linux"; materials: "mica" | "vibrancy" | "none"; title_bar: "native" | "overlay"; version: string };
 ```
 
 ## Commands
 | command | args | returns |
 |---|---|---|
-| `send_message` | `{ convId: string, text: string, attachments?: string[] }` | `{ run_id: number }` (rejects with a message if busy/empty) |
-| `stop_task` | – | void |
-| `answer_confirm` | `{ id: number, approved: boolean }` | boolean |
-| `get_status` | – | the `status` event payload |
-| `conv_list` | `{ archived?: boolean }` | `ConvSummary[]` newest first |
-| `conv_get` | `{ id }` | `Conversation` |
-| `conv_create` | `{ projectId?: string }` | `ConvSummary` |
-| `conv_save` | `{ id, title?: string, items: unknown[], searchText: string }` | void (UI calls it after the user's message is added and after each run finishes) |
-| `conv_update` | `{ id, title?, pinned?, archived? }` | `ConvSummary` |
-| `conv_move` | `{ id, projectId: string \| null }` (null removes from its project) | `ConvSummary` |
-| `conv_delete` | `{ id }` | void |
-| `search` | `{ query: string }` | `{ conversations: (ConvSummary & { snippet: string })[]; projects: Project[] }` |
-| `project_list` | – | `Project[]` |
-| `project_create` | `{ name, color, instructions }` | `Project` |
-| `project_update` | `{ id, name?, color?, instructions? }` | `Project` |
-| `project_delete` | `{ id }` | void (its chats stay, unassigned) |
-| `get_engines` | – | `Engines` |
-| `set_route_mode` | `{ mode }` | void |
-| `set_local_model` | `{ model: string }` ("" = automatic) | void |
-| `local_ai_setup` | `{ action: "start" \| "cancel" }` | void (progress via `progress` events, id `local-ai`) |
-| `pull_model` | `{ model: string }` | void (progress id `local-ai`) |
-| `get_settings` | – | `Settings` |
-| `set_settings` | partial `{ approval_mode?, user_name?, custom_instructions?, auto_setup? }` | `Settings` |
-| `mcp_get` | – | `{ path: string; servers: Record<string, unknown>; error: string \| null }` |
-| `mcp_set` | `{ servers: Record<string, unknown> }` | void |
-| `pick_files` | – | `string[]` (native file dialog; empty if cancelled) |
-| `open_link` | `{ kind: "data" \| "audit" \| "logs" \| "mcp" }` | void |
+| `send_message` | `{ convId, text, attachments?: string[] }` | `{ run_id }` (rejects if busy/empty) |
+| `stop_task` | – | void (cancels the run; hotkey and tray do the same) |
+| `answer_confirm` | `{ id, approved }` | boolean |
+| `get_status` | – | the `status` payload |
+| `get_platform` | – | `Platform` (drives window materials, title-bar padding, shortcut labels: Ctrl vs Cmd) |
+| `conv_list` / `conv_get` / `conv_create` / `conv_save` / `conv_update` / `conv_move` / `conv_delete` / `search` | as before (see below) | |
+| `project_list` / `project_create` / `project_update` / `project_delete` | as before | |
+| `get_hybrid` | – | `Hybrid` |
+| `set_hybrid` | partial: `{ privacyMode?, defaultProvider?, confirmLevel?, share?: Partial<share>, allowedRoots?, disabledTools?, provider?: { id, model?: string \| null, reasoning?: string \| null } }` | `Hybrid` |
+| `refresh_providers` | – | `ProviderInfo[]` (re-probes install and sign-in; slow, show a skeleton) |
+| `workflow_list` | `{ convId?: string, limit?: number }` | `WorkflowSummary[]` newest first |
+| `workflow_get` | `{ id }` | `Workflow` |
+| `get_engines` / `local_ai_setup` / `pull_model` / `set_local_model` | Relay Local AI management as before | |
+| `get_settings` / `set_settings` / `mcp_get` / `mcp_set` / `pick_files` / `open_link` / `open_url` | as before | |
+| `installer_info` / `installer_install` / `installer_launch` / `uninstall_run` / `app_quit` | as before | |
+
+Unchanged argument shapes (from v1): `conv_list {archived?}`, `conv_get {id}`, `conv_create {projectId?}`,
+`conv_save {id, title?, items, searchText}`, `conv_update {id, title?, pinned?, archived?}`,
+`conv_move {id, projectId: string|null}`, `conv_delete {id}`, `search {query}` ->
+`{conversations: (ConvSummary & {snippet})[], projects: Project[]}`, `project_create {name, color, instructions}`,
+`project_update {id, name?, color?, instructions?}`, `project_delete {id}`, `local_ai_setup {action: "start"|"cancel"}`,
+`pull_model {model}`, `set_local_model {model}`, `set_settings {approval_mode?, user_name?, custom_instructions?, auto_setup?}`,
+`mcp_set {servers}`, `open_link {kind: "data"|"audit"|"logs"|"mcp"}`, `open_url {url}`.
 
 ## Behaviour notes
 - One run at a time. While `status.busy`, `send_message` rejects.
-- The backend keeps each conversation's AI session and recent history, and applies project instructions and
-  the user's custom instructions; the UI only stores what it renders.
-- Approvals default to "off" (no confirm events). When on, `confirm` events must be shown as a blocking
-  dialog/card with Approve and Decline; unanswered ones time out after 120 s (`confirm_resolved`).
-- The emergency-stop hotkey and tray "Stop" cancel the run; the UI just sees `run_finished` with `cancelled`.
+- Privacy modes: "local_only" never sends task context to a cloud provider; "hybrid_auto" routes by capability,
+  complexity and sensitivity; "cloud_preferred" favours the selected provider for reasoning (execution still local).
+  `share` decides which categories of local context may be put in a cloud prompt; the `context_shared` event is the
+  privacy ledger for each request and must be visible in the task timeline.
+- Confirmations (`confirm` events) are blocking dialogs with a countdown (120 s). Denied or timed out means not executed.
+- A plan step whose tool is disabled, or whose path is outside `allowed_roots`, is refused by Rust and finishes as
+  `failed` with a "Refused: ..." summary.
+- The two cloud providers are NOT identical: use `caps` to show/hide controls (for example Codex has no token streaming, so
+  show a working indicator rather than streaming text; reasoning levels differ).
+- The UI never executes anything itself and never receives a shell: only these commands exist.
 
 ## Setup and uninstall screens (the downloaded Setup.exe is the app itself)
-Relay installs itself: the release `.exe` shows a setup window when it is not running from its install folder, and
-`Relay.exe --uninstall` shows a removal window. Use the SAME visual theme as the app (dark ChatGPT-style, same fonts,
-accent, buttons, progress bar). The window is a fixed 560x620 (logical px) non-resizable window with the native title bar.
-Route by `installer_info().mode`: `"app"` (normal UI), `"install"`, `"uninstall"`. Check it before rendering anything else so the app
-shell never flashes in installer mode. Commands:
-| command | args | returns |
-|---|---|---|
-| `installer_info` | – | `{ mode: "app"\|"install"\|"uninstall"; version: string; install_dir: string; installed_version: string \| null; data_dir: string; data_bytes: number }` |
-| `installer_install` | `{ desktopShortcut: boolean, startWithWindows: boolean }` | void; emits `progress` events with id `"installer"` (label, percent, done, error); rejects with the error text |
-| `installer_launch` | – | void (starts the installed Relay and quits the setup window) |
-| `uninstall_run` | `{ deleteData: boolean }` | void; progress id `"installer"` |
-| `app_quit` | – | void |
-Install screen: welcome (logo, "Install Relay", version, install location text, two switches: "Add a desktop shortcut", "Start Relay when I sign in"), an "Install" primary button, progress view with the live label and bar, then a done view with "Open Relay" (calls installer_launch) and a note that Relay Local AI sets itself up on first launch; if `installed_version` is set show "Update" wording. Uninstall screen: confirm view, a switch "Also delete my chats, settings and the downloaded local AI (X GB)" (format `data_bytes`; default off), "Remove Relay" destructive button, progress, done view with "Close" (app_quit). Mock these in the dev backend too (`?mode=install` / `?mode=uninstall` query for the mock).
+Route by `installer_info().mode`: `"app"`, `"install"`, `"uninstall"` before rendering anything else. Fixed 560x620 window
+with the native title bar, same theme as the app. Install screen: welcome, install location (C:\Program Files\Relay,
+Windows will ask for permission), switches (desktop shortcut, start with Windows), Install, progress (`progress` id
+`installer`), done with "Open Relay". Uninstall: confirm, switch "Also delete my chats, settings and the downloaded local
+AI (X GB)", progress, done. Mock them in dev via `?mode=install` / `?mode=uninstall`.

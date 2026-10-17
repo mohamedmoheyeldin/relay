@@ -11,14 +11,17 @@ pub mod scaling;
 #[cfg(any(test, feature = "testing"))]
 pub mod testing;
 pub mod types;
+pub mod ui;
 #[cfg(windows)]
 mod win;
+#[cfg(windows)]
+mod win_uia;
 
 use std::sync::Arc;
 
 pub use types::{
     CharKey, Desktop, DisplayInfo, Frame, InputEvent, MouseButton, OsError, Rect, Result,
-    WindowInfo,
+    UiElement, UiSelector, WindowInfo,
 };
 
 /// The desktop implementation for the current platform.
