@@ -912,8 +912,38 @@ impl Hybrid {
                     bytes: 0,
                 }),
                 Strategy::LocalPlan => {
-                    self.plan_locally(&task, &ctx.history, failure.as_deref(), &cancel)
+                    match self
+                        .plan_locally(&task, &ctx.history, failure.as_deref(), &cancel)
                         .await
+                    {
+                        // The local model could not produce a usable plan: ask the cloud when allowed.
+                        Err(why)
+                            if !cancel.is_cancelled()
+                                && settings.privacy != PrivacyMode::LocalOnly
+                                && abilities.provider.is_some() =>
+                        {
+                            let kind = abilities.provider.unwrap_or(ProviderKind::Claude);
+                            info!("local plan failed ({why}); asking {}", kind.label());
+                            self.emit(UiEvent::Notice {
+                                text: format!(
+                                    "The local AI couldn't make a usable plan, so {} is planning it.",
+                                    kind.label()
+                                ),
+                            });
+                            strategy = Strategy::CloudPlan(kind);
+                            self.plan_in_cloud(
+                                kind,
+                                run_id,
+                                &task,
+                                &ctx.history,
+                                failure.as_deref(),
+                                &cancel,
+                            )
+                            .await
+                            .map_err(|e| e.to_string())
+                        }
+                        other => other,
+                    }
                 }
                 Strategy::CloudPlan(kind) | Strategy::CloudAgent(kind) => {
                     match self
@@ -1014,7 +1044,26 @@ impl Hybrid {
                 steps: step_infos(&planned.plan),
                 notes: planned.plan.notes.clone(),
             });
-            let plan = prune_repeats(planned.plan, &done_effects);
+            let mut plan = prune_repeats(planned.plan, &done_effects);
+            // A plan must not wander off to websites the owner never mentioned.
+            if !relay_orchestrator::router::mentions_web(&task) {
+                let before = plan.steps.len();
+                plan.steps.retain(|s| {
+                    !matches!(s.action, relay_orchestrator::PlanAction::OpenUrl { .. })
+                });
+                if plan.steps.len() < before {
+                    self.emit(UiEvent::Notice {
+                        text: "Skipped opening a website you didn't ask for.".into(),
+                    });
+                    if plan.steps.is_empty()
+                        && plan.answer.as_deref().unwrap_or("").trim().is_empty()
+                    {
+                        plan.answer = Some(
+                            "I don't have a way to do that on this PC yet, and I won't send you to a website you didn't ask for. Tell me more about what you want, or say which site to use.".into(),
+                        );
+                    }
+                }
+            }
             if plan.steps.is_empty() {
                 final_text = final_message(
                     &plan,

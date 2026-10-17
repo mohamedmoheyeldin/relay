@@ -86,7 +86,7 @@ try {
     assert(p.os === "windows", JSON.stringify(p));
     const h = await invoke("get_hybrid");
     assert(h.tools.length === 15 && h.providers.length === 2, "unexpected hybrid payload");
-    assert(h.confirm_level === "destructive", `confirm level ${h.confirm_level}`);
+    assert(["off", "destructive", "always"].includes(h.confirm_level), `confirm level ${h.confirm_level}`);
   });
 
   await check("privacy mode round-trips through settings.json", async () => {

@@ -105,6 +105,10 @@ async fn perform(svc: &dyn Services, action: &PlanAction) -> Result<String, Serv
             let items = svc.list_dir(path).await?;
             Ok(format!("{} item(s):\n{}", items.len(), items.join("\n")))
         }
+        PlanAction::DiskUsage { path, max_results } => {
+            let max = (*max_results).unwrap_or(10).clamp(1, 50) as usize;
+            svc.disk_usage(path.as_deref(), max).await
+        }
         PlanAction::ReadTextFile { path, max_bytes } => {
             let max = (*max_bytes).unwrap_or(20_000).clamp(1, 200_000) as usize;
             svc.read_text(path, max).await

@@ -141,10 +141,84 @@ fn clean(s: &str) -> String {
         .to_string()
 }
 
+/// The owner's standard folders, by the names people use for them.
+fn known_folder(name: &str) -> Option<std::path::PathBuf> {
+    let home = std::env::var_os("USERPROFILE")
+        .or_else(|| std::env::var_os("HOME"))
+        .map(std::path::PathBuf::from)?;
+    let dir = match name.trim().trim_end_matches(" folder").trim() {
+        "downloads" | "download" => "Downloads",
+        "documents" | "docs" | "document" => "Documents",
+        "desktop" => "Desktop",
+        "pictures" | "photos" | "images" => "Pictures",
+        "videos" | "movies" => "Videos",
+        "music" => "Music",
+        _ => return None,
+    };
+    Some(home.join(dir))
+}
+
+/// "list the files in my downloads" and similar: a folder listing needs no AI.
+fn listing_intent(lower: &str) -> Option<PlanStep> {
+    let rest = ["list ", "show me ", "show ", "what's in ", "what is in "]
+        .iter()
+        .find_map(|p| lower.strip_prefix(p))?;
+    let rest = [
+        "the files in ",
+        "files in ",
+        "the contents of ",
+        "contents of ",
+        "everything in ",
+        "the files on ",
+        "files on ",
+        "",
+    ]
+    .iter()
+    .find_map(|p| rest.strip_prefix(p))?;
+    let rest = rest.trim_end_matches(['?', '.', '!']).trim();
+    let name = rest.strip_prefix("my ").unwrap_or(rest);
+    let path = known_folder(name)?;
+    let action = PlanAction::ListDir {
+        path: path.display().to_string(),
+    };
+    Some(PlanStep {
+        id: "s1".into(),
+        title: action.describe(),
+        action,
+        verify: None,
+    })
+}
+
 /// Recognise trivial requests that need no AI at all ("open notepad", "open https://…").
 pub fn simple_intent(task: &str) -> Option<PlanStep> {
     let t = task.trim();
     let lower = t.to_lowercase();
+    if let Some(step) = listing_intent(&lower) {
+        return Some(step);
+    }
+    let disk = [
+        "disk space",
+        "disk usage",
+        "drive space",
+        "storage space",
+        "free space",
+        "taking up space",
+        "using my disk",
+        "using space",
+        "space on my",
+    ];
+    if disk.iter().any(|w| lower.contains(w)) && t.split_whitespace().count() <= 12 {
+        let action = PlanAction::DiskUsage {
+            path: None,
+            max_results: None,
+        };
+        return Some(PlanStep {
+            id: "s1".into(),
+            title: action.describe(),
+            action,
+            verify: None,
+        });
+    }
     let rest = ["open ", "launch ", "start "]
         .iter()
         .find_map(|p| lower.strip_prefix(p).map(|_| clean(&t[p.len()..])))?;
@@ -283,6 +357,15 @@ const SITE_WORDS: [&str; 12] = [
     "amazon",
     "google",
 ];
+
+/// Does the owner's message mention a website or link at all?
+pub fn mentions_web(task: &str) -> bool {
+    let lower = task.to_lowercase();
+    has_url_or_site(&lower)
+        || SITE_WORDS.iter().any(|w| lower.contains(w))
+        || lower.contains("browser")
+        || lower.contains("web")
+}
 
 /// Decide whether a message is a question, a PC action or a website task.
 pub fn classify(task: &str) -> Intent {
@@ -796,5 +879,24 @@ mod tests {
         assert!(matches!(blocked.strategy, Strategy::Unavailable(ref m) if m.contains("Browser")));
         let none = route("go to dice.com and apply", PrivacyMode::LocalOnly, NOTHING);
         assert!(matches!(none.strategy, Strategy::Unavailable(_)));
+    }
+
+    #[test]
+    fn listing_a_standard_folder_needs_no_ai() {
+        for t in [
+            "list the files in my Downloads folder",
+            "show me my documents",
+            "what's in my desktop?",
+        ] {
+            let step = simple_intent(t).unwrap_or_else(|| panic!("{t}"));
+            assert!(matches!(step.action, PlanAction::ListDir { .. }), "{t}");
+        }
+        assert!(simple_intent("list the files in my secret project").is_none());
+        let disk =
+            simple_intent("Find what is using my disk space").unwrap_or_else(|| panic!("disk"));
+        assert!(matches!(
+            disk.action,
+            PlanAction::DiskUsage { path: None, .. }
+        ));
     }
 }

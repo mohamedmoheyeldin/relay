@@ -286,10 +286,11 @@ pub fn status_for(plan: &BrowserPlan, node: bool) -> BrowserStatus {
     match plan {
         BrowserPlan::Yours(b) => BrowserStatus {
             available: true,
-            detail: format!(
-                "Uses your {} with your sign-ins, through the Playwright extension. The first time in a session, allow the connection in the tab Relay opens.",
-                b.name
-            ),
+            detail: if has_extension_token() {
+                format!("Uses your {} with your sign-ins, through the Playwright extension. Connects without asking (token saved).", b.name)
+            } else {
+                format!("Uses your {} with your sign-ins, through the Playwright extension. Allow the connection in the tab Relay opens, or save the extension's token below so it connects without asking.", b.name)
+            },
             action_url: None,
             mode: "yours",
         },
@@ -320,6 +321,27 @@ pub fn status_for(plan: &BrowserPlan, node: bool) -> BrowserStatus {
     }
 }
 
+/// The bridge extension's connection token (shown in the extension's popup). With it, the owner does
+/// not have to approve every connection. Kept in memory here; the app stores it in its settings file.
+static EXTENSION_TOKEN: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+pub fn set_extension_token(token: Option<String>) {
+    let clean = token
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty() && t.len() <= 512 && t.chars().all(|c| c.is_ascii_graphic()));
+    if let Ok(mut slot) = EXTENSION_TOKEN.lock() {
+        *slot = clean;
+    }
+}
+
+pub fn has_extension_token() -> bool {
+    EXTENSION_TOKEN.lock().map(|t| t.is_some()).unwrap_or(false)
+}
+
+fn extension_token() -> Option<String> {
+    EXTENSION_TOKEN.lock().ok().and_then(|t| t.clone())
+}
+
 pub struct PlaywrightBrowser {
     profile: PathBuf,
     client: AsyncMutex<Option<(Arc<McpClient>, BrowserPlan)>>,
@@ -346,9 +368,16 @@ impl PlaywrightBrowser {
             let _ = std::fs::create_dir_all(&self.profile);
         }
         info!("starting the browser server: {plan:?}");
+        let mut env = Vec::new();
+        if matches!(plan, BrowserPlan::Yours(_)) {
+            if let Some(t) = extension_token() {
+                env.push(("PLAYWRIGHT_MCP_EXTENSION_TOKEN".to_string(), t));
+            }
+        }
         let cmd = ServerCommand {
             program: npx,
             args,
+            env,
             ..ServerCommand::default()
         };
         let client = McpClient::start("playwright", &cmd, Duration::from_secs(120))
@@ -383,8 +412,10 @@ impl BrowserDriver for PlaywrightBrowser {
                     BrowserPlan::Yours(b) => b.name,
                     _ => "browser",
                 };
+                // Forget this server: the next try starts fresh (and picks up a token if one was added).
+                *self.client.lock().await = None;
                 Err(format!(
-                    "your {name} is waiting for you to allow the connection in the Playwright tab Relay opened. Click Allow (or Connect) there, then say continue"
+                    "Your {name} is waiting for you to allow the connection. Click Allow in the Playwright tab that opened, then say continue. To skip this every time, copy the token from the Playwright extension (click its icon) into Settings, AI & Privacy, Browser control."
                 ))
             }
             Err(e @ (McpError::Closed(_) | McpError::Spawn(..))) => {

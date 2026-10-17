@@ -85,6 +85,9 @@ pub struct HybridConfig {
     /// Let Relay work in a browser (Playwright) for website tasks.
     #[serde(default = "default_true")]
     pub browser_enabled: bool,
+    /// Connection token of the Playwright browser extension (local only; never sent anywhere but to it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub browser_token: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -104,6 +107,7 @@ impl Default for HybridConfig {
             providers: BTreeMap::new(),
             agent_mode: false,
             browser_enabled: true,
+            browser_token: None,
         }
     }
 }

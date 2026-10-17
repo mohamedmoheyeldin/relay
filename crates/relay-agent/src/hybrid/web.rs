@@ -584,7 +584,7 @@ impl Hybrid {
         self.used("mcp", browser.label(), None);
         // The first call may have to start the browser; that can take a while the very first time.
         let mut snapshot = match browser
-            .call("browser_snapshot", json!({}), Duration::from_secs(150))
+            .call("browser_snapshot", json!({}), Duration::from_secs(60))
             .await
         {
             Ok(o) if !o.is_error => o.text,
@@ -598,6 +598,10 @@ impl Hybrid {
                     UiOutcome::Failed,
                     "failed",
                 );
+            }
+            Err(e) if e.contains("waiting for you") => {
+                result.needs_user = true;
+                return finish(result, e, UiOutcome::Completed, "failed");
             }
             Err(e) => {
                 return finish(
@@ -750,7 +754,12 @@ impl Hybrid {
                 result.needs_user = true;
                 return finish(result, "That field asks for something private (a password, card or ID number), so I won't type it. Please enter it yourself in the browser window, then say continue.".into(), UiOutcome::Completed, "denied");
             }
-            if risk == Risk::Destructive {
+            let ask = match settings.confirm {
+                relay_orchestrator::ConfirmLevel::Off => false,
+                relay_orchestrator::ConfirmLevel::Destructive => risk == Risk::Destructive,
+                relay_orchestrator::ConfirmLevel::Always => risk != Risk::Safe,
+            };
+            if ask {
                 let reason = "This submits or sends something and can't be undone.";
                 if !confirmer.confirm(&proxy_step(&act), risk, reason).await {
                     self.emit(UiEvent::StepFinished {

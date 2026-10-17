@@ -88,6 +88,14 @@ pub enum PlanAction {
     ListDir {
         path: String,
     },
+    /// Show free space on the drive and what takes the most room (largest folders and files).
+    /// Without a path it looks at the owner's allowed folders.
+    DiskUsage {
+        #[serde(default)]
+        path: Option<String>,
+        #[serde(default)]
+        max_results: Option<u32>,
+    },
     /// Read a text file (sensitive: its content may be shown to the AI).
     ReadTextFile {
         path: String,
@@ -144,6 +152,7 @@ impl PlanAction {
             PlanAction::FocusWindow { .. } => "focus_window",
             PlanAction::FindFiles { .. } => "find_files",
             PlanAction::ListDir { .. } => "list_dir",
+            PlanAction::DiskUsage { .. } => "disk_usage",
             PlanAction::ReadTextFile { .. } => "read_text_file",
             PlanAction::CreateDir { .. } => "create_dir",
             PlanAction::MovePath { .. } => "move_path",
@@ -183,6 +192,10 @@ impl PlanAction {
                 None => format!("Find “{}”", t(query)),
             },
             PlanAction::ListDir { path } => format!("List {}", t(path)),
+            PlanAction::DiskUsage { path, .. } => match path {
+                Some(p) => format!("See what uses space in {}", t(p)),
+                None => "See what uses disk space".to_string(),
+            },
             PlanAction::ReadTextFile { path, .. } => format!("Read {}", t(path)),
             PlanAction::CreateDir { path } => format!("Create folder {}", t(path)),
             PlanAction::MovePath { from, to } => format!("Move {} to {}", t(from), t(to)),
@@ -312,6 +325,10 @@ fn check_action(id: &str, action: &PlanAction) -> Result<(), PlanError> {
         }
         PlanAction::FocusWindow { title } => check_text(id, "window title", title),
         PlanAction::FindFiles { query, .. } => check_text(id, "query", query),
+        PlanAction::DiskUsage { path, .. } => match path {
+            Some(p) => check_text(id, "path", p),
+            None => Ok(()),
+        },
         PlanAction::ListDir { path }
         | PlanAction::ReadTextFile { path, .. }
         | PlanAction::CreateDir { path } => check_text(id, "path", path),

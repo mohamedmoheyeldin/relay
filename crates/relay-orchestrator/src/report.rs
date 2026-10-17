@@ -5,7 +5,10 @@ use crate::executor::RunOutcome;
 use crate::plan::ExecutionPlan;
 
 fn is_read(tool: &str) -> bool {
-    matches!(tool, "find_files" | "list_dir" | "read_text_file")
+    matches!(
+        tool,
+        "find_files" | "list_dir" | "read_text_file" | "disk_usage"
+    )
 }
 
 fn sentence(text: &str) -> String {

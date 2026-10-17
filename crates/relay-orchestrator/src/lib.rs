@@ -11,6 +11,7 @@
 
 pub mod config;
 pub mod context;
+pub mod disk;
 pub mod executor;
 pub mod permissions;
 pub mod plan;

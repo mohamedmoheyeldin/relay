@@ -305,6 +305,31 @@ impl Services for SystemServices {
         Ok(out)
     }
 
+    async fn disk_usage(&self, path: Option<&str>, max: usize) -> ServiceResult<String> {
+        let roots: Vec<PathBuf> = match path {
+            Some(p) => vec![PathBuf::from(p)],
+            None => self.search_roots.clone(),
+        };
+        if roots.is_empty() {
+            return Err(ServiceError::Failed("no folders to look at".into()));
+        }
+        Self::blocking(move || {
+            let s = crate::disk::scan(&roots, max, Duration::from_secs(8), 400_000);
+            let drive_root = roots[0]
+                .ancestors()
+                .last()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| roots[0].clone());
+            let space = relay_os::disk_space(&roots[0]);
+            Ok(crate::disk::report(
+                space.map(|(t, f)| (drive_root.as_path(), t, f)),
+                &roots,
+                &s,
+            ))
+        })
+        .await
+    }
+
     async fn read_text(&self, path: &str, max_bytes: usize) -> ServiceResult<String> {
         use tokio::io::AsyncReadExt;
         let file = tokio::fs::File::open(path)

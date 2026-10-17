@@ -111,6 +111,7 @@ async fn hybrid_json(state: &AppState, force: bool) -> CmdResult<Value> {
             "detail": browser.detail,
             "mode": browser.mode,
             "action_url": browser.action_url,
+            "token_set": cfg.browser_token.is_some(),
         },
         "tools": TOOLS
             .iter()
@@ -159,6 +160,7 @@ pub async fn set_hybrid(
     disabled_tools: Option<Value>,
     provider: Option<Value>,
     browser_enabled: Option<bool>,
+    browser_token: Option<String>,
     state: State<'_, AppState>,
 ) -> CmdResult<Value> {
     {
@@ -194,6 +196,12 @@ pub async fn set_hybrid(
                 .into_iter()
                 .filter(|t| TOOLS.iter().any(|(id, ..)| id == t))
                 .collect();
+        }
+        if let Some(t) = browser_token {
+            // An empty string clears it.
+            let t = t.trim().to_string();
+            h.browser_token = (!t.is_empty()).then_some(t);
+            relay_agent::browser::set_extension_token(h.browser_token.clone());
         }
         if let Some(on) = browser_enabled {
             h.browser_enabled = on;

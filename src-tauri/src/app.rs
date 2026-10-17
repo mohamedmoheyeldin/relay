@@ -280,6 +280,7 @@ fn setup(app: &mut tauri::App) -> Result<()> {
     ));
     let setup = LocalSetup::new(handle.clone(), engine, local.clone());
     let conv_store = Arc::new(StoreAdapter::new(store.clone(), settings.clone()));
+    relay_agent::browser::set_extension_token(start.hybrid.browser_token.clone());
     let browser = Arc::new(relay_agent::browser::SwitchableBrowser::new(
         Arc::new(relay_agent::browser::PlaywrightBrowser::new(
             paths.data_dir.join("browser-profile"),

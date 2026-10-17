@@ -39,6 +39,12 @@ pub trait Services: Send + Sync {
         max: usize,
     ) -> ServiceResult<Vec<String>>;
     async fn list_dir(&self, path: &str) -> ServiceResult<Vec<String>>;
+    /// Free space on the drive and the biggest folders and files under `path` (or the allowed folders).
+    async fn disk_usage(&self, _path: Option<&str>, _max: usize) -> ServiceResult<String> {
+        Err(ServiceError::Failed(
+            "disk usage is not available here".into(),
+        ))
+    }
     async fn read_text(&self, path: &str, max_bytes: usize) -> ServiceResult<String>;
     async fn create_dir(&self, path: &str) -> ServiceResult<String>;
     async fn move_path(&self, from: &str, to: &str) -> ServiceResult<String>;

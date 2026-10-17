@@ -50,3 +50,34 @@ pub fn system_desktop() -> Result<Arc<dyn Desktop>> {
         "only Windows and macOS are implemented; Linux can be added behind the Desktop trait",
     ))
 }
+
+/// Total and free bytes on the drive that holds `path`, if the OS can tell.
+#[cfg(windows)]
+pub fn disk_space(path: &std::path::Path) -> Option<(u64, u64)> {
+    use windows::core::PCWSTR;
+    use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+    let wide: Vec<u16> = path
+        .as_os_str()
+        .to_string_lossy()
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
+    let (mut avail, mut total, mut free) = (0u64, 0u64, 0u64);
+    // SAFETY: `wide` is NUL-terminated and outlives the call; the out pointers are valid u64s.
+    unsafe {
+        GetDiskFreeSpaceExW(
+            PCWSTR(wide.as_ptr()),
+            Some(&mut avail),
+            Some(&mut total),
+            Some(&mut free),
+        )
+    }
+    .ok()?;
+    Some((total, avail))
+}
+
+/// Total and free bytes on the drive that holds `path`, if the OS can tell.
+#[cfg(not(windows))]
+pub fn disk_space(_path: &std::path::Path) -> Option<(u64, u64)> {
+    None
+}

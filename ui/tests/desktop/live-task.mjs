@@ -8,13 +8,18 @@ const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
 const page = browser.contexts()[0].pages()[0];
 await page.evaluate(async () => {
   window.__ev = [];
+  if (window.__listening) return; // one listener per page, or every event arrives several times
+  window.__listening = true;
   const id = window.__TAURI_INTERNALS__.transformCallback((e) => {
     const p = typeof e.payload === "string" ? JSON.parse(e.payload) : e.payload;
-    window.__ev.push({ t: Date.now(), ...p });
+    (window.__ev ??= []).push({ t: Date.now(), ...p });
   });
   await window.__TAURI_INTERNALS__.invoke("plugin:event|listen", { event: "relay-event", target: { kind: "Any" }, handler: id });
 });
 await page.getByRole("link", { name: /new chat/i }).first().click().catch(() => {});
+// Live runs must never submit anything for real: force confirmations on (restored at the end) and decline every card.
+const before = await page.evaluate(() => window.__TAURI_INTERNALS__.invoke("get_hybrid"));
+await page.evaluate(() => window.__TAURI_INTERNALS__.invoke("set_hybrid", { confirmLevel: "destructive" }));
 const box = page.getByRole("textbox").first();
 await box.fill(message);
 const t0 = Date.now();
@@ -45,4 +50,5 @@ console.log("needs_user:", Boolean(msg?.needs_user));
 console.log("---- message ----\n" + (msg?.text ?? "(none)").slice(0, 1500));
 await page.waitForTimeout(800);
 if (shot) await page.screenshot({ path: shot });
+await page.evaluate((c) => window.__TAURI_INTERNALS__.invoke("set_hybrid", { confirmLevel: c }), before.confirm_level);
 await browser.close();

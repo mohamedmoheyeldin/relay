@@ -83,7 +83,9 @@ export function PrivacySection() {
         {h.providers.map((p) => (refresh.isPending ? <Skeleton key={p.id} className="h-[260px] rounded-xl" /> : <ProviderCard key={p.id} p={p} isDefault={p.id === h.default_provider} />))}
       </div>
 
-      {h.browser && <BrowserControl browser={h.browser} onChange={(v) => set.mutate({ browserEnabled: v })} />}
+      {h.browser && (
+        <BrowserControl browser={h.browser} onChange={(v) => set.mutate({ browserEnabled: v })} onToken={(t) => set.mutate({ browserToken: t })} />
+      )}
 
       <SectionTitle description="Only what you switch on here can go into a cloud request. Each task shows exactly what was shared.">What may be shared</SectionTitle>
       <Card>
@@ -146,8 +148,10 @@ const BROWSER_MODE_LABEL: Record<NonNullable<BrowserInfo["mode"]>, string | null
   none: null,
 };
 
-function BrowserControl({ browser, onChange }: { browser: BrowserInfo; onChange: (v: boolean) => void }) {
+function BrowserControl({ browser, onChange, onToken }: { browser: BrowserInfo; onChange: (v: boolean) => void; onToken: (t: string) => void }) {
   const id = useId();
+  const tokenId = useId();
+  const [token, setToken] = useState("");
   const mode = browser.mode ? BROWSER_MODE_LABEL[browser.mode] : null;
   const action = browser.action_url && isWebUrl(browser.action_url) ? browser.action_url : null;
   const detail = browser.detail.trim();
@@ -190,6 +194,46 @@ function BrowserControl({ browser, onChange }: { browser: BrowserInfo; onChange:
             data-testid="browser-switch"
           />
         </Row>
+        {browser.mode === "yours" && (
+          <Row
+            label="Connection token"
+            htmlFor={tokenId}
+            stack
+            desc={
+              browser.token_set
+                ? "Saved. Relay connects to your browser without asking each time."
+                : "Optional. Click the Playwright extension's icon in your browser, copy the token it shows, and paste it here so Relay connects without asking each time."
+            }
+          >
+            <div className="flex w-full max-w-md items-center gap-2">
+              <Input
+                id={tokenId}
+                type="password"
+                autoComplete="off"
+                spellCheck={false}
+                placeholder={browser.token_set ? "Saved (paste a new one to replace it)" : "Paste the token"}
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                data-testid="browser-token"
+              />
+              <Button
+                size="sm"
+                disabled={!token.trim()}
+                onClick={() => {
+                  onToken(token.trim());
+                  setToken("");
+                }}
+              >
+                Save
+              </Button>
+              {browser.token_set && (
+                <Button size="sm" variant="secondary" onClick={() => onToken("")}>
+                  Remove
+                </Button>
+              )}
+            </div>
+          </Row>
+        )}
         {action && (
           <div className="flex justify-end py-3">
             <Button size="sm" variant={browser.available ? "secondary" : "primary"} onClick={() => void openExternal(action)} data-testid="browser-action">

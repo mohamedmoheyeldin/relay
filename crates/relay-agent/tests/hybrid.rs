@@ -899,7 +899,7 @@ async fn failures_are_repaired_by_asking_for_a_corrected_plan() {
     )]));
     r.claude.push_plan(plan(vec![step(
         "s1",
-        json!({"tool": "open_url", "url": "https://example.com"}),
+        json!({"tool": "press_keys", "keys": "ctrl+n"}),
         None,
     )]));
     r.hybrid.submit_in("c1", HEAVY, &[]).unwrap();
@@ -910,10 +910,7 @@ async fn failures_are_repaired_by_asking_for_a_corrected_plan() {
     ));
     let second = &r.claude.seen()[1];
     assert!(second.prompt.contains("no such app") && second.prompt.contains("NEW plan"));
-    assert!(r
-        .svc
-        .calls()
-        .contains(&"open_url https://example.com".to_string()));
+    assert!(r.svc.calls().contains(&"keys ctrl+n".to_string()));
 }
 
 #[tokio::test]
@@ -1310,7 +1307,7 @@ async fn a_corrected_plan_does_not_reopen_pages_that_are_already_open() {
     r.claude.push_plan(plan(vec![
         step(
             "s1",
-            json!({"tool": "open_url", "url": "https://example.com/a"}),
+            json!({"tool": "open_app", "name": "Calculator"}),
             None,
         ),
         step("s2", json!({"tool": "press_keys", "keys": "ctrl+s"}), None),
@@ -1318,10 +1315,14 @@ async fn a_corrected_plan_does_not_reopen_pages_that_are_already_open() {
     r.claude.push_plan(plan(vec![
         step(
             "s1",
-            json!({"tool": "open_url", "url": "https://example.com/a"}),
+            json!({"tool": "open_app", "name": "Calculator"}),
             None,
         ),
-        step("s2", json!({"tool": "open_app", "name": "Notepad"}), None),
+        step(
+            "s2",
+            json!({"tool": "focus_window", "title": "Notepad"}),
+            None,
+        ),
     ]));
     r.hybrid.submit_in("c1", HEAVY, &[]).unwrap();
     finished(&r).await;
@@ -1329,8 +1330,62 @@ async fn a_corrected_plan_does_not_reopen_pages_that_are_already_open() {
         .svc
         .calls()
         .iter()
-        .filter(|c| c.starts_with("open_url"))
+        .filter(|c| c.starts_with("open_app Calculator"))
         .count();
     assert_eq!(opens, 1, "{:?}", r.svc.calls());
-    assert!(r.svc.calls().iter().any(|c| c.starts_with("open_app")));
+    assert!(r.svc.calls().iter().any(|c| c.starts_with("focus")));
+}
+
+#[tokio::test]
+async fn an_unusable_local_plan_is_handed_to_the_cloud() {
+    let r = rig(Opts::default()).await;
+    let bad = json!({"objective": "o", "steps": [{"id": "s1", "title": "x", "action": {"tool": "open_url", "url": "file:///C:/x"}}]});
+    r.ollama.replies.lock().unwrap().push_back(bad.to_string());
+    r.ollama.replies.lock().unwrap().push_back(bad.to_string());
+    r.claude.push_plan(plan(vec![step(
+        "s1",
+        json!({"tool": "press_keys", "keys": "ctrl+s"}),
+        None,
+    )]));
+    r.hybrid
+        .submit_in("c1", "save the document in the current window", &[])
+        .unwrap();
+    assert_eq!(finished(&r).await, relay_protocol::RunOutcome::Completed);
+    assert!(has(
+        &r,
+        |e| matches!(e, UiEvent::Notice { text } if text.contains("couldn't make a usable plan"))
+    ));
+    assert!(r.svc.calls().contains(&"keys ctrl+s".to_string()));
+}
+
+#[tokio::test]
+async fn plans_never_open_websites_the_owner_did_not_mention() {
+    let r = rig(Opts::default()).await;
+    r.claude.push_plan(plan(vec![step(
+        "s1",
+        json!({"tool": "open_url", "url": "https://www.ccleaner.com/"}),
+        None,
+    )]));
+    r.hybrid.submit_in("c1", HEAVY, &[]).unwrap();
+    finished(&r).await;
+    assert!(r.svc.calls().is_empty(), "{:?}", r.svc.calls());
+    assert!(
+        message(&r).contains("won't send you to a website"),
+        "{}",
+        message(&r)
+    );
+}
+
+#[tokio::test]
+async fn disk_space_questions_are_answered_natively() {
+    let r = rig(Opts::default()).await;
+    r.hybrid
+        .submit_in("c1", "Find what is using my disk space", &[])
+        .unwrap();
+    finished(&r).await;
+    assert!(has(
+        &r,
+        |e| matches!(e, UiEvent::Route { strategy, .. } if strategy == "native")
+    ));
+    assert!(r.claude.seen().is_empty() && r.ollama.chats.lock().unwrap().is_empty());
 }

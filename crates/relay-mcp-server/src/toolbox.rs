@@ -100,6 +100,13 @@ const SPECS: &[Spec] = &[
         read_only: true,
     },
     Spec {
+        name: "disk_usage",
+        description: "Free space on the drive and the biggest folders and files (inside the owner's allowed folders by default). Reads sizes and names only.",
+        props: || json!({"path": s("Folder to look at (optional; must be an allowed folder)."), "max_results": {"type": "integer", "minimum": 1, "maximum": 50}}),
+        required: &[],
+        read_only: true,
+    },
+    Spec {
         name: "read_text_file",
         description: "Read a text file inside the owner's allowed folders (size-limited).",
         props: || json!({"path": s("Absolute file path."), "max_bytes": {"type": "integer", "minimum": 1}}),
@@ -506,7 +513,10 @@ fn status_word(s: StepStatus) -> &'static str {
 }
 
 fn is_read(tool: &str) -> bool {
-    matches!(tool, "find_files" | "list_dir" | "read_text_file")
+    matches!(
+        tool,
+        "find_files" | "list_dir" | "read_text_file" | "disk_usage"
+    )
 }
 
 /// Plain text for the client: per-step status first, then the overall verdict.

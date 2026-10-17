@@ -50,6 +50,8 @@ export const BrowserInfoSchema = z.object({
   detail: z.string(),
   mode: z.optional(BrowserModeSchema),
   action_url: z.optional(z.nullable(z.string())),
+  /** True when the Playwright extension's connection token is saved (the token itself is never sent back). */
+  token_set: z.optional(z.boolean()),
 });
 
 export const HybridSchema = z.object({
@@ -134,6 +136,8 @@ export type HybridPatch = {
   provider?: { id: ProviderId; model?: string | null; reasoning?: string | null };
   /** v3: switch browser control (the Playwright MCP server) on or off. */
   browserEnabled?: boolean;
+  /** v4: the Playwright extension's connection token; "" clears it. */
+  browserToken?: string;
 };
 
 /** Applies a set_hybrid patch locally (optimistic update and mock backend share this). */
@@ -146,7 +150,14 @@ export function applyHybridPatch(h: Hybrid, p: HybridPatch): Hybrid {
     share: p.share ? { ...h.share, ...p.share } : h.share,
     allowed_roots: p.allowedRoots ?? h.allowed_roots,
     disabled_tools: p.disabledTools ?? h.disabled_tools,
-    ...(h.browser ? { browser: p.browserEnabled !== undefined && h.browser.available ? { ...h.browser, enabled: p.browserEnabled } : h.browser } : {}),
+    ...(h.browser
+      ? {
+          browser: {
+            ...(p.browserEnabled !== undefined && h.browser.available ? { ...h.browser, enabled: p.browserEnabled } : h.browser),
+            ...(p.browserToken !== undefined ? { token_set: p.browserToken.trim() !== "" } : {}),
+          },
+        }
+      : {}),
     providers: p.provider
       ? h.providers.map((x) =>
           x.id === p.provider!.id

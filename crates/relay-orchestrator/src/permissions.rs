@@ -183,6 +183,7 @@ impl Policy {
             | PlanAction::FocusWindow { .. }
             | PlanAction::FindFiles { .. }
             | PlanAction::ListDir { .. }
+            | PlanAction::DiskUsage { .. }
             | PlanAction::WaitFor { .. }
             | PlanAction::PressKeys { .. }
             | PlanAction::CreateDir { .. } => Risk::Safe,
@@ -212,6 +213,9 @@ impl Policy {
             PlanAction::FindFiles {
                 root: Some(root), ..
             } => vec![root.as_str()],
+            PlanAction::DiskUsage {
+                path: Some(path), ..
+            } => vec![path.as_str()],
             _ => Vec::new(),
         };
         for p in paths {
