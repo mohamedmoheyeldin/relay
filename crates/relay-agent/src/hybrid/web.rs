@@ -23,7 +23,7 @@ use super::record::StepOut;
 use super::{BridgeConfirmer, Hybrid};
 
 pub const MAX_WEB_STEPS: usize = 30;
-const SNAPSHOT_CHARS: usize = 9_000;
+const SNAPSHOT_CHARS: usize = 14_000;
 const HISTORY_LINES: usize = 14;
 const MAX_CONSECUTIVE_ERRORS: usize = 4;
 const MAX_REPEATS: usize = 3;
@@ -349,51 +349,131 @@ pub fn assess(act: &Act) -> (Risk, bool) {
 /// Shrink a snapshot to what the planner needs: where it is, and the elements it can act on.
 pub fn compact_snapshot(text: &str, max_chars: usize) -> String {
     let mut head = Vec::new();
-    let mut body = Vec::new();
+    // (position, priority, line)
+    let mut body: Vec<(usize, u8, String)> = Vec::new();
     let mut in_snapshot = false;
     for line in text.lines() {
         if line.trim_start().starts_with("### Snapshot") {
             in_snapshot = true;
             continue;
         }
+        if line.trim_start().starts_with("### ") {
+            in_snapshot = false;
+        }
         if line.trim_start().starts_with("```") {
             continue;
         }
         if !in_snapshot {
-            let header = line.starts_with("- ") && head.len() < 8;
+            let header = line.starts_with("- ") && head.len() < 12;
             if header || line.starts_with("### Error") || line.contains("Error:") {
                 head.push(line.to_string());
             }
             continue;
         }
         let t = line.trim_end();
-        // Keep things that can be acted on or that name the page; long prose is dropped to a stub.
-        if t.contains("[ref=") {
-            let mut s: String = t.chars().take(170).collect();
-            if t.chars().count() > 170 {
-                s.push('…');
-            }
-            body.push(s);
+        if !t.contains("[ref=") {
+            continue;
         }
+        let role = t
+            .trim_start()
+            .trim_start_matches("- ")
+            .split([' ', ':'])
+            .next()
+            .unwrap_or("");
+        // Containers and decoration carry no action; leave them out.
+        if matches!(
+            role,
+            "generic"
+                | "img"
+                | "list"
+                | "listitem"
+                | "paragraph"
+                | "group"
+                | "separator"
+                | "none"
+                | "presentation"
+                | "document"
+                | "region"
+                | "article"
+                | "contentinfo"
+                | "banner"
+                | "navigation"
+                | "main"
+                | "complementary"
+                | "LabelText"
+                | "strong"
+                | "emphasis"
+                | "figure"
+                | "time"
+                | "status"
+        ) {
+            continue;
+        }
+        let lower = t.to_lowercase();
+        let priority = if matches!(role, "dialog" | "alertdialog" | "alert") {
+            0
+        } else if [
+            "apply", "submit", "sign in", "log in", "next", "continue", "accept", "reject",
+            "close", "search", "upload", "save",
+        ]
+        .iter()
+        .any(|w| lower.contains(w))
+        {
+            1
+        } else if matches!(
+            role,
+            "heading"
+                | "button"
+                | "textbox"
+                | "searchbox"
+                | "combobox"
+                | "checkbox"
+                | "radio"
+                | "tab"
+                | "menuitem"
+                | "option"
+                | "switch"
+        ) {
+            2
+        } else {
+            3
+        };
+        let indent = t.len() - t.trim_start().len();
+        let mut short: String = t.trim_start().chars().take(140).collect();
+        if t.trim_start().chars().count() > 140 {
+            short.push('…');
+        }
+        body.push((
+            body.len(),
+            priority,
+            format!("{}{}", " ".repeat(indent.min(12)), short),
+        ));
     }
     let mut out = head.join("\n");
-    out.push_str("\nElements:\n");
-    let mut used = out.chars().count();
-    let total = body.len();
-    let mut kept = 0;
-    for l in body {
-        used += l.chars().count() + 1;
-        if used > max_chars {
-            break;
+    out.push_str("\nElements (most useful kept when the page is long):\n");
+    let budget = max_chars.saturating_sub(out.chars().count() + 120);
+    // Pick by priority, then show the picked lines in page order.
+    let mut by_priority: Vec<&(usize, u8, String)> = body.iter().collect();
+    by_priority.sort_by_key(|(pos, pri, _)| (*pri, *pos));
+    let mut used = 0;
+    let mut picked: Vec<usize> = Vec::new();
+    for (pos, _, line) in by_priority {
+        let cost = line.chars().count() + 1;
+        if used + cost > budget {
+            continue;
         }
-        out.push_str(&l);
-        out.push('\n');
-        kept += 1;
+        used += cost;
+        picked.push(*pos);
     }
-    if kept < total {
+    picked.sort_unstable();
+    for pos in &picked {
+        out.push_str(&body[*pos].2);
+        out.push('\n');
+    }
+    if picked.len() < body.len() {
         out.push_str(&format!(
-            "(… {} more elements below; scroll with press_key PageDown, or navigate)\n",
-            total - kept
+            "(… {} less important elements left out; scroll with press_key PageDown to see more)\n",
+            body.len() - picked.len()
         ));
     }
     out
@@ -858,7 +938,10 @@ impl Hybrid {
                         {
                             if !s.is_error {
                                 info!("switched to the new tab {index}");
-                                done.push("   (the link opened a new tab; Relay switched to it)".to_string());
+                                done.push(
+                                    "   (the link opened a new tab; Relay switched to it)"
+                                        .to_string(),
+                                );
                                 snapshot = match browser
                                     .call("browser_snapshot", json!({}), Duration::from_secs(30))
                                     .await
@@ -1180,7 +1263,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         let c = compact_snapshot(&format!("### Snapshot\n{big}"), 2000);
-        assert!(c.chars().count() < 2300 && c.contains("more elements below"));
+        assert!(c.chars().count() < 2300 && c.contains("less important elements left out"));
     }
 
     #[test]
@@ -1210,5 +1293,28 @@ mod tests {
         assert_eq!(host_of("https://www.dice.com/jobs?q=1"), "dice.com");
         assert_eq!(host_of("https://dice.com"), "dice.com");
         assert_eq!(page_url(PAGE), "https://www.dice.com/jobs");
+    }
+}
+
+#[cfg(test)]
+mod long_page_tests {
+    use super::*;
+
+    #[test]
+    fn on_a_long_page_the_apply_button_and_dialogs_survive() {
+        let mut page =
+            String::from("### Page\n- Page URL: https://www.dice.com/jobs\n### Snapshot\n");
+        for i in 0..600 {
+            page.push_str(&format!(
+                "  - link \"Some other job number {i}\" [ref=e{i}]\n"
+            ));
+        }
+        page.push_str("  - dialog \"Your privacy is important to us\" [ref=d1]\n");
+        page.push_str("  - button \"Easy Apply\" [ref=a1]\n");
+        page.push_str("  - generic [ref=g1]: just a wrapper\n");
+        let c = compact_snapshot(&page, 3000);
+        assert!(c.contains("[ref=a1]") && c.contains("[ref=d1]"), "{c}");
+        assert!(!c.contains("[ref=g1]"), "wrappers are dropped");
+        assert!(c.chars().count() <= 3000);
     }
 }
