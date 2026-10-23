@@ -9,7 +9,7 @@ dependencies = [
     # FastMCP API; v2 renamed it to MCPServer (see docs/decisions.md D-010)
     "mcp>=1.28,<2",
     "mss>=10",
-    "pillow>=11",
+    "pillow>=13.0.0",
     "uiautomation>=2.0.20 ; sys_platform == 'win32'",
     "winrt-windows-foundation>=2.0 ; sys_platform == 'win32'",
     "winrt-windows-foundation-collections>=2.0 ; sys_platform == 'win32'",
